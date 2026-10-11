@@ -6,6 +6,11 @@ attention to changes that materially alter behavior or extend functionality.
 
 ## wallet-toolbox 2.14.7
 
+- Internalization broadcasts unproven transactions new to the receiving user,
+  including shared-storage no-send payments. A rejected broadcast stores no
+  recipient outputs; proven transactions are not rebroadcast. Upgrade active
+  storage; no API, wire or schema migration is required.
+
 - IndexedDB empty certificate certifier/type, transaction status and output-tag
   ID arrays mean no optional filter, matching Knex. Nonempty arrays, partial
   predicates and user ownership remain enforced; no schema migration is required.

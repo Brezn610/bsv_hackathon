@@ -29,6 +29,12 @@ output-tag ID arrays like omitted optional filters, matching Knex. Nonempty
 arrays, partial predicates and user ownership remain enforced. No API, wire
 or database migration is required.
 
+Internalizing an unproven transaction new to a user attempts broadcast before
+storing recipient outputs, including a sender's no-send transaction already
+known to shared storage. Rejected broadcasts return a review-actions error
+and store no recipient outputs. Transactions backed by a mining proof are
+not rebroadcast. Upgrade active storage; no API, wire or schema migration is required.
+
 ## Optional registry descriptions
 
 ProtoMap, BasketMap and CertMap supply descriptive metadata, not permission grants.

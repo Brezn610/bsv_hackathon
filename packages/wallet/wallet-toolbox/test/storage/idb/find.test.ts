@@ -150,6 +150,9 @@ describe('idb find tests', () => {
       expect(await storage.findTransactions({ partial: {}, status: [status] })).toEqual(
         rows.filter(row => row.status === status)
       )
+      // A nonempty status filter must still reject rows that do not match.
+      expect(rows.every(row => row.status !== 'failed')).toBe(true)
+      expect(await storage.findTransactions({ partial: {}, status: ['failed'] })).toEqual([])
       expect(await storage.findTransactions({ partial: { userId: setup.u1.userId }, status: [] })).toEqual(
         rows.filter(row => row.userId === setup.u1.userId)
       )
