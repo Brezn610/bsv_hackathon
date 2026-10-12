@@ -6,6 +6,14 @@ attention to changes that materially alter behavior or extend functionality.
 
 ## wallet-toolbox 2.14.7
 
+- Preserve bounded pre-construction double-spend reviews from remote storage.
+  An empty attempted TXID is accepted only with one doubleSpend result, empty
+  send results, absent constructed-action fields and nonempty competing evidence.
+  Consumers must validate the evidence and synchronize the winning transaction
+  before rebuilding a save. The existing JSON transport carries this evidence;
+  binary wire framing is unchanged. No database or call migration is required.
+
+
 - Confirmed `internalizeAction` resolves the block header before the storage
   writer opens. IndexedDB otherwise finished that transaction during the
   asynchronous lookup and rejected a valid mined payment before storing the
