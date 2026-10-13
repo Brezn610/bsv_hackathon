@@ -4,7 +4,7 @@ This document captures the history of significant changes to the wallet-toolbox 
 The git commit history contains the details but is unable to draw
 attention to changes that materially alter behavior or extend functionality.
 
-## wallet-toolbox 2.14.7
+## wallet-toolbox 2.14.8
 
 - Preserve bounded pre-construction double-spend reviews from remote storage.
   An empty attempted TXID is accepted only with one doubleSpend result, empty
@@ -13,7 +13,6 @@ attention to changes that materially alter behavior or extend functionality.
   before rebuilding a save. The existing JSON transport carries this evidence;
   binary wire framing is unchanged. No database or call migration is required.
 
-
 - Confirmed `internalizeAction` resolves the block header before the storage
   writer opens. IndexedDB otherwise finished that transaction during the
   asynchronous lookup and rejected a valid mined payment before storing the
@@ -21,6 +20,26 @@ attention to changes that materially alter behavior or extend functionality.
   header, or an invalid proof, still rejects with no partial records. Upgrade
   the active storage implementation, including the browser client; no API, wire,
   or schema migration is required.
+
+- Restart-safe WAB registration checkpoints preserve the original wallet root
+  across interrupted faucet redemption and UMP publication. Persist through
+  `pendingRegistrationTokenSaver`, reload with `loadPendingRegistrationToken`
+  before authentication, and retain the checkpoint until an authenticated
+  snapshot is saved and `hasPendingRegistrationToken()` returns false. Recover
+  older pending registrations without checkpoints using their original wallet
+  state. WAB wire behavior is unchanged.
+
+- Profile additions and deletions change the local list only when the replacement
+  UMP token is published. Failed factor retrieval or publication preserves the
+  list for retry. A failed active-profile deletion attempts to restore that
+  profile without masking the update error.
+- Concurrent profile creation reserves case-insensitive names until the attempt
+  settles, preventing duplicate names while preserving retry after failure.
+- If restoring the active wallet fails after publication, the committed token
+  and profile list remain in place. Inspect `listProfiles()` before retrying.
+  The underlying factor-decryption failure still requires separate diagnosis.
+
+## wallet-toolbox 2.14.7
 
 - Internalization broadcasts unproven transactions new to the receiving user,
   including shared-storage no-send payments. A rejected broadcast stores no
