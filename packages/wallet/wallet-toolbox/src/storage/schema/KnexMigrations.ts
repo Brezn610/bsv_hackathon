@@ -4,7 +4,7 @@ import { DBType } from '../StorageReader'
 import { Chain } from '../../sdk/types'
 import { StorageKnex } from '../StorageKnex'
 import { WalletError } from '../../sdk/WalletError'
-import { WERR_NOT_IMPLEMENTED } from '../../sdk/WERR_errors'
+import { WERR_INTERNAL, WERR_NOT_IMPLEMENTED } from '../../sdk/WERR_errors'
 import {
   DEFAULT_MANAGED_CHANGE_MINIMUM_SATOSHIS,
   DEFAULT_MANAGED_CHANGE_TARGET_UTXOS,
@@ -23,6 +23,7 @@ export const PREPARED_BEEF_MIGRATION = '2026-08-31-001 add prepared beef artifac
 export const BRC177_NO_SEND_EXPIRY_MIGRATION = '2026-08-30-001 add brc177 nosend expiry state'
 
 export const WALLET_SYNC_SOURCE_INDEX_MIGRATION = '2026-08-17-001 add wallet sync source indexes'
+export const INTERNALIZE_RECEIPT_MIGRATION = '2026-10-13-001 coordinate wallet receipt ownership'
 
 interface Migration {
   up: (knex: Knex) => Promise<void>
@@ -82,6 +83,75 @@ export class KnexMigrations implements MigrationSource<string> {
     maxOutputScriptLength: number
   ): Record<string, Migration> {
     const migrations: Record<string, Migration> = {}
+
+    migrations[INTERNALIZE_RECEIPT_MIGRATION] = {
+      async up(knex) {
+        // A duplicate means the wallet may already count one outpoint twice.
+        // Do not choose a winning row or silently remove financial records.
+        const duplicateTransaction = await knex('transactions')
+          .select('userId', 'txid')
+          .whereNotNull('txid')
+          .groupBy('userId', 'txid')
+          .havingRaw('COUNT(*) > 1')
+          .first()
+        if (duplicateTransaction != null) {
+          throw new WERR_INTERNAL(
+            'wallet receipt migration requires reconciliation of duplicate user/txid transactions'
+          )
+        }
+        // Each DDL statement is idempotent because MySQL commits DDL outside
+        // the migration journal transaction. A restart must tolerate the
+        // index existing without a corresponding journal entry. The unique
+        // output index itself rejects duplicates while avoiding a second full
+        // scan of a large outputs table before its index build.
+        const dbtype = await determineDBType(knex)
+        const hasIndex = async (table: string, name: string): Promise<boolean> => {
+          if (dbtype === 'MySQL') {
+            const result = await knex.raw('SHOW INDEX FROM ?? WHERE Key_name = ?', [table, name])
+            return (result[0] as unknown[]).length > 0
+          }
+          if (dbtype === 'Postgres') {
+            const row = await knex('pg_indexes')
+              .where({ schemaname: knex.raw('current_schema()'), tablename: table, indexname: name })
+              .first()
+            return row != null
+          }
+          const rows = await knex.raw(`PRAGMA index_list('${table}')`)
+          return (rows as Array<{ name: string }>).some(row => row.name === name)
+        }
+        if (!(await hasIndex('transactions', 'uq_transactions_user_txid'))) {
+          await knex.schema.alterTable('transactions', table => {
+            table.unique(['userId', 'txid'], 'uq_transactions_user_txid')
+          })
+        }
+        if (!(await hasIndex('outputs', 'uq_outputs_user_txid_vout'))) {
+          await knex.schema.alterTable('outputs', table => {
+            table.unique(['userId', 'txid', 'vout'], 'uq_outputs_user_txid_vout')
+          })
+        }
+        if (!(await knex.schema.hasTable('internalize_receipts'))) {
+          await knex.schema.createTable('internalize_receipts', table => {
+            table.integer('userId').unsigned().notNullable().references('userId').inTable('users')
+            table.string('txid', 64).notNullable()
+            table.string('ownerToken', 64).notNullable()
+            table.string('state', 16).notNullable()
+            table.bigInteger('leaseUntil').notNullable()
+            table.boolean('needsNewReceipt').notNullable().defaultTo(false)
+            table.primary(['userId', 'txid'])
+          })
+        }
+      },
+      async down(knex) {
+        await knex.schema.dropTableIfExists('internalize_receipts')
+        // The earlier non-unique indexes continue to support userId FKs.
+        await knex.schema.alterTable('outputs', table =>
+          table.dropUnique(['userId', 'txid', 'vout'], 'uq_outputs_user_txid_vout')
+        )
+        await knex.schema.alterTable('transactions', table =>
+          table.dropUnique(['userId', 'txid'], 'uq_transactions_user_txid')
+        )
+      }
+    }
 
     const addTimeStamps = (knex: Knex<any, any[]>, table: Knex.CreateTableBuilder, dbtype: DBType) => {
       if (dbtype === 'MySQL') {

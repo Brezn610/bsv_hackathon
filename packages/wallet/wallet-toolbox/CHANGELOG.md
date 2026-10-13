@@ -13,8 +13,13 @@ attention to changes that materially alter behavior or extend functionality.
   Negative broadcast results and competing-transaction evidence remain negative;
   they do not authorize recipient output credit. Repeated successful receipt
   remains idempotent, and valid mined payments retain the proof path.
-- No API, wire, or schema migration. Upgrade the storage implementation after
-  protected publication; this source candidate does not deploy hosted storage.
+- SQL storage now enforces canonical user/TXID and user/outpoint rows and uses
+  a durable, leased receipt claim to keep a second pod from crediting a pending
+  first receipt. Expired claims can be recovered; an old owner cannot finalize
+  after its claim is replaced. The migration refuses pre-existing duplicates
+  for explicit reconciliation. No API or wire migration. Back up and preflight
+  SQL storage, then coordinate all storage instances in the protected rollout;
+  this source candidate does not deploy hosted storage.
 
 ## wallet-toolbox 2.14.8
 

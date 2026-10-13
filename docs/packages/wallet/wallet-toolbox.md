@@ -50,8 +50,13 @@ with an internal unknown-status error on shared storage or after concurrent
 storage-worker progress. Negative provider outcomes still reject that receipt;
 repeat successful receipt remains idempotent. Upgrade the implementation
 performing broadcast/internalization after protected publication. No public
-API, wire, or schema migration is required. This candidate does not deploy
-hosted storage or repair older partial receipts automatically.
+API or wire migration is required. SQL storage adds a receipt-claim table and
+unique user/TXID and user/outpoint indexes. The migration fails if existing
+duplicate records require manual reconciliation. Back up and preflight the
+database, then coordinate the rollout across every serving storage instance;
+older instances do not honor the claim. Local IndexedDB does not use the SQL
+claim. This candidate does not deploy hosted storage or repair older partial
+receipts automatically.
 
 ## Optional registry descriptions
 

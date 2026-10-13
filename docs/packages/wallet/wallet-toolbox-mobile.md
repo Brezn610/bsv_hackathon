@@ -96,8 +96,11 @@ with an internal unknown-status error on shared storage or after concurrent
 storage-worker progress. Negative provider outcomes still reject that receipt;
 repeat successful receipt remains idempotent. Upgrade the implementation
 performing broadcast/internalization after protected publication. No public
-API, wire, or schema migration is required. This candidate does not deploy
-hosted storage or repair older partial receipts automatically.
+API or wire migration is required. Remote SQL storage adds a receipt claim and
+unique user/TXID and user/outpoint indexes; preflight and reconcile any
+existing duplicates before coordinating all serving storage instances in the
+rollout. This candidate does not deploy hosted storage or repair older partial
+receipts automatically.
 
 ## Backup and recovery
 

@@ -17,11 +17,16 @@ reject receipt and do not credit new recipient outputs. Repeated successful
 receipt remains idempotent. A payment carrying its valid mining proof follows
 the existing proof path without rebroadcast.
 
-No public API, wire format, or database migration is required. Upgrade the
-implementation that performs broadcast and internalization: hosted storage for
-remote clients, or the local Node, browser, or mobile storage package. Source
-versions are candidates until published through the protected release workflow;
-upgrading an app alone does not upgrade its remote storage server.
+SQL storage now serializes receipt ownership across independent processes and
+enforces one transaction per user/TXID and one output per user/outpoint. Its
+schema migration refuses to proceed if existing duplicate rows need manual
+reconciliation. Back up and preflight the database before rollout, then upgrade
+all storage instances together; an older instance can bypass the new receipt
+claim. Pending claims recover after their database-timed lease expires. No
+public API or wire migration is required. Browser IndexedDB does not use the
+SQL receipt claim. Source versions are candidates until published through the
+protected release workflow; upgrading an app alone does not upgrade its remote
+storage server.
 
 ## Backup and recovery: keep both keys and wallet data
 
