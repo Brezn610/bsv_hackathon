@@ -6,7 +6,13 @@ attention to changes that materially alter behavior or extend functionality.
 
 ## wallet-toolbox 2.14.8
 
-- Preserve bounded pre-construction double-spend reviews from remote storage.
+- `WalletPermissionsManager.internalizeAction` stores basket `customInstructions`
+  with one metadata encryption when `encryptWalletMetadata` is enabled.
+  A normal basket on a call that also carries a registered `p <scheme>` label
+  was encrypted before the permission module ran and again afterwards, so
+  `listOutputs` (which decrypts once) returned ciphertext. The after-module
+  pass now encrypts only permission-module baskets, matching `createAction`'s
+  once-only rule.- Preserve bounded pre-construction double-spend reviews from remote storage.
   An empty attempted TXID is accepted only with one doubleSpend result, empty
   send results, absent constructed-action fields and nonempty competing evidence.
   Consumers must validate the evidence and synchronize the winning transaction
