@@ -1018,6 +1018,128 @@ describe('internalizeAction broadcast of transactions new to the user', () => {
     }
   )
 
+  test('first receipt succeeds after the sender already broadcast on shared storage; repeated receipt credits once', async () => {
+    const shared = await createSharedStorage()
+    try {
+      const sender = await shared.addUser()
+      const recipient = await shared.addUser()
+      await fundWallet(sender.wallet)
+      const payment = await noSendPayment(sender.wallet, recipient.wallet, 5_000, [])
+      await sender.wallet.createAction({
+        description: 'Broadcast prepared payment',
+        options: { sendWith: [payment.txid], acceptDelayedBroadcast: false }
+      })
+      expect(await reqStatus(shared, payment.txid)).toBe('unmined')
+      // Mockchain rejects a second spend of the same inputs; model the real
+      // broadcaster's successful already-known response for this exact txid.
+      const postBeef = jest.spyOn(services, 'postBeef').mockResolvedValue([
+        {
+          name: 'mock-already-known',
+          status: 'success',
+          txidResults: [{ txid: payment.txid, status: 'success' }]
+        }
+      ])
+      const args: InternalizeActionArgs = {
+        tx: payment.tx,
+        outputs: [payment.output],
+        description: 'Receive already broadcast payment'
+      }
+
+      await expect(recipient.wallet.internalizeAction(args)).resolves.toMatchObject({ accepted: true })
+      expect(postedTxids(postBeef)).toEqual([payment.txid])
+      await expect(recipient.wallet.internalizeAction(args)).resolves.toMatchObject({ accepted: true })
+      expect(postedTxids(postBeef)).toEqual([payment.txid])
+      const received = verifyOne(
+        await shared.provider.findOutputs({ partial: { userId: recipient.userId, txid: payment.txid } })
+      )
+      expect(received).toMatchObject({ satoshis: 5_000, spendable: true })
+      expect(await reqStatus(shared, payment.txid)).toBe('unmined')
+    } finally {
+      await shared.destroy()
+    }
+  })
+
+  test.each(['doubleSpend', 'invalidTx', 'serviceError'] as const)(
+    'a negative %s rebroadcast of an already-known payment does not credit the recipient',
+    async status => {
+      const shared = await createSharedStorage()
+      try {
+        const sender = await shared.addUser()
+        const recipient = await shared.addUser()
+        await fundWallet(sender.wallet)
+        const payment = await noSendPayment(sender.wallet, recipient.wallet, 5_000, [])
+        await sender.wallet.createAction({
+          description: 'Broadcast prepared payment',
+          options: { sendWith: [payment.txid], acceptDelayedBroadcast: false }
+        })
+        expect(await reqStatus(shared, payment.txid)).toBe('unmined')
+        jest.spyOn(services, 'postBeef').mockResolvedValue([
+          {
+            name: 'mock',
+            status: 'error',
+            txidResults: [
+              {
+                txid: payment.txid,
+                status: 'error',
+                doubleSpend: status === 'doubleSpend',
+                serviceError: status === 'serviceError'
+              }
+            ]
+          }
+        ])
+
+        await expectToThrowWERR(sdk.WERR_REVIEW_ACTIONS, () =>
+          recipient.wallet.internalizeAction({
+            tx: payment.tx,
+            outputs: [payment.output],
+            description: 'Reject unsuccessful rebroadcast'
+          })
+        )
+        expect(
+          await shared.provider.findOutputs({ partial: { userId: recipient.userId, txid: payment.txid } })
+        ).toEqual([])
+        expect(await reqStatus(shared, payment.txid)).toBe('unmined')
+        const senderTx = verifyOne(
+          await shared.provider.findTransactions({ partial: { userId: sender.userId, txid: payment.txid } })
+        )
+        expect(senderTx.status).toBe('unproven')
+      } finally {
+        await shared.destroy()
+      }
+    }
+  )
+
+  test('receipt succeeds when another storage worker advances the request before result refresh', async () => {
+    const shared = await createSharedStorage()
+    try {
+      const recipient = await shared.addUser()
+      const payment = await coinbasePayment(recipient.wallet)
+      const update = shared.provider.updateProvenTxReqDynamics.bind(shared.provider)
+      // Deterministic interleaving: broadcast history is saved, then a second worker
+      // records network acceptance before the foreground result refreshes storage.
+      jest.spyOn(shared.provider, 'updateProvenTxReqDynamics').mockImplementationOnce(async (id, changes, trx) => {
+        const result = await update(id, changes, trx)
+        await update(id, { status: 'unmined', wasBroadcast: true }, trx)
+        return result
+      })
+
+      await expect(
+        recipient.wallet.internalizeAction({
+          tx: unprovenBeef(payment).toBinaryAtomic(payment.txid),
+          outputs: [payment.output],
+          description: 'Receive while background worker advances request'
+        })
+      ).resolves.toMatchObject({ accepted: true })
+      expect(await reqStatus(shared, payment.txid)).toBe('unmined')
+      const received = verifyOne(
+        await shared.provider.findOutputs({ partial: { userId: recipient.userId, txid: payment.txid } })
+      )
+      expect(received).toMatchObject({ satoshis: 1_000_000, spendable: true })
+    } finally {
+      await shared.destroy()
+    }
+  })
+
   test('does not broadcast a transaction whose BEEF carries its merkle proof', async () => {
     const shared = await createSharedStorage()
     try {

@@ -3,9 +3,9 @@ id: pkg-wallet-toolbox-client
 title: '@bsv/wallet-toolbox-client'
 kind: package
 domain: wallet
-version: '2.14.8'
-last_updated: '2026-10-12'
-last_verified: '2026-10-12'
+version: '2.14.9'
+last_updated: '2026-10-13'
+last_verified: '2026-10-13'
 review_cadence_days: 30
 npm: 'https://www.npmjs.com/package/@bsv/wallet-toolbox-client'
 repo: 'https://github.com/bsv-blockchain/ts-stack/tree/main/packages/wallet/wallet-toolbox/client'
@@ -93,6 +93,16 @@ IndexedDB writer opens. A valid mined AtomicBEEF is stored after an
 asynchronous header lookup. A missing or malformed header, or an invalid
 proof, still rejects and leaves no proven transaction, transaction, or
 requested output. Upgrade this client; no API, wire or schema migration is required.
+
+Broadcast result completion in the 2.14.9 source candidate preserves an already
+`unmined` or `completed` request while returning the actual provider outcome.
+A successful first receipt without a mining proof therefore no longer fails
+with an internal unknown-status error on shared storage or after concurrent
+storage-worker progress. Negative provider outcomes still reject that receipt;
+repeat successful receipt remains idempotent. Upgrade the implementation
+performing broadcast/internalization after protected publication. No public
+API, wire, or schema migration is required. This candidate does not deploy
+hosted storage or repair older partial receipts automatically.
 
 ## Backup and recovery
 

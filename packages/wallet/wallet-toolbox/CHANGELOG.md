@@ -4,6 +4,18 @@ This document captures the history of significant changes to the wallet-toolbox 
 The git commit history contains the details but is unable to draw
 attention to changes that materially alter behavior or extend functionality.
 
+## wallet-toolbox 2.14.9
+
+- Complete per-transaction broadcast results when the refreshed request is
+  already `unmined` or `completed`, preserving that durable state. Successful
+  first receipt without a mining proof no longer throws an internal unknown
+  status error on shared storage or when another worker advances the request.
+  Negative broadcast results and competing-transaction evidence remain negative;
+  they do not authorize recipient output credit. Repeated successful receipt
+  remains idempotent, and valid mined payments retain the proof path.
+- No API, wire, or schema migration. Upgrade the storage implementation after
+  protected publication; this source candidate does not deploy hosted storage.
+
 ## wallet-toolbox 2.14.8
 
 - `WalletPermissionsManager.internalizeAction` stores basket `customInstructions`

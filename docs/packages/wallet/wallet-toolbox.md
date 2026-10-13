@@ -4,9 +4,9 @@ title: '@bsv/wallet-toolbox'
 kind: package
 domain: wallet
 npm: '@bsv/wallet-toolbox'
-version: '2.14.8'
-last_updated: '2026-10-12'
-last_verified: '2026-10-12'
+version: '2.14.9'
+last_updated: '2026-10-13'
+last_verified: '2026-10-13'
 review_cadence_days: 30
 status: stable
 tags: ['wallet', 'brc100']
@@ -42,6 +42,16 @@ transaction, and requested outputs are stored together only after that lookup
 finishes. A missing or malformed header, or an invalid proof, still rejects
 and leaves none of those records. Upgrade the active storage implementation,
 including the browser client.
+
+Broadcast result completion in the 2.14.9 source candidate preserves an already
+`unmined` or `completed` request while returning the actual provider outcome.
+A successful first receipt without a mining proof therefore no longer fails
+with an internal unknown-status error on shared storage or after concurrent
+storage-worker progress. Negative provider outcomes still reject that receipt;
+repeat successful receipt remains idempotent. Upgrade the implementation
+performing broadcast/internalization after protected publication. No public
+API, wire, or schema migration is required. This candidate does not deploy
+hosted storage or repair older partial receipts automatically.
 
 ## Optional registry descriptions
 
