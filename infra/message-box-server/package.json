@@ -1,7 +1,7 @@
 {
   "name": "@bsv/messagebox-server",
   "private": true,
-  "version": "1.1.51",
+  "version": "1.1.52",
   "overrides": {
     "brace-expansion": "5.0.12",
     "gaxios": "7.3.0",
