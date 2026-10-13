@@ -25,8 +25,8 @@ receipt remains idempotent. A payment carrying its valid mining proof follows
 the existing proof path without rebroadcast.
 
 Remote SQL storage also needs the 2.14.9 storage migration and coordinated
-server rollout: it enforces one receipt per recipient/outpoint across pods and
-refuses existing duplicate rows until they are reconciled. No public API or
+server rollout: a durable user/TXID claim serializes receipts across pods while
+preserving historical rows. No public API or
 wire migration is required. Source versions are candidates until published
 through the protected release workflow; upgrading an app alone does not
 upgrade its remote storage server.

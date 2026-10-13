@@ -1061,16 +1061,31 @@ describe('internalizeAction broadcast of transactions new to the user', () => {
 
       await expect(recipient.wallet.internalizeAction(args)).resolves.toMatchObject({ accepted: true })
       expect(postedTxids(postBeef)).toEqual([payment.txid])
+      expect(
+        await shared.provider
+          .knex('internalize_receipts')
+          .where({ userId: recipient.userId, txid: payment.txid })
+          .first()
+      ).toMatchObject({ state: 'complete', needsNewReceipt: 0 })
+      await expect(
+        recipient.wallet.internalizeAction({
+          ...args,
+          outputs: [{ ...payment.output, outputIndex: 999 }]
+        })
+      ).rejects.toThrow()
+      expect(
+        await shared.provider
+          .knex('internalize_receipts')
+          .where({ userId: recipient.userId, txid: payment.txid })
+          .first()
+      ).toMatchObject({ state: 'complete' })
       // A validation failure on an earlier repeat could leave a retriable
       // claim even though the output was already accepted. The next call
       // must still follow the normal idempotent merge path.
-      await shared.provider.knex('internalize_receipts').insert({
-        userId: recipient.userId,
-        txid: payment.txid,
-        ownerToken: 'abandoned-repeat',
-        state: 'retryable',
-        leaseUntil: 0
-      })
+      await shared.provider
+        .knex('internalize_receipts')
+        .where({ userId: recipient.userId, txid: payment.txid })
+        .update({ ownerToken: 'abandoned-repeat', state: 'retryable', leaseUntil: 0 })
       await expect(recipient.wallet.internalizeAction(args)).resolves.toMatchObject({ accepted: true })
       expect(postedTxids(postBeef)).toEqual([payment.txid])
       const received = verifyOne(

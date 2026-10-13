@@ -214,8 +214,8 @@ describe('SQLite migration atomicity through StorageKnex', () => {
   })
 })
 
-describe('wallet receipt integrity migration', () => {
-  test('refuses existing duplicates and enforces canonical transactions and outpoints after reconciliation', async () => {
+describe('wallet receipt coordination migration', () => {
+  test('preserves legacy duplicate rows while enforcing one durable receipt key per user and txid', async () => {
     const db = makeKnex({
       client: 'better-sqlite3',
       connection: { filename: ':memory:' },
@@ -243,20 +243,31 @@ describe('wallet receipt integrity migration', () => {
         { transactionId: 1, userId: 1, txid: 'a'.repeat(64) },
         { transactionId: 2, userId: 1, txid: 'a'.repeat(64) }
       ])
-      await expect(migration.up(db)).rejects.toThrow(/duplicate user\/txid transactions/)
-      await db('transactions').where({ transactionId: 2 }).delete()
       await db('outputs').insert([
         { outputId: 1, userId: 1, txid: 'a'.repeat(64), vout: 0 },
         { outputId: 2, userId: 1, txid: 'a'.repeat(64), vout: 0 }
       ])
-      await expect(migration.up(db)).rejects.toThrow(/UNIQUE constraint failed/)
-      await db('outputs').where({ outputId: 2 }).delete()
-
       await migration.up(db)
       await migration.up(db) // MySQL DDL can be committed before its migration journal entry.
       expect(await db.schema.hasTable('internalize_receipts')).toBe(true)
-      await expect(db('transactions').insert({ transactionId: 3, userId: 1, txid: 'a'.repeat(64) })).rejects.toThrow()
-      await expect(db('outputs').insert({ outputId: 3, userId: 1, txid: 'a'.repeat(64), vout: 0 })).rejects.toThrow()
+      expect(await db('transactions').count({ n: '*' }).first()).toMatchObject({ n: 2 })
+      expect(await db('outputs').count({ n: '*' }).first()).toMatchObject({ n: 2 })
+      await db('internalize_receipts').insert({
+        userId: 1,
+        txid: 'a'.repeat(64),
+        ownerToken: 'first',
+        state: 'complete',
+        leaseUntil: 0
+      })
+      await expect(
+        db('internalize_receipts').insert({
+          userId: 1,
+          txid: 'a'.repeat(64),
+          ownerToken: 'second',
+          state: 'pending',
+          leaseUntil: 1
+        })
+      ).rejects.toThrow(/UNIQUE constraint failed/)
     } finally {
       await db.destroy()
     }

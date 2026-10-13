@@ -175,6 +175,7 @@ export class StorageKnex extends StorageProvider implements WalletStorageProvide
   ): Promise<{
     ownerToken: string
     claim: InternalizeReceiptClaim
+    preserveComplete: boolean
   }> {
     const ownerToken = randomBytesBase64(18)
     const deadline = Date.now() + 30_000
@@ -201,10 +202,13 @@ export class StorageKnex extends StorageProvider implements WalletStorageProvide
       if (previous == null) continue
 
       const retryNew = Boolean(previous.needsNewReceipt)
+      const preserveComplete = previous.state === 'complete'
       if (previous.ownerToken !== ownerToken) {
         const changed = await this.knex('internalize_receipts')
           .where({ userId, txid, ownerToken: previous.ownerToken })
-          .where(builder => builder.where('state', 'retryable').orWhere('leaseUntil', '<=', this.receiptClockMs()))
+          .where(builder =>
+            builder.whereIn('state', ['retryable', 'complete']).orWhere('leaseUntil', '<=', this.receiptClockMs())
+          )
           .update({ ownerToken, state: 'pending', leaseUntil: this.receiptLeaseMs() })
         if (changed !== 1) {
           await new Promise(resolve => setTimeout(resolve, 100))
@@ -229,11 +233,15 @@ export class StorageKnex extends StorageProvider implements WalletStorageProvide
           if (changed !== 1) throw new WERR_INTERNAL('wallet receipt claim expired or was superseded')
         },
         complete: async trx => {
-          const removed = await activeRow(trx).delete()
-          if (removed !== 1) throw new WERR_INTERNAL('wallet receipt claim expired or was superseded')
+          const changed = await activeRow(trx).update({
+            state: 'complete',
+            needsNewReceipt: false,
+            leaseUntil: 0
+          })
+          if (changed !== 1) throw new WERR_INTERNAL('wallet receipt claim expired or was superseded')
         }
       }
-      return { ownerToken, claim }
+      return { ownerToken, claim, preserveComplete }
     }
     throw new WERR_INTERNAL('wallet receipt is already being processed; retry after the active request finishes')
   }
@@ -244,17 +252,22 @@ export class StorageKnex extends StorageProvider implements WalletStorageProvide
     if (userId == null) throw new WERR_UNAUTHORIZED()
     const txid = canonicalizeAtomicBeef(args.tx).atomicTxid
     if (txid == null) throw new WERR_INVALID_PARAMETER('tx', 'an AtomicBEEF transaction')
-    const { ownerToken, claim } = await this.acquireInternalizeReceipt(userId, txid)
+    const { ownerToken, claim, preserveComplete } = await this.acquireInternalizeReceipt(userId, txid)
     try {
       return await internalizeAction(this, auth, args, claim)
     } finally {
-      // A successful writer removed its claim in the same transaction as the
-      // output records. Only a committed new recipient header needs a durable
-      // retry marker; malformed or rejected preflight calls do not accumulate
-      // claims for arbitrary transaction identifiers.
-      await this.knex('internalize_receipts')
-        .where({ userId, txid, ownerToken, state: 'pending', needsNewReceipt: false })
-        .delete()
+      // A successful writer marked its claim complete in the same transaction
+      // as the output records. Preserve that durable key across later merges;
+      // release an uncompleted key only when no new receipt header was marked.
+      const noNewReceipt = this.knex('internalize_receipts').where({
+        userId,
+        txid,
+        ownerToken,
+        state: 'pending',
+        needsNewReceipt: false
+      })
+      if (preserveComplete) await noNewReceipt.update({ state: 'complete', leaseUntil: 0 })
+      else await noNewReceipt.delete()
       await this.knex('internalize_receipts')
         .where({ userId, txid, ownerToken, state: 'pending', needsNewReceipt: true })
         .update({ state: 'retryable', leaseUntil: 0 })
