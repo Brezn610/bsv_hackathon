@@ -4,7 +4,7 @@ title: '@bsv/wallet-toolbox'
 kind: package
 domain: wallet
 npm: '@bsv/wallet-toolbox'
-version: '2.14.9'
+version: '2.14.10'
 last_updated: '2026-10-13'
 last_verified: '2026-10-13'
 review_cadence_days: 30
