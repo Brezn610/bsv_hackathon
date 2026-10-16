@@ -149,23 +149,86 @@ export function validateDependabotExclusions(source) {
   return errors
 }
 
+// Trimmed lines nested under one top-level multi-ecosystem group.
+function multiEcosystemGroupLines(dependabot, group) {
+  const lines = dependabot.split(/^updates:/m)[0].split('\n')
+  const start = lines.indexOf(`  ${group}:`)
+  if (start < 0) return undefined
+  const end = lines.findIndex((line, index) => index > start && /^ {0,2}\S/.test(line))
+  return lines.slice(start + 1, end < 0 ? undefined : end).map(line => line.trim())
+}
+
+// The grouped schedule and the lockfile refresh that joins its pull request
+// must agree, or the refresh silently stops finding the pull request.
+export function validateRoutineSchedule(routine, dependabot, refreshWorkflow) {
+  const errors = []
+  const group = routine.multiEcosystemGroup
+  const block = multiEcosystemGroupLines(dependabot, group)
+  if (block === undefined) {
+    errors.push(`Dependabot does not define multi-ecosystem group ${group}`)
+  } else {
+    for (const [key, value] of Object.entries(routine.schedule)) {
+      const accepted = new Set([`${key}: ${value}`, `${key}: '${value}'`, `${key}: "${value}"`])
+      if (!block.some(line => accepted.has(line))) {
+        errors.push(`Dependabot ${group} schedule must set ${key}: ${value}`)
+      }
+    }
+  }
+  for (const [, referenced] of dependabot.matchAll(/multi-ecosystem-group:\s*(\S+)/g)) {
+    if (referenced !== group)
+      errors.push(`Dependabot update references unknown group ${referenced}`)
+  }
+
+  const refresh = routine.lockfileRefresh
+  for (const fragment of [
+    refresh.command,
+    refresh.commitSubject,
+    `dependabot-${group.replaceAll('-', '_')}-`,
+    String.raw`the \"${group}\" group`,
+    'permissions: {}',
+    'persist-credentials: false'
+  ]) {
+    if (!refreshWorkflow.includes(fragment)) {
+      errors.push(`${refresh.workflow} must contain ${JSON.stringify(fragment)}`)
+    }
+  }
+  if (/pull_request_target/.test(refreshWorkflow)) {
+    errors.push(`${refresh.workflow} must not run on pull_request_target`)
+  }
+  return errors
+}
+
+// Security-update groups only take effect while the repository's automated
+// security-update pull requests are enabled; keep the config matching that.
+export function validateSecurityUpdateGroups(securityUpdates, dependabot) {
+  const groups = (dependabot.match(/applies-to:\s*security-updates/g) ?? []).length
+  if (securityUpdates.automatedPullRequests === false) {
+    return groups > 0
+      ? ['Dependabot security-update groups are inert while automated security PRs are disabled']
+      : []
+  }
+  return groups < 2
+    ? ['Dependabot must group immediate root and infrastructure npm security updates']
+    : []
+}
+
 function validateRoutinePolicy(policy, errors) {
   const dependabot = fs.readFileSync(
     path.join(ROOT, policy.routineUpdates.dependabotConfig),
     'utf8'
   )
-  errors.push(...validateDependabotExclusions(dependabot))
-  const group = policy.routineUpdates.multiEcosystemGroup
-  if (!dependabot.includes(`${group}:`)) errors.push(`Dependabot does not define ${group}`)
-  if (!/interval:\s*monthly/.test(dependabot)) {
-    errors.push('Dependabot routine maintenance must run monthly')
-  }
+  errors.push(
+    ...validateDependabotExclusions(dependabot),
+    ...validateRoutineSchedule(
+      policy.routineUpdates,
+      dependabot,
+      fs.readFileSync(path.join(ROOT, policy.routineUpdates.lockfileRefresh.workflow), 'utf8')
+    )
+  )
   if (!/open-pull-requests-limit:\s*1/.test(dependabot)) {
     errors.push('Dependabot routine version PR concurrency must be one')
   }
-  if ((dependabot.match(/applies-to:\s*security-updates/g) ?? []).length < 2) {
-    errors.push('Dependabot must group immediate root and infrastructure npm security updates')
-  }
+  errors.push(...validateSecurityUpdateGroups(policy.routineUpdates.securityUpdates, dependabot))
   if ((dependabot.match(/dependency-name:\s*['"]?@bsv\/\*/g) ?? []).length < 2) {
     errors.push('Dependabot must leave first-party @bsv/* updates to release synchronization')
   }
