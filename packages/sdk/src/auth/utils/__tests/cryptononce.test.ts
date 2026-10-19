@@ -101,6 +101,21 @@ describe('verifyNonce', () => {
 
     const nonce = await createNonce(mockWallet)
     await expect(verifyNonce(nonce, mockWallet)).rejects.toThrow('wallet unavailable')
+
+    ;(mockWallet.verifyHmac as jest.Mock).mockRejectedValue('wallet unavailable')
+    await expect(verifyNonce(nonce, mockWallet)).rejects.toBe('wallet unavailable')
+  })
+
+  it('returns false when HMAC error inspection itself fails', async () => {
+    const hidden = new Proxy(new Error('HMAC is not valid'), {
+      getOwnPropertyDescriptor() {
+        throw new Error('descriptor access denied')
+      }
+    })
+    ;(mockWallet.verifyHmac as jest.Mock).mockRejectedValue(hidden)
+
+    const nonce = await createNonce(mockWallet)
+    await expect(verifyNonce(nonce, mockWallet)).rejects.toThrow('HMAC is not valid')
   })
 
   it('returns false for a malformed truthy HMAC verdict', async () => {

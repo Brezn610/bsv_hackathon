@@ -800,6 +800,16 @@ describe('ExpressTransport hardening', () => {
       401,
       'ERR_AUTH_FAILED',
       'Authentication failed.'
+    ],
+    [
+      new Proxy(new Error('descriptor access denied'), {
+        getOwnPropertyDescriptor() {
+          throw new Error('descriptor access denied')
+        }
+      }),
+      500,
+      'ERR_INTERNAL_SERVER_ERROR',
+      'Authentication processing failed.'
     ]
   ])(
     'maps peer processing failures to stable public errors',
