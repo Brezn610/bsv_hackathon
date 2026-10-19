@@ -214,6 +214,15 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Fixed (3.2.2 candidate)
+
+- `verifyNonce` returns `false` when the wallet rejects an HMAC mismatch
+  (`ERR_INVALID_HMAC`, or an error whose message is exactly `HMAC is not valid`)
+  instead of propagating that rejection. `Peer` can then raise its own
+  unverifiable-nonce error, and an authentication server can answer 401 so
+  `AuthFetch` drops the stale session and re-handshakes (issue #1086).
+  Other wallet failures still reject. No API, wire, or wallet-data migration.
+
 ### Fixed (3.2.1 candidate)
 
 - Align `OP_SUBSTR`, `OP_LEFT` and `OP_RIGHT` operand decoding with

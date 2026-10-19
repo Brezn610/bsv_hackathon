@@ -3,10 +3,10 @@ id: bsv-sdk
 title: '@bsv/sdk'
 kind: package
 domain: sdk
-version: '3.2.1'
+version: '3.2.2'
 npm: '@bsv/sdk'
-last_updated: '2026-10-07'
-last_verified: '2026-10-07'
+last_updated: '2026-10-19'
+last_verified: '2026-10-19'
 review_cadence_days: 30
 status: stable
 tags: ['sdk', 'crypto', 'transactions']
@@ -31,6 +31,14 @@ for integration details. Consumers must adopt recovery explicitly and render
 lookup errors separately from successful empty results. A contact deadline
 does not cancel an underlying wallet request or permission prompt. This
 candidate is not publication or a deployed search-component update.
+
+The 3.2.2 source candidate makes `verifyNonce` return `false` when the wallet
+rejects an HMAC mismatch (`ERR_INVALID_HMAC` or the message `HMAC is not valid`)
+instead of throwing. `Peer` then reports an unverifiable nonce, so an
+authentication server can answer 401 and `AuthFetch` can drop the stale session
+and handshake again. Valid nonces, HMAC cryptography, wire formats, and
+unrelated wallet failures are unchanged. No API, wire, or wallet-data migration
+is required. This candidate is not publication.
 
 The 3.2.1 source candidate aligns the Script interpreter with
 [SV Node v1.2.3](https://github.com/bitcoin-sv/bitcoin-sv/releases/tag/v1.2.3).
