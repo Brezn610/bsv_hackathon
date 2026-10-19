@@ -128,10 +128,23 @@ describe('MerklePath combination compatibility', () => {
 
   it('supports safe offsets beyond the 32-bit domain and rejects unsafe integers', () => {
     const txid = '33'.repeat(32)
+    // A lone leaf is only legal at offset 0, so the wide offset is stored beside one.
+    const wide = new MerklePath(
+      100,
+      [
+        [
+          { offset: 0, hash: '00'.repeat(32), txid: true },
+          { offset: 0x100000000, hash: txid, txid: true }
+        ]
+      ],
+      true,
+      false
+    )
+    expect(wide.path[0][1].offset).toBe(0x100000000)
+    // Truncating 2^32 to 32 bits would yield offset 0 and accept this as a coinbase.
     expect(
-      new MerklePath(100, [[{ offset: 0x100000000, hash: txid, txid: true }]]).path[0][0]
-        .offset
-    ).toBe(0x100000000)
+      () => new MerklePath(100, [[{ offset: 0x100000000, hash: txid, txid: true }]])
+    ).toThrow('Missing hash for index 4294967296 at height 0')
     expect(
       () =>
         new MerklePath(100, [
@@ -344,6 +357,57 @@ describe('MerklePath', () => {
     expect(
       path.computeRoot('d5377a7aba0c0e0dbaef230f8917217b453484c83579e11a14c8299faa57ef02')
     ).toEqual('d5377a7aba0c0e0dbaef230f8917217b453484c83579e11a14c8299faa57ef02')
+  })
+  it('accepts a lone leaf only at offset 0 (the block of one transaction)', () => {
+    const txid = 'd5377a7aba0c0e0dbaef230f8917217b453484c83579e11a14c8299faa57ef02'
+    const leaf = '02ef57aa9f29c8141ae17935c88434457b2117890f23efba0d0e0cba7a7a37d5'
+    const offsetZero = 'fdd2040101' + '00' + '02' + leaf
+    expect(MerklePath.fromHex(offsetZero).computeRoot(txid)).toEqual(txid)
+    expect(() => MerklePath.fromHex('fdd2040101' + '01' + '02' + leaf)).toThrow(
+      'Missing hash for index 1 at height 0'
+    )
+    expect(() => MerklePath.fromHex('fdd2040101' + '05' + '02' + leaf)).toThrow(
+      'Missing hash for index 5 at height 0'
+    )
+    expect(
+      () => new MerklePath(1234, [[{ offset: 1, hash: txid, txid: true }]], true, false)
+    ).toThrow('Missing hash for index 1 at height 0')
+
+    const mutated = MerklePath.fromHex(offsetZero)
+    mutated.path[0][0].offset = 1
+    expect(() => mutated.computeRoot(txid)).toThrow('Missing hash for index 1 at height 0')
+  })
+  it('refuses to combine a one-transaction proof with a non-zero lone leaf', () => {
+    const txid = 'd5377a7aba0c0e0dbaef230f8917217b453484c83579e11a14c8299faa57ef02'
+    const offsetZero =
+      'fdd2040101000202ef57aa9f29c8141ae17935c88434457b2117890f23efba0d0e0cba7a7a37d5'
+    const good = MerklePath.fromHex(offsetZero)
+    const forged = MerklePath.fromHex(offsetZero)
+    forged.path[0][0].offset = 1
+    expect(() => good.combine(forged)).toThrow('Missing hash for index 1 at height 0')
+    expect(good.toHex()).toEqual(offsetZero)
+    expect(good.computeRoot(txid)).toEqual(txid)
+  })
+  it('rejects a combined path whose root no longer matches the header', () => {
+    const txid = 'd5377a7aba0c0e0dbaef230f8917217b453484c83579e11a14c8299faa57ef02'
+    const offsetZero =
+      'fdd2040101000202ef57aa9f29c8141ae17935c88434457b2117890f23efba0d0e0cba7a7a37d5'
+    const good = MerklePath.fromHex(offsetZero)
+    const other = MerklePath.fromHex(offsetZero)
+    // A second leaf at offset 1 makes the merged root the txid hashed with itself.
+    // Reporting the original txid from this path simulates the shortcut that hid that.
+    other.path[0].push({ offset: 1, hash: txid, txid: true })
+    other.computeRoot = () => txid
+    expect(() => good.combine(other)).toThrow(
+      'You cannot combine paths which do not have the same root.'
+    )
+    expect(good.toHex()).toEqual(offsetZero)
+    expect(good.computeRoot(txid)).toEqual(txid)
+
+    const again = MerklePath.fromHex(offsetZero)
+    again.combine(MerklePath.fromHex(offsetZero))
+    expect(again.computeRoot(txid)).toEqual(txid)
+    expect(again.toHex()).toEqual(offsetZero)
   })
   it('Creates a valid MerklePath from a txid', () => {
     expect(() =>

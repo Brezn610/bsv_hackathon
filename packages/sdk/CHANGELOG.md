@@ -214,6 +214,17 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Fixed (3.2.2 candidate)
+
+- `MerklePath` refuses a one-level proof whose only leaf is not at offset 0.
+  A block of one transaction contains only its coinbase, at index 0, so any
+  other offset is a missing sibling. `fromHex`, the constructor (including
+  deferred root validation), and root computation throw
+  `Missing hash for index <offset> at height 0`. `combine()` recomputes the
+  merged root and leaves the receiver unchanged when that root differs from
+  the paths it merged. Offset 0, including `fromCoinbaseTxidAndHeight`, is
+  unchanged. Valid proofs need no migration. Fixes #1083.
+
 ### Fixed (3.2.1 candidate)
 
 - Align `OP_SUBSTR`, `OP_LEFT` and `OP_RIGHT` operand decoding with

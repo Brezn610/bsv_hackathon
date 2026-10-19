@@ -3,10 +3,10 @@ id: bsv-sdk
 title: '@bsv/sdk'
 kind: package
 domain: sdk
-version: '3.2.1'
+version: '3.2.2'
 npm: '@bsv/sdk'
-last_updated: '2026-10-07'
-last_verified: '2026-10-07'
+last_updated: '2026-10-19'
+last_verified: '2026-10-19'
 review_cadence_days: 30
 status: stable
 tags: ['sdk', 'crypto', 'transactions']
@@ -41,6 +41,14 @@ of being read from its first eight bytes, and `OP_SPLIT` also rejects a
 position above `INT32_MAX`. Operands of eight bytes or fewer are unchanged and
 no API, wire or wallet-data migration is required. This candidate is not
 publication.
+
+The 3.2.2 source candidate refuses a one-level Merkle proof whose only leaf
+is not at offset 0. A block of one transaction contains only its coinbase, at
+index 0, so any other offset is a missing sibling. Parsing, construction, and
+root computation throw `Missing hash for index <offset> at height 0`, and
+`combine()` leaves the receiver unchanged when the merged root differs.
+Offset 0, including `fromCoinbaseTxidAndHeight`, is unchanged. This candidate
+is not publication.
 
 For `RegistryClient` and optional ProtoMap, BasketMap and CertMap descriptions,
 see [registry metadata](../../guides/registry-metadata.md). It covers exact

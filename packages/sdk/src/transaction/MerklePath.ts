@@ -16,6 +16,15 @@ function assertOffset(offset: number): void {
   }
 }
 
+// A one-level path with one leaf is a block of one transaction. That
+// transaction is the coinbase, always at index 0. Any other offset is a
+// missing sibling, not a proof of inclusion.
+function assertSingleTransactionOffset(path: Array<Array<{ offset: number }>>): void {
+  if (path.length === 1 && path[0]?.length === 1 && path[0][0].offset !== 0) {
+    throw new Error(`Missing hash for index ${path[0][0].offset} at height 0`)
+  }
+}
+
 // JavaScript bitwise operators truncate offsets to signed 32 bits. Division by
 // a power of two is exact over the supported safe-integer offset domain.
 const offsetAtHeight = (offset: number, height: number): number => Math.floor(offset / 2 ** height)
@@ -235,6 +244,12 @@ export default class MerklePath {
       })
     })
 
+    // A path of one level holding one leaf is the block of one transaction: its only
+    // transaction is the coinbase, at index 0. At any other offset the leaf's sibling
+    // is missing. Refuse that shape before optional root validation, so deferring
+    // validation cannot accept it.
+    assertSingleTransactionOffset(this.path)
+
     // Batch consumers can defer cryptographic root validation until several
     // paths from the same block have been combined. The resulting compound
     // path must still be constructed with validation enabled before use.
@@ -342,7 +357,11 @@ export default class MerklePath {
     if (typeof txid !== 'string') txid = this.path[0].find(leaf => Boolean(leaf.hash))?.hash
     if (typeof txid !== 'string') throw new TypeError('Transaction ID is undefined')
     const index = this.indexOf(txid)
-    if (this.path.length === 1 && this.path[0].length === 1) return txid
+    assertSingleTransactionOffset(this.path)
+    // The single transaction in a one-transaction block is the root.
+    if (this.path.length === 1 && this.path[0].length === 1 && this.path[0][0].offset === 0) {
+      return txid
+    }
     const treeHeight = Math.max(this.path.length, offsetTreeHeight(maxOffset))
     let workingHash = txid
     for (let height = 0; height < treeHeight; height++) {
@@ -387,8 +406,12 @@ export default class MerklePath {
     const index = this.indexOf(txid)
     let workingHash = txid
 
-    // special case for blocks with only one transaction
-    if (this.path.length === 1 && this.path[0].length === 1) return workingHash
+    // A block with only one transaction has that coinbase at offset 0, and the
+    // txid is the merkle root. A lone leaf at any other offset is missing its sibling.
+    assertSingleTransactionOffset(this.path)
+    if (this.path.length === 1 && this.path[0].length === 1 && this.path[0][0].offset === 0) {
+      return workingHash
+    }
 
     // Determine effective tree height. For a compound path where all txids are at level 0
     // (path.length === 1 or intermediate levels are empty/trimmed), we need to compute up
@@ -532,8 +555,20 @@ export default class MerklePath {
         }
       }
     }
+    // Recompute after the merge. Equal inputs are not enough: two lone leaves
+    // used to both report the txid as the root and then merge into a path whose
+    // root was that txid hashed with itself. Leave this path unchanged on failure.
+    const previousPath = this.path
     this.path = combinedPath
-    this.trim()
+    try {
+      this.trim()
+      if (this.computeRoot() !== root1) {
+        throw new Error('You cannot combine paths which do not have the same root.')
+      }
+    } catch (error) {
+      this.path = previousPath
+      throw error
+    }
   }
 
   /**
