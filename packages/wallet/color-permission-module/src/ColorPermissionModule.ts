@@ -7,6 +7,7 @@ import {
   TransactionSignature,
   UnlockingScript,
   type AtomicBEEF,
+  type BEEF,
   type BasketInsertion,
   type CreateActionArgs,
   type CreateActionInput,
@@ -92,6 +93,8 @@ const DEFAULT_SIGHASH = TransactionSignature.SIGHASH_ALL | TransactionSignature.
 const MAX_ENVELOPE_BYTES = 16 * 1024 * 1024
 const MAX_RECEIPT_INSTRUCTION_BYTES = 1000
 const LIST_PAGE_LIMIT = 10_000
+/** Outputs per page when reading selected inputs' source transactions, which carry BEEF. */
+const INPUT_BEEF_PAGE_LIMIT = 10
 const SUBMIT_ATTEMPTS = 3
 const NOSEND_EXPIRY_LABEL_PREFIX = 'p nosend expiry '
 const STATE_TAG_PREFIX = 'color_state_'
@@ -123,6 +126,8 @@ export interface ManagedInput extends SourceOutput {
   role: TokenRole
   amount: bigint
   custody: Custody
+  /** The source transaction as BEEF, when the module made it (a handoff split). */
+  sourceBEEF?: BEEF
 }
 
 type InventoryState = 'available' | 'reserved'
@@ -149,6 +154,25 @@ function inputOutpoint(input: Transaction['inputs'][number]): string {
 function custodyOf(remittance: ColorRemittance): Custody {
   const { assetId, derivationPrefix, derivationSuffix, senderIdentityKey } = remittance
   return { assetId, derivationPrefix, derivationSuffix, senderIdentityKey }
+}
+
+/** Whether `beef` holds the transaction `txid` in full, not by txid alone. */
+function holdsTransaction(beef: Beef, txid: string): boolean {
+  const found = beef.findTxid(txid)
+  return found !== undefined && !found.isTxidOnly
+}
+
+/**
+ * Merges the source transaction of `outpoint` from `from` into `into` with only its own proof or
+ * unproven ancestors, so other transactions in `from` are left out.
+ */
+function mergeSource(into: Beef, from: Beef, outpoint: string): void {
+  const { txid } = parseOutpoint(outpoint)
+  if (!holdsTransaction(from, txid))
+    throw new Error(
+      `BRC-207: the wallet returned no source transaction for token input ${outpoint}`
+    )
+  into.mergeBeef(from.toBinaryAtomic(txid))
 }
 
 function tokenInputs(inputs: readonly ManagedInput[]): CreateActionInput[] {
@@ -1110,10 +1134,12 @@ export class ColorPermissionModule implements PermissionsModule {
         originator
       )
       sighashScopes(plan, new Set([...explicit.managed, ...inputs].map(input => input.outpoint)))
+      const inputBEEF = await this.inputBeef(args.inputBEEF, inputs, originator)
       return {
         ...args,
         inputs: orderInputs(explicit.inputs, tokenInputs(inputs), plan.inputPositions),
-        outputs: placeChange(outputs, changes, plan.changePositions)
+        outputs: placeChange(outputs, changes, plan.changePositions),
+        ...(inputBEEF === undefined ? {} : { inputBEEF })
       }
     } finally {
       for (const outpoint of reserved) this.selected.delete(outpoint)
@@ -1631,6 +1657,56 @@ export class ColorPermissionModule implements PermissionsModule {
     return await this.spendable(assetId, outputs)
   }
 
+  /**
+   * `callerBEEF` with the source transactions of the module's selected inputs merged in, each with
+   * its proof or unproven ancestors and nothing else. Inputs the caller named keep the BEEF the
+   * caller gave; the module adds none for them.
+   */
+  protected async inputBeef(
+    callerBEEF: BEEF | undefined,
+    inputs: readonly ManagedInput[],
+    originator: string
+  ): Promise<BEEF | undefined> {
+    if (inputs.length === 0) return callerBEEF
+    const beef =
+      callerBEEF === undefined ? new Beef() : parsed('inputBEEF', () => Beef.fromBinary(callerBEEF))
+    const baskets = new Map<string, ManagedInput[]>()
+    for (const input of inputs) {
+      if (input.sourceBEEF === undefined) {
+        const basket = assetBasket(input.assetId, input.role)
+        baskets.set(basket, [...(baskets.get(basket) ?? []), input])
+      } else mergeSource(beef, Beef.fromBinary(input.sourceBEEF), input.outpoint)
+    }
+    await eachInOrder(baskets, async ([basket, held]) => {
+      const sources = await this.sourceTransactions(basket, held, originator)
+      for (const input of held) mergeSource(beef, sources, input.outpoint)
+    })
+    return beef.toBinary()
+  }
+
+  /**
+   * Reads one basket with entire transactions, a page at a time, until every input's source
+   * transaction has been returned, so no more BEEF is read than the selection needs.
+   */
+  protected async sourceTransactions(
+    basket: string,
+    inputs: readonly ManagedInput[],
+    originator: string
+  ): Promise<Beef> {
+    const txids = new Set(inputs.map(input => parseOutpoint(input.outpoint).txid))
+    const beef = new Beef()
+    for (let offset = 0; [...txids].some(txid => !holdsTransaction(beef, txid));) {
+      const page = await this.wallet.listOutputs(
+        { basket, include: 'entire transactions', limit: INPUT_BEEF_PAGE_LIMIT, offset },
+        originator
+      )
+      if (page.BEEF !== undefined) beef.mergeBeef(page.BEEF)
+      offset += page.outputs.length
+      if (page.outputs.length < INPUT_BEEF_PAGE_LIMIT) break
+    }
+    return beef
+  }
+
   /** One basket's token outputs of the asset, read from their locking scripts, excluding selected ones. */
   protected async candidates(
     assetId: string,
@@ -1734,6 +1810,7 @@ export class ColorPermissionModule implements PermissionsModule {
           sighashTypes: []
         }),
         inputs: tokenInputs(selected),
+        inputBEEF: await this.inputBeef(undefined, selected, originator),
         outputs,
         options: { randomizeOutputs: false, signAndProcess: false }
       },
@@ -1769,7 +1846,8 @@ export class ColorPermissionModule implements PermissionsModule {
       assetId,
       role: 'value',
       amount,
-      custody: exact.custody
+      custody: exact.custody,
+      sourceBEEF: signed.tx
     }
   }
 

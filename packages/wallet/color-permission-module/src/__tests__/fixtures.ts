@@ -70,6 +70,15 @@ export class FakeWallet {
   readonly identityKey: string
   readonly outputs = new Map<string, StoredOutput>()
   readonly pending = new Map<string, { tx: Transaction; args: CreateActionArgs }>()
+  /** Every listOutputs call, in order. */
+  readonly listOutputsCalls: ListOutputsArgs[] = []
+  /**
+   * When set, createAction requires every input's source transaction in `inputBEEF`, as
+   * wallet-toolbox does when it builds the signable transaction.
+   */
+  requireInputBEEF = true
+  /** Edits the BEEF a listOutputs page returns, to model incomplete storage. */
+  editBEEF?: (beef: Beef) => Beef | undefined
   #nextReference = 0
 
   constructor(key = PrivateKey.fromRandom()) {
@@ -102,6 +111,7 @@ export class FakeWallet {
   }
 
   async listOutputs(args: ListOutputsArgs): Promise<ListOutputsResult> {
+    this.listOutputsCalls.push(args)
     const inventory = args.basket === toolbox.specOpBasketPrefixOutputs
     const records = [...this.outputs.entries()]
       .filter(([, output]) =>
@@ -131,11 +141,20 @@ export class FakeWallet {
         }
       })
     }
-    if (args.include === 'entire transactions') result.BEEF = beef.toBinary()
+    if (args.include === 'entire transactions')
+      result.BEEF = (this.editBEEF === undefined ? beef : this.editBEEF(beef))?.toBinary()
     return result
   }
 
   async createAction(args: CreateActionArgs): Promise<CreateActionResult> {
+    if (this.requireInputBEEF) {
+      const beef = args.inputBEEF === undefined ? new Beef() : Beef.fromBinary(args.inputBEEF)
+      for (const input of args.inputs ?? []) {
+        const found = beef.findTxid(input.outpoint.split('.')[0])
+        if (found === undefined || found.isTxidOnly)
+          throw new Error('Every signableTransaction input must have a sourceTransaction')
+      }
+    }
     const tx = new Transaction()
     const reference = `reference-${this.#nextReference++}`
     for (const input of args.inputs ?? []) {

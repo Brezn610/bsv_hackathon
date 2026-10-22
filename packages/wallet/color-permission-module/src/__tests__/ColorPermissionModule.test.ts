@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals'
 import {
   Beef,
   LockingScript,
+  MerklePath,
   OP,
   Signature,
   Transaction,
@@ -588,6 +589,8 @@ describe('ColorPermissionModule', () => {
     })
 
     it('spends an exact-amount explicit input of this wallet in a handoff without a split', async () => {
+      // The app names this input without its BEEF; the fake wallet resolves it from storage.
+      wallet.requireInputBEEF = false
       const [held] = await holdTokens(wallet, provider, assetId, [100n])
       const result = await send({
         labels: handoffLabels(),
@@ -651,6 +654,162 @@ describe('ColorPermissionModule', () => {
       ).rejects.toThrow('signing failed')
       expect(wallet.pending.size).toBe(0)
       expect(provider.submissions).toEqual([])
+    })
+  })
+
+  describe('input BEEF', () => {
+    async function fund(args: Partial<CreateActionArgs>): Promise<CreateActionArgs> {
+      return (
+        await module.onRequest({
+          method: 'createAction',
+          args: {
+            description: 'Send tokens',
+            labels: transferPlan(assetId),
+            ...args,
+            options: { randomizeOutputs: false, ...args.options }
+          },
+          originator: APP
+        })
+      ).args as CreateActionArgs
+    }
+
+    const outpointOf = (tx: Transaction): string => `${tx.id('hex')}.0`
+    const sourceOf = (tx: Transaction): Transaction => tx.inputs[0].sourceTransaction!
+    const txids = (beef: number[] | Uint8Array | undefined): string[] =>
+      Beef.fromBinary(beef!)
+        .txs.map(tx => tx.txid)
+        .sort()
+    const beefCalls = (): number =>
+      wallet.listOutputsCalls.filter(call => call.include === 'entire transactions').length
+
+    /**
+     * A value basket of `total` outputs where the one a 100-unit send selects (the largest) is
+     * listed at `index`; the others are 10-unit outputs. The wallet lists in outpoint order.
+     */
+    async function basketWithSelectedAt(index: number, total: number): Promise<Transaction> {
+      const fillers = await holdTokens(wallet, provider, assetId, Array(total * 2).fill(10n))
+      for (;;) {
+        const [selected] = await holdTokens(wallet, provider, assetId, [1_000n])
+        const before = fillers.filter(tx => outpointOf(tx) < outpointOf(selected))
+        const after = fillers.filter(tx => outpointOf(tx) > outpointOf(selected))
+        if (before.length < index || after.length < total - index - 1) {
+          wallet.outputs.delete(outpointOf(selected)) // listed too early or too late; try another
+          continue
+        }
+        const kept = new Set([
+          ...before.slice(before.length - index),
+          ...after.slice(0, total - index - 1)
+        ])
+        for (const tx of fillers) if (!kept.has(tx)) wallet.outputs.delete(outpointOf(tx))
+        return selected
+      }
+    }
+
+    it('supplies the selected inputs’ transactions with their proofs and nothing else', async () => {
+      const [, selected] = await holdTokens(wallet, provider, assetId, [60n, 300n])
+      const source = sourceOf(selected)
+      source.merklePath = new MerklePath(1, [
+        [
+          { offset: 0, hash: source.id('hex'), txid: true },
+          { offset: 1, duplicate: true }
+        ]
+      ])
+      const funded = await fund({
+        outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
+      })
+
+      expect(funded.inputs?.map(input => input.outpoint)).toEqual([outpointOf(selected)])
+      const beef = Beef.fromBinary(funded.inputBEEF!)
+      expect(txids(funded.inputBEEF)).toEqual([selected.id('hex'), source.id('hex')].sort())
+      expect(beef.bumps).toHaveLength(1)
+      expect(beef.findTxid(source.id('hex'))?.bumpIndex).toBe(0)
+      expect(beef.isValid()).toBe(true)
+    })
+
+    it('stops paging once the selected input’s transaction is read', async () => {
+      await basketWithSelectedAt(0, 25)
+      const output = await recipientOutput(wallet, new FakeWallet(), assetId, 100n)
+      wallet.listOutputsCalls.length = 0
+      await fund({ outputs: [output] })
+      expect(beefCalls()).toBe(1)
+    })
+
+    it('reads pages until the one holding the selected input', async () => {
+      const selected = await basketWithSelectedAt(22, 35)
+      const output = await recipientOutput(wallet, new FakeWallet(), assetId, 100n)
+      wallet.listOutputsCalls.length = 0
+      const funded = await fund({ outputs: [output] })
+      expect(beefCalls()).toBe(3)
+      expect(
+        wallet.listOutputsCalls
+          .filter(call => call.include === 'entire transactions')
+          .map(call => [call.limit, call.offset])
+      ).toEqual([
+        [10, 0],
+        [10, 10],
+        [10, 20]
+      ])
+      expect(txids(funded.inputBEEF)).toEqual(
+        [selected.id('hex'), sourceOf(selected).id('hex')].sort()
+      )
+    })
+
+    it('merges the caller’s inputBEEF with the module’s', async () => {
+      const [selected] = await holdTokens(wallet, provider, assetId, [300n])
+      const other = new Transaction()
+      other.addOutput({ lockingScript: LockingScript.fromASM('OP_TRUE'), satoshis: 500 })
+      wallet.store(other, 0, 'foreign')
+      const funded = await fund({
+        inputs: [
+          { outpoint: outpointOf(other), unlockingScriptLength: 1, inputDescription: 'Fee' }
+        ],
+        inputBEEF: other.toBEEF(),
+        outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
+      })
+      expect(funded.inputs?.map(input => input.outpoint)).toEqual([
+        outpointOf(other),
+        outpointOf(selected)
+      ])
+      expect(txids(funded.inputBEEF)).toEqual(
+        [other.id('hex'), selected.id('hex'), sourceOf(selected).id('hex')].sort()
+      )
+      // The wallet, which requires every input's transaction in inputBEEF, accepts the action.
+      await expect(wallet.createAction(funded)).resolves.toHaveProperty('signableTransaction')
+    })
+
+    it('names the input whose source transaction the wallet returns only by txid, or not at all', async () => {
+      const [selected] = await holdTokens(wallet, provider, assetId, [300n])
+      const output = await recipientOutput(wallet, new FakeWallet(), assetId, 100n)
+      wallet.editBEEF = beef => {
+        beef.makeTxidOnly(selected.id('hex'))
+        return beef
+      }
+      await expect(fund({ outputs: [output] })).rejects.toThrow(
+        `BRC-207: the wallet returned no source transaction for token input ${outpointOf(selected)}`
+      )
+      wallet.editBEEF = () => undefined
+      await expect(fund({ outputs: [output] })).rejects.toThrow(outpointOf(selected))
+    })
+
+    it('supplies the selected input for a handoff’s split, then the split for the handoff', async () => {
+      const [held] = await holdTokens(wallet, provider, assetId, [300n])
+      const created: CreateActionArgs[] = []
+      const createAction = wallet.createAction.bind(wallet)
+      wallet.createAction = async args => {
+        created.push(args)
+        return await createAction(args)
+      }
+      const result = await send({
+        labels: ['p nosend expiry seconds 30', ...transferPlan(assetId)],
+        outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)],
+        options: { noSend: true }
+      })
+      const split = Transaction.fromAtomicBEEF(result.tx!).inputs[0].sourceTransaction!
+      expect(created).toHaveLength(2)
+      expect(txids(created[0].inputBEEF)).toEqual([held.id('hex'), sourceOf(held).id('hex')].sort())
+      expect(txids(created[1].inputBEEF)).toEqual(
+        [split.id('hex'), held.id('hex'), sourceOf(held).id('hex')].sort()
+      )
     })
   })
 

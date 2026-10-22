@@ -57,7 +57,13 @@ the manager's `getVersion` string.
   `p color plan` labels, built with `ColorPlan.toLabels`, and
   `options.randomizeOutputs: false` (every plan requires it: the plan's output
   indices and the approved facts name the requested outputs). The module selects
-  admitted token inputs and adds token change in `createAction`. In
+  admitted token inputs and adds token change in `createAction`, and supplies
+  the source transactions of the inputs it selects in `inputBEEF`, merged with
+  any `inputBEEF` the caller gave: it reads the asset basket with entire
+  transactions a page of 10 outputs at a time, stops at the page that returns
+  the last selected transaction, and keeps only each selected transaction with
+  its proof or unproven ancestors. A selected output whose transaction the
+  wallet does not return in full fails the call, naming the outpoint. In
   `signAction` it checks the funded transaction against the plan, asks the user
   to approve it (`color_send`: every asset leg, satoshi totals and fee, the
   signatures it releases), signs the token inputs with any `sighashTypes`
@@ -119,8 +125,10 @@ The module fails explicitly, rather than falling back, on:
 
 Explicit inputs are supported: this wallet's `p color` outputs are signed by the
 module, and foreign token inputs count only once their asset's overlay admits
-them. An input missing from `inputBEEF` is resolved by the wallet and checked
-in `signAction`. `inputPositions` and token `changePositions` are honored; change
+them. The caller supplies the source transactions of the inputs it names in
+`inputBEEF`, as wallet-toolbox requires for explicit inputs; the module adds
+them only for the inputs it selects. An input missing from `inputBEEF` is
+resolved by the wallet and checked in `signAction`. `inputPositions` and token `changePositions` are honored; change
 positions follow the requested outputs.
 
 The module does not validate BRC-176 lineage: proof transport is not part of

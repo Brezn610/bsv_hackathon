@@ -280,6 +280,8 @@ describe('ColorPermissionModule boundaries', () => {
   })
 
   it('signs a managed input with its sighash override', async () => {
+    // The app names this input without its BEEF; the fake wallet resolves it from storage.
+    wallet.requireInputBEEF = false
     const [held] = await holdTokens(wallet, provider, assetId, [300n])
     const outpoint = `${held.id('hex')}.0`
     const scope =
@@ -330,6 +332,8 @@ describe('ColorPermissionModule boundaries', () => {
   })
 
   it('checks at signAction a token input the wallet resolved without inputBEEF', async () => {
+    // The app names this input without its BEEF; the fake wallet resolves it from storage.
+    wallet.requireInputBEEF = false
     await holdTokens(wallet, provider, assetId, [300n])
     const extra = (await tokenPayment(new FakeWallet(), wallet, assetId, 50n)).tx
     provider.admit(assetId, extra, 0)

@@ -262,6 +262,8 @@ describe('ColorPermissionModule token operations', () => {
     })
 
     it('burns an explicit input without change', async () => {
+      // The app names this input without its BEEF; the fake wallet resolves it from storage.
+      wallet.requireInputBEEF = false
       const tx = await run({
         labels: labels([assetId], [{ assetId, operation: 'burn' }]),
         inputs: [{ outpoint, unlockingScriptLength: 108, inputDescription: 'Burned' }],
@@ -275,6 +277,8 @@ describe('ColorPermissionModule token operations', () => {
     })
 
     it('burns the rest of an explicit input after a transfer', async () => {
+      // The app names this input without its BEEF; the fake wallet resolves it from storage.
+      wallet.requireInputBEEF = false
       const tx = await run({
         labels: labels(
           [assetId],
