@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals'
 import { sha256 } from '@bsv/sdk/primitives/Hash'
-import { toArray, toBase64, toHex } from '@bsv/sdk/primitives/utils'
+import { toArray, toHex } from '@bsv/sdk/primitives/utils'
 import {
   assetBasket,
   assetTag,
@@ -131,19 +131,13 @@ describe('BRC-207 identifiers', () => {
 })
 
 describe('derivationSuffixTag', () => {
-  it('is `p color ` and the SHA-256 of the suffix bytes, base64-decoded when canonical', () => {
-    const bytes = Array.from({ length: 16 }, (_, index) => index)
-    const tag = derivationSuffixTag(toBase64(bytes))
-    expect(tag).toBe(`p color ${toHex(sha256(bytes))}`)
+  it('is `p color ` and the SHA-256 of the suffix’s UTF-8 bytes, 72 characters', () => {
+    const suffix = 'c3VmZml4c3VmZml4c3VmZg=='
+    const tag = derivationSuffixTag(suffix)
+    expect(tag).toBe(`p color ${toHex(sha256(toArray(suffix, 'utf8')))}`)
     expect(tag).toHaveLength(72)
-    expect(isDerivationSuffixTag(tag)).toBe(true)
-  })
-
-  it('hashes the UTF-8 bytes of a suffix that is not canonical base64', () => {
-    expect(derivationSuffixTag('not base64!')).toBe(
-      `p color ${toHex(sha256(toArray('not base64!', 'utf8')))}`
-    )
     expect(derivationSuffixTag('x'.repeat(1000))).toHaveLength(72)
+    expect(isDerivationSuffixTag(tag)).toBe(true)
     expect(isDerivationSuffixTag('p color')).toBe(false)
     expect(isDerivationSuffixTag('p color assets')).toBe(false)
   })

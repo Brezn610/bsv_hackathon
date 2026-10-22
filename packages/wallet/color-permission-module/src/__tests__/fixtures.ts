@@ -84,7 +84,7 @@ export class FakeWallet {
    * `auto` action-batch workspace does.
    */
   hideReserved = false
-  /** Edits the BEEF a listOutputs page returns, to model incomplete storage. */
+  /** Edits the BEEF a listOutputs result returns, to model incomplete storage. */
   editBEEF?: (beef: Beef) => Beef | undefined
   #nextReference = 0
 

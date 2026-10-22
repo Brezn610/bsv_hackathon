@@ -320,7 +320,7 @@ describe('ColorPermissionModule', () => {
         )
       ).toEqual([middle.id('hex')])
       // The unreadable record, then the 200-unit output to select and to check the output its
-      // suffix tag finds; signing uses the kept record. Never the 50.
+      // suffix tag finds; signing uses the bound record. Never the 50.
       expect(decrypt).toHaveBeenCalledTimes(3)
     })
 
@@ -1007,7 +1007,7 @@ describe('ColorPermissionModule', () => {
           outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
         })
       ).rejects.toThrow(
-        `BRC-207: token output ${outpointOf(untagged)} was filed without its suffix tag; re-file it`
+        `BRC-207: token output ${outpointOf(untagged)} was filed without its suffix tag and is not spendable through the module`
       )
     })
 

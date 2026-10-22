@@ -61,16 +61,15 @@ the manager's `getVersion` string.
   the source transactions of the inputs it selects in `inputBEEF`, merged with
   any `inputBEEF` the caller gave. Every output the module files (token
   change, owned outputs, receipts, deploys and handoff splits) carries the tag
-  `p color <hex>`: the lowercase hex of the SHA-256 of its custody's
-  derivation suffix bytes, which are the suffix decoded from base64 when it is
-  canonical base64 and its UTF-8 bytes otherwise. The tag is 72 characters
+  `p color <hex>`: the lowercase hex of the SHA-256 of the UTF-8 bytes of its
+  custody's derivation suffix. The tag is 72 characters
   whatever the suffix, and storage keeps nothing of the suffix itself. The module reads each
   selected input's transaction with one `listOutputs` by that tag and
   `limit: 1`, checks that the wallet returned the selected output with the
   same custody, and keeps only that transaction with its proof or unproven
   ancestors. An output without its suffix tag is not selected, and an app-named
-  input without it is refused: outputs filed before suffix tags must be filed
-  again with their suffix tag to be spent. Suffix tags are
+  input without it is refused, so outputs filed without the tag are not spent
+  through the module. Suffix tags are
   left out of the `p color assets` view. A selected output whose transaction
   the wallet does not return in full fails the call, naming the outpoint. The
   module stages its record of each input it signs for (outpoint, script,
@@ -148,10 +147,9 @@ The module fails explicitly, rather than falling back, on:
 
 Explicit inputs are supported: this wallet's `p color` outputs are signed by the
 module, and foreign token inputs count only once their asset's overlay admits
-them. The caller supplies the source transactions of the inputs it names in
-`inputBEEF`, as wallet-toolbox requires for explicit inputs; the module adds
-them only for the inputs it selects. An input missing from `inputBEEF` is
-resolved by the wallet and checked in `signAction`. `inputPositions` and token `changePositions` are honored; change
+them. The module supplies `inputBEEF` for the inputs it selects; the source
+transactions of an input the app names are the app's to supply in `inputBEEF`,
+as wallet-toolbox requires for explicit inputs. `inputPositions` and token `changePositions` are honored; change
 positions follow the requested outputs.
 
 The module does not validate BRC-176 lineage: proof transport is not part of

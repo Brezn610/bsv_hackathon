@@ -196,8 +196,9 @@ function carriesSuffixTag(tags: readonly string[] | undefined, custody: Custody)
   return tags?.includes(suffixTagOf(custody)) === true
 }
 
-function pageBeefOf(page: ListOutputsResult): Beef {
-  return page.BEEF === undefined ? new Beef() : Beef.fromBinary(page.BEEF)
+/** The BEEF a listOutputs result returns, empty when it returns none. */
+function listingBeef(listing: ListOutputsResult): Beef {
+  return listing.BEEF === undefined ? new Beef() : Beef.fromBinary(listing.BEEF)
 }
 
 function tokenInputs(inputs: readonly ManagedInput[]): CreateActionInput[] {
@@ -1303,7 +1304,7 @@ export class ColorPermissionModule implements PermissionsModule {
       throw new Error('BRC-207: an explicit p color input is not a managed token output')
     if (!carriesSuffixTag(output.tags, managed.custody))
       throw new Error(
-        `BRC-207: token output ${managed.outpoint} was filed without its suffix tag; re-file it`
+        `BRC-207: token output ${managed.outpoint} was filed without its suffix tag and is not spendable through the module`
       )
     await this.assertSupportedAsset(managed.assetId)
     if (
@@ -1780,7 +1781,7 @@ export class ColorPermissionModule implements PermissionsModule {
    * The returned output must be the selected one, with the same stored custody.
    */
   protected async sourceTransaction(input: ManagedInput, originator: string): Promise<Beef> {
-    const page = await this.wallet.listOutputs(
+    const listing = await this.wallet.listOutputs(
       {
         basket: assetBasket(input.assetId, input.role),
         tags: [suffixTagOf(input.custody)],
@@ -1790,12 +1791,12 @@ export class ColorPermissionModule implements PermissionsModule {
       },
       originator
     )
-    const output = page.outputs[0]
+    const output = listing.outputs[0]
     if (output?.outpoint !== input.outpoint || !(await this.sameCustody(output, input, originator)))
       throw new Error(
         `BRC-207: the wallet returned another output for token input ${input.outpoint}`
       )
-    return pageBeefOf(page)
+    return listingBeef(listing)
   }
 
   /** Whether a listed output's stored custody is the selected input's. */
@@ -1837,7 +1838,7 @@ export class ColorPermissionModule implements PermissionsModule {
         this.selected.has(output.outpoint) ||
         this.staged.has(output.outpoint) ||
         output.customInstructions === undefined ||
-        // Untagged outputs (filed before suffix tags) are not selected; re-file them to spend them.
+        // An output without a suffix tag cannot be fetched by it, so it is not selected.
         !(output.tags ?? []).some(isDerivationSuffixTag)
       )
         return []
@@ -2034,7 +2035,7 @@ export class ColorPermissionModule implements PermissionsModule {
     // Only the records bound to this reference are the module's to sign.
     const managed = this.bound.get(action.reference) ?? []
     try {
-      return await this.signHeld(args, { plan, createArgs, tx, tokens }, managed, originator)
+      return await this.signBound(args, { plan, createArgs, tx, tokens }, managed, originator)
     } finally {
       // Signed, refused or failed, the action is done with these records; the manager aborts a
       // refused or failed action, which returns its inputs to the wallet.
@@ -2043,7 +2044,7 @@ export class ColorPermissionModule implements PermissionsModule {
   }
 
   /** Rechecks, approves and signs the module's inputs of a funded action. */
-  protected async signHeld(
+  protected async signBound(
     args: SignActionArgs,
     funded: {
       plan: ColorPlan
