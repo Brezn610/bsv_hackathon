@@ -77,6 +77,11 @@ export class FakeWallet {
    * wallet-toolbox does when it builds the signable transaction.
    */
   requireInputBEEF = true
+  /**
+   * Leaves outputs reserved by a pending action out of every listing, as wallet-toolbox's
+   * `auto` action-batch workspace does.
+   */
+  hideReserved = false
   /** Edits the BEEF a listOutputs page returns, to model incomplete storage. */
   editBEEF?: (beef: Beef) => Beef | undefined
   #nextReference = 0
@@ -116,7 +121,9 @@ export class FakeWallet {
     const records = [...this.outputs.entries()]
       .filter(([, output]) =>
         inventory
-          ? !output.spent && output.basket?.startsWith(`${args.tags?.[0]} `) === true
+          ? !output.spent &&
+            output.basket?.startsWith(`${args.tags?.[0]} `) === true &&
+            !(this.hideReserved && output.reservedBy !== undefined)
           : !output.spent && output.reservedBy === undefined && output.basket === args.basket
       )
       .sort(([a], [b]) => (a < b ? -1 : 1))

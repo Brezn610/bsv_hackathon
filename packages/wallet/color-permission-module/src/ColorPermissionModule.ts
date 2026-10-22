@@ -869,6 +869,11 @@ export class ColorPermissionModule implements PermissionsModule {
   readonly capabilities: Readonly<Record<string, string>> = { 'brc207-color': '5' }
   /** Outputs a send in progress has selected, so a concurrent send does not select them too. */
   protected readonly selected = new Set<string>()
+  /**
+   * The managed inputs of each funded action, by outpoint, kept from createAction until its
+   * signAction so the module signs from its own records instead of listing the wallet's outputs.
+   */
+  protected readonly held = new Map<string, ManagedInput>()
   protected readonly supportedAssets = new Map<string, Promise<void>>()
   protected identityKey?: Promise<string>
 
@@ -883,9 +888,10 @@ export class ColorPermissionModule implements PermissionsModule {
     this.requestTokenAccess = options.requestTokenAccess
   }
 
-  /** Clears in-memory selections and asset checks. */
+  /** Clears in-memory selections, kept input records and asset checks. */
   dispose(): void {
     this.selected.clear()
+    this.held.clear()
     this.supportedAssets.clear()
     this.identityKey = undefined
   }
@@ -1119,8 +1125,9 @@ export class ColorPermissionModule implements PermissionsModule {
     assertPlanSupported(plan, args)
     const { planned, outputs } = await this.planOutputs(plan, args, originator)
     // The hold keeps concurrent sends in this module from choosing the same outputs while it plans.
-    // It ends when this handler returns; storage then rejects a second action that tries to spend
-    // an input already marked spent.
+    // It ends when this handler returns: the wallet then reserves the inputs and leaves them out of
+    // its listings, and storage rejects a second action that tries to spend one. The input records
+    // are kept in `held` until signAction, which signs from them.
     const reserved = new Set<string>()
     try {
       const explicit = await this.explicitInputs(args, originator)
@@ -1135,6 +1142,7 @@ export class ColorPermissionModule implements PermissionsModule {
       )
       sighashScopes(plan, new Set([...explicit.managed, ...inputs].map(input => input.outpoint)))
       const inputBEEF = await this.inputBeef(args.inputBEEF, inputs, originator)
+      for (const input of [...explicit.managed, ...inputs]) this.held.set(input.outpoint, input)
       return {
         ...args,
         inputs: orderInputs(explicit.inputs, tokenInputs(inputs), plan.inputPositions),
@@ -1896,7 +1904,37 @@ export class ColorPermissionModule implements PermissionsModule {
     const tx = action.transaction
     const tokens = transactionTokens(tx, true)
     assertTransactionOperations(plan, tokens)
-    const managed = await this.actionInputs(tx, originator)
+    const managed = this.heldInputs(createArgs)
+    try {
+      return await this.signHeld(args, { plan, createArgs, tx, tokens }, managed, originator)
+    } finally {
+      // Signed, refused or failed, the action is done with these records; the manager aborts a
+      // refused or failed action, which returns its inputs to the wallet.
+      for (const input of managed) this.held.delete(input.outpoint)
+    }
+  }
+
+  /** The kept records of the module's inputs among the action's inputs. */
+  protected heldInputs(createArgs: CreateActionArgs): ManagedInput[] {
+    return (createArgs.inputs ?? []).flatMap(input => {
+      const managed = this.held.get(input.outpoint)
+      return managed === undefined ? [] : [managed]
+    })
+  }
+
+  /** Rechecks, approves and signs the module's inputs of a funded action. */
+  protected async signHeld(
+    args: SignActionArgs,
+    funded: {
+      plan: ColorPlan
+      createArgs: CreateActionArgs
+      tx: Transaction
+      tokens: TransactionTokens
+    },
+    managed: ManagedInput[],
+    originator: string
+  ): Promise<SignActionArgs> {
+    const { plan, createArgs, tx, tokens } = funded
     const scopes = sighashScopes(plan, new Set(managed.map(input => input.outpoint)))
     await eachInOrder(new Set(tokens.consumed.map(input => input.assetId)), async assetId => {
       const assetInputs = tokens.consumed.filter(input => input.assetId === assetId)
@@ -1918,27 +1956,6 @@ export class ColorPermissionModule implements PermissionsModule {
         ))
       }
     }
-  }
-
-  /** The transaction's inputs that spend this wallet's `p color` outputs, with their stored custody. */
-  protected async actionInputs(tx: Transaction, originator: string): Promise<ManagedInput[]> {
-    const outpoints = new Set(tx.inputs.map(input => inputOutpoint(input)))
-    // The action's own inputs are reserved by it, which this listing includes.
-    const listed = await this.wallet.listOutputs(
-      {
-        basket: toolbox.specOpBasketPrefixOutputs,
-        tags: [COLOR_BASKET_NAMESPACE],
-        include: 'locking scripts',
-        includeCustomInstructions: true
-      },
-      originator
-    )
-    const managed = await Promise.all(
-      listed.outputs
-        .filter(output => outpoints.has(output.outpoint))
-        .map(async output => await this.managedInput(output, originator))
-    )
-    return managed.filter(input => input !== undefined)
   }
 
   /**

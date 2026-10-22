@@ -63,7 +63,15 @@ the manager's `getVersion` string.
   transactions a page of 10 outputs at a time, stops at the page that returns
   the last selected transaction, and keeps only each selected transaction with
   its proof or unproven ancestors. A selected output whose transaction the
-  wallet does not return in full fails the call, naming the outpoint. In
+  wallet does not return in full fails the call, naming the outpoint. The
+  module keeps its record of each input it signs for (outpoint, script,
+  satoshis, asset and decrypted custody) from `createAction` until that
+  action's `signAction`, and signs from those records without listing the
+  wallet's outputs; a wallet may hide an action's reserved inputs from its
+  listings (wallet-toolbox's `auto` action-batch mode does). The records are
+  dropped when `signAction` signs or refuses, and on `dispose()`; a record of an
+  action aborted before `signAction` stays until the output is selected again
+  or `dispose()`. In
   `signAction` it checks the funded transaction against the plan, asks the user
   to approve it (`color_send`: every asset leg, satoshi totals and fee, the
   signatures it releases), signs the token inputs with any `sighashTypes`

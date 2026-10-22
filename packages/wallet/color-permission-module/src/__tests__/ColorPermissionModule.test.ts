@@ -12,6 +12,7 @@ import {
   type CreateActionResult,
   type InternalizeActionArgs,
   type ListOutputsResult,
+  type SignActionArgs,
   type SignActionResult
 } from '@bsv/sdk'
 import { hash160 } from '@bsv/sdk/primitives/Hash'
@@ -311,8 +312,9 @@ describe('ColorPermissionModule', () => {
           input.sourceTransaction!.id('hex')
         )
       ).toEqual([middle.id('hex')])
-      // The unreadable record, then the 200-unit output to select and to sign; never the 50.
-      expect(decrypt).toHaveBeenCalledTimes(3)
+      // The unreadable record, then the 200-unit output to select; signing uses the kept record.
+      // Never the 50.
+      expect(decrypt).toHaveBeenCalledTimes(2)
     })
 
     it('skips outputs the overlay no longer reports and fails on an insufficient balance', async () => {
@@ -654,6 +656,101 @@ describe('ColorPermissionModule', () => {
       ).rejects.toThrow('signing failed')
       expect(wallet.pending.size).toBe(0)
       expect(provider.submissions).toEqual([])
+    })
+  })
+
+  describe('kept input records', () => {
+    const held = (): Map<string, unknown> =>
+      (module as unknown as { held: Map<string, unknown> }).held
+    const selecting = (): Set<string> => (module as unknown as { selected: Set<string> }).selected
+
+    async function fundAndCreate(): Promise<{
+      funded: CreateActionArgs
+      created: CreateActionResult
+    }> {
+      const funded = (
+        await module.onRequest({
+          method: 'createAction',
+          args: {
+            description: 'Send tokens',
+            labels: transferPlan(assetId),
+            outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)],
+            options: { randomizeOutputs: false }
+          },
+          originator: APP
+        })
+      ).args as CreateActionArgs
+      const created = (await module.onResponse(await wallet.createAction(funded), {
+        method: 'createAction',
+        originator: APP
+      })) as CreateActionResult
+      return { funded, created }
+    }
+
+    it('signs from the records kept at createAction, without listing the wallet’s outputs', async () => {
+      const [selected] = await holdTokens(wallet, provider, assetId, [300n])
+      // The wallet hides the action's reserved inputs from every listing, as its auto mode does.
+      wallet.hideReserved = true
+      const { created } = await fundAndCreate()
+      expect([...held().keys()]).toEqual([`${selected.id('hex')}.0`])
+      wallet.listOutputsCalls.length = 0
+      const action = signingAction(created)
+      const signArgs = (
+        await module.onRequest({
+          method: 'signAction',
+          args: { reference: action.reference, spends: {} },
+          originator: APP,
+          action
+        })
+      ).args as SignActionArgs
+      expect(wallet.listOutputsCalls).toEqual([])
+      expect(Object.keys(signArgs.spends ?? {})).toEqual(['0'])
+      const signed = await wallet.signAction(signArgs)
+      expect(validInput(Transaction.fromAtomicBEEF(signed.tx!), 0)).toBe(true)
+      expect(held().size).toBe(0)
+    })
+
+    it('does not let a second send select an input a funded action holds', async () => {
+      await holdTokens(wallet, provider, assetId, [300n])
+      await fundAndCreate()
+      await expect(fundAndCreate()).rejects.toThrow('insufficient spendable balance')
+      expect(held().size).toBe(1)
+    })
+
+    it('releases the records when signing is refused', async () => {
+      await holdTokens(wallet, provider, assetId, [300n])
+      module = createModule(wallet, provider, async () => false)
+      const { created } = await fundAndCreate()
+      expect(held().size).toBe(1)
+      const action = signingAction(created)
+      await expect(
+        module.onRequest({
+          method: 'signAction',
+          args: { reference: action.reference, spends: {} },
+          originator: APP,
+          action
+        })
+      ).rejects.toThrow('declined the color_send request')
+      expect(held().size).toBe(0)
+    })
+
+    it('clears the records on dispose', async () => {
+      await holdTokens(wallet, provider, assetId, [300n])
+      await fundAndCreate()
+      expect(held().size).toBe(1)
+      module.dispose()
+      expect(held().size).toBe(0)
+    })
+
+    it('keeps nothing from a createAction that fails', async () => {
+      await holdTokens(wallet, provider, assetId, [300n])
+      wallet.editBEEF = () => undefined
+      await expect(fundAndCreate()).rejects.toThrow('no source transaction for token input')
+      expect(held().size).toBe(0)
+      expect(selecting().size).toBe(0)
+      wallet.editBEEF = undefined
+      const { created } = await fundAndCreate()
+      expect(created.signableTransaction).toBeDefined()
     })
   })
 
