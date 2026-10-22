@@ -53,6 +53,7 @@ import {
   colorProtocolID,
   colorTopic,
   derivationSuffixTag,
+  isDerivationSuffixTag,
   DISCOVERY_TOPIC,
   ISSUE,
   outpointString,
@@ -62,7 +63,6 @@ import {
   parseBalanceSelector,
   parseColorProtocolID,
   parseOutpoint,
-  SUFFIX_TAG_PREFIX,
   validateIdentityKey,
   validateRemittanceString,
   type TokenRole
@@ -178,15 +178,9 @@ function mergeSource(into: Beef, from: Beef, outpoint: string): void {
   into.mergeBeef(from.toBinaryAtomic(txid))
 }
 
-/**
- * The tag every output the module files carries: the module finds an output's transaction by it.
- * A suffix too long for a BRC-100 tag cannot be filed.
- */
+/** The tag every output the module files carries: the module finds an output's transaction by it. */
 function suffixTagOf(custody: { derivationSuffix: string }): string {
-  const tag = derivationSuffixTag(custody.derivationSuffix)
-  if (tag === undefined)
-    throw new Error('BRC-207: derivationSuffix is too long to tag (at most 143 UTF-8 bytes)')
-  return tag
+  return derivationSuffixTag(custody.derivationSuffix)
 }
 
 /** `tags` with the custody's suffix tag added. */
@@ -199,8 +193,7 @@ function withSuffixTag(
 
 /** Whether a listed output carries the suffix tag of its custody. */
 function carriesSuffixTag(tags: readonly string[] | undefined, custody: Custody): boolean {
-  const tag = derivationSuffixTag(custody.derivationSuffix)
-  return tag !== undefined && tags?.includes(tag) === true
+  return tags?.includes(suffixTagOf(custody)) === true
 }
 
 function pageBeefOf(page: ListOutputsResult): Beef {
@@ -860,7 +853,7 @@ function inventoryView(record: InventoryRecord): InventoryView {
   const tags = [
     // The suffix tag is the module's own index into the basket; apps see the stored tags without it.
     ...(record.output.tags ?? []).filter(
-      tag => !tag.startsWith(STATE_TAG_PREFIX) && !tag.startsWith(SUFFIX_TAG_PREFIX)
+      tag => !tag.startsWith(STATE_TAG_PREFIX) && !isDerivationSuffixTag(tag)
     ),
     `${STATE_TAG_PREFIX}${state}`
   ]
@@ -1845,7 +1838,7 @@ export class ColorPermissionModule implements PermissionsModule {
         this.staged.has(output.outpoint) ||
         output.customInstructions === undefined ||
         // Untagged outputs (filed before suffix tags) are not selected; re-file them to spend them.
-        !(output.tags ?? []).some(tag => tag.startsWith(SUFFIX_TAG_PREFIX))
+        !(output.tags ?? []).some(isDerivationSuffixTag)
       )
         return []
       const source = this.sourceOutput(output)

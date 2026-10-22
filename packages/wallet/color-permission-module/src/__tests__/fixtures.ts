@@ -369,7 +369,7 @@ export async function deployAsset(
     0,
     assetBasket(assetId, amount === 0n ? 'authority' : 'value'),
     JSON.stringify({ version: 1, assetId: ISSUE, ...custody }),
-    [derivationSuffixTag(custody.derivationSuffix)!]
+    [derivationSuffixTag(custody.derivationSuffix)]
   )
   return { assetId, tx }
 }
@@ -460,7 +460,7 @@ export async function holdTokens(
       0,
       assetBasket(assetId, amount === 0n ? 'authority' : 'value'),
       customInstructions,
-      tagged ? [derivationSuffixTag(derivationSuffix)!] : undefined
+      tagged ? [derivationSuffixTag(derivationSuffix)] : undefined
     )
     txs.push(tx)
   }

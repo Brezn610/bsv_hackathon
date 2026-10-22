@@ -1,5 +1,6 @@
 import { PublicKey, type WalletProtocol } from '@bsv/sdk'
-import { toArray, toHex } from '@bsv/sdk/primitives/utils'
+import { sha256 } from '@bsv/sdk/primitives/Hash'
+import { toArray, toBase64, toHex } from '@bsv/sdk/primitives/utils'
 
 /** Asset selector for a deploy output's key derivation before its asset ID exists. */
 export const ISSUE = 'ISSUE'
@@ -190,18 +191,31 @@ export function parseBalanceSelector(
 /** The shared deployment discovery topic. */
 export const DISCOVERY_TOPIC = 'tm_color'
 
-/** Prefix of the tag naming a managed output's derivation suffix. */
-export const SUFFIX_TAG_PREFIX = 'color_suffix_'
-const MAX_TAG_BYTES = 300
+const SUFFIX_TAG = /^p color [0-9a-f]{64}$/
 
 /**
- * The tag filed on a managed output: `color_suffix_` and the lowercase hex of the UTF-8 bytes of
- * its custody's derivation suffix (BRC-100 tags are lowercased, so the suffix is not used as is).
- * Undefined when the tag would exceed BRC-100's 300 bytes.
+ * The tag filed on a managed output: `p color ` and the lowercase hex of the SHA-256 of its
+ * custody's derivation suffix bytes. The bytes are the suffix decoded from base64 when it is
+ * canonical base64, otherwise its UTF-8 bytes. The digest has a fixed length whatever the suffix,
+ * and storage keeps nothing of the suffix itself.
  */
-export function derivationSuffixTag(derivationSuffix: string): string | undefined {
-  const tag = SUFFIX_TAG_PREFIX + toHex(toArray(derivationSuffix, 'utf8'))
-  return tag.length > MAX_TAG_BYTES ? undefined : tag
+export function derivationSuffixTag(derivationSuffix: string): string {
+  return `${COLOR_BASKET_NAMESPACE} ${toHex(sha256(suffixBytes(derivationSuffix)))}`
+}
+
+/** Whether a tag is a derivation suffix tag. */
+export function isDerivationSuffixTag(tag: string): boolean {
+  return SUFFIX_TAG.test(tag)
+}
+
+function suffixBytes(derivationSuffix: string): number[] {
+  try {
+    const bytes = toArray(derivationSuffix, 'base64')
+    if (bytes.length > 0 && toBase64(bytes) === derivationSuffix) return bytes
+  } catch {
+    // not base64
+  }
+  return toArray(derivationSuffix, 'utf8')
 }
 
 export function colorTopic(assetId: string): string {

@@ -838,7 +838,7 @@ describe('ColorPermissionModule', () => {
     const tagFor = (customInstructions: string | undefined): string =>
       derivationSuffixTag(
         (JSON.parse(customInstructions!) as { derivationSuffix: string }).derivationSuffix
-      )!
+      )
 
     it('tags token change with its derivation suffix', async () => {
       await holdTokens(wallet, provider, assetId, [300n])
@@ -940,7 +940,7 @@ describe('ColorPermissionModule', () => {
       const { derivationSuffix } = JSON.parse(
         wallet.outputs.get(outpointOf(tx))!.customInstructions!
       ) as { derivationSuffix: string }
-      return derivationSuffixTag(derivationSuffix)!
+      return derivationSuffixTag(derivationSuffix)
     }
 
     it('supplies the selected inputs’ transactions with their proofs and nothing else', async () => {
@@ -1013,7 +1013,7 @@ describe('ColorPermissionModule', () => {
 
     it('does not select an output tagged for another suffix than its custody’s', async () => {
       const [mistagged, other] = await holdTokens(wallet, provider, assetId, [300n, 200n])
-      wallet.outputs.get(outpointOf(mistagged))!.tags = [tagOf(other)]
+      wallet.outputs.get(outpointOf(mistagged))!.tags = [derivationSuffixTag('another suffix')]
       const funded = await fund({
         outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
       })
