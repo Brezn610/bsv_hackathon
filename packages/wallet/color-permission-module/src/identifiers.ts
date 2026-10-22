@@ -190,6 +190,20 @@ export function parseBalanceSelector(
 /** The shared deployment discovery topic. */
 export const DISCOVERY_TOPIC = 'tm_color'
 
+/** Prefix of the tag naming a managed output's derivation suffix. */
+export const SUFFIX_TAG_PREFIX = 'color_suffix_'
+const MAX_TAG_BYTES = 300
+
+/**
+ * The tag filed on a managed output: `color_suffix_` and the lowercase hex of the UTF-8 bytes of
+ * its custody's derivation suffix (BRC-100 tags are lowercased, so the suffix is not used as is).
+ * Undefined when the tag would exceed BRC-100's 300 bytes.
+ */
+export function derivationSuffixTag(derivationSuffix: string): string | undefined {
+  const tag = SUFFIX_TAG_PREFIX + toHex(toArray(derivationSuffix, 'utf8'))
+  return tag.length > MAX_TAG_BYTES ? undefined : tag
+}
+
 export function colorTopic(assetId: string): string {
   return `tm_color_${assetId}`
 }

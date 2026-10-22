@@ -52,6 +52,7 @@ import {
   COLOR_KEY_ID,
   colorProtocolID,
   colorTopic,
+  derivationSuffixTag,
   DISCOVERY_TOPIC,
   ISSUE,
   outpointString,
@@ -61,6 +62,7 @@ import {
   parseBalanceSelector,
   parseColorProtocolID,
   parseOutpoint,
+  SUFFIX_TAG_PREFIX,
   validateIdentityKey,
   validateRemittanceString,
   type TokenRole
@@ -94,8 +96,6 @@ const DEFAULT_SIGHASH = TransactionSignature.SIGHASH_ALL | TransactionSignature.
 const MAX_ENVELOPE_BYTES = 16 * 1024 * 1024
 const MAX_RECEIPT_INSTRUCTION_BYTES = 1000
 const LIST_PAGE_LIMIT = 10_000
-/** Outputs per page when reading selected inputs' source transactions, which carry BEEF. */
-const INPUT_BEEF_PAGE_LIMIT = 10
 const SUBMIT_ATTEMPTS = 3
 const NOSEND_EXPIRY_LABEL_PREFIX = 'p nosend expiry '
 const STATE_TAG_PREFIX = 'color_state_'
@@ -120,6 +120,8 @@ interface Candidate extends SourceOutput {
   token: TokenOutput
   amount: bigint
   customInstructions: string
+  /** The tags the wallet listed for the output. */
+  tags: readonly string[]
 }
 
 export interface ManagedInput extends SourceOutput {
@@ -174,6 +176,35 @@ function mergeSource(into: Beef, from: Beef, outpoint: string): void {
       `BRC-207: the wallet returned no source transaction for token input ${outpoint}`
     )
   into.mergeBeef(from.toBinaryAtomic(txid))
+}
+
+/**
+ * The tag every output the module files carries: the module finds an output's transaction by it.
+ * A suffix too long for a BRC-100 tag cannot be filed.
+ */
+function suffixTagOf(custody: { derivationSuffix: string }): string {
+  const tag = derivationSuffixTag(custody.derivationSuffix)
+  if (tag === undefined)
+    throw new Error('BRC-207: derivationSuffix is too long to tag (at most 143 UTF-8 bytes)')
+  return tag
+}
+
+/** `tags` with the custody's suffix tag added. */
+function withSuffixTag(
+  tags: readonly string[] | undefined,
+  custody: { derivationSuffix: string }
+): string[] {
+  return [...new Set([...(tags ?? []), suffixTagOf(custody)])]
+}
+
+/** Whether a listed output carries the suffix tag of its custody. */
+function carriesSuffixTag(tags: readonly string[] | undefined, custody: Custody): boolean {
+  const tag = derivationSuffixTag(custody.derivationSuffix)
+  return tag !== undefined && tags?.includes(tag) === true
+}
+
+function pageBeefOf(page: ListOutputsResult): Beef {
+  return page.BEEF === undefined ? new Beef() : Beef.fromBinary(page.BEEF)
 }
 
 function tokenInputs(inputs: readonly ManagedInput[]): CreateActionInput[] {
@@ -823,11 +854,14 @@ export function tryReadTokenOutput(
   }
 }
 
-/** A record with its stored tags and the computed state tag in place of any stored one. */
+/** A record with its stored tags, less suffix tags, and the computed state tag in place of any stored one. */
 function inventoryView(record: InventoryRecord): InventoryView {
   const state = inventoryState(record)
   const tags = [
-    ...(record.output.tags ?? []).filter(tag => !tag.startsWith(STATE_TAG_PREFIX)),
+    // The suffix tag is the module's own index into the basket; apps see the stored tags without it.
+    ...(record.output.tags ?? []).filter(
+      tag => !tag.startsWith(STATE_TAG_PREFIX) && !tag.startsWith(SUFFIX_TAG_PREFIX)
+    ),
     `${STATE_TAG_PREFIX}${state}`
   ]
   return { record, state, tags }
@@ -940,9 +974,9 @@ export class ColorPermissionModule implements PermissionsModule {
           args: await this.signAction(req.args as SignActionArgs, req.action, req.originator)
         }
       case 'internalizeAction': {
-        const args = req.args as InternalizeActionArgs
-        await this.internalizeAction(args, req.originator)
-        return { args }
+        return {
+          args: await this.internalizeAction(req.args as InternalizeActionArgs, req.originator)
+        }
       }
       case 'listActions': {
         const args = req.args as ListActionsArgs
@@ -989,10 +1023,10 @@ export class ColorPermissionModule implements PermissionsModule {
       txid,
       vout: 0
     })
-    const owned = ColorPlan.fromLabels(action.createArgs?.labels)?.ownedOutputs.some(
-      remittance => remittance.outputIndex === 0 && remittance.assetId === ISSUE
+    const remittance = ColorPlan.fromLabels(action.createArgs?.labels)?.ownedOutputs.find(
+      owned => owned.outputIndex === 0 && owned.assetId === ISSUE
     )
-    if (deploy?.deploy !== true || owned !== true) return
+    if (deploy?.deploy !== true || remittance === undefined) return
     // The underlying wallet merges the insertion into its own signed transaction: the basket and
     // the custody (encrypted at createAction) are assigned and the transaction's status is kept.
     const customInstructions = action.createArgs?.outputs?.[0]?.customInstructions
@@ -1006,7 +1040,8 @@ export class ColorPermissionModule implements PermissionsModule {
             protocol: 'basket insertion',
             insertionRemittance: {
               basket: assetBasket(deploy.assetId, deploy.role),
-              ...(customInstructions === undefined ? {} : { customInstructions })
+              ...(customInstructions === undefined ? {} : { customInstructions }),
+              tags: [suffixTagOf(remittance)]
             }
           }
         ]
@@ -1019,11 +1054,14 @@ export class ColorPermissionModule implements PermissionsModule {
    * Receive
    * ---------------------------------------------------------------------- */
 
-  /** Verifies every `p color` receipt; the caller must already have submitted the transaction. */
+  /**
+   * Verifies every `p color` receipt and tags it with its derivation suffix; the caller must
+   * already have submitted the transaction.
+   */
   protected async internalizeAction(
     args: InternalizeActionArgs,
     originator: string
-  ): Promise<void> {
+  ): Promise<InternalizeActionArgs> {
     if ((args.labels ?? []).some(label => label.startsWith(`${COLOR_BASKET_NAMESPACE} `))) {
       throw new Error('BRC-207: p color labels have no meaning in internalizeAction')
     }
@@ -1035,11 +1073,27 @@ export class ColorPermissionModule implements PermissionsModule {
         ? [{ outputIndex: output.outputIndex, remittance }]
         : []
     })
-    if (receipts.length === 0) return
+    if (receipts.length === 0) return args
     await this.assertCompletedTransaction(tx)
+    const tags = new Map<number, string[]>()
     await eachInOrder(receipts, async ({ outputIndex, remittance }) => {
-      await this.verifyReceipt(tx, outputIndex, remittance, originator)
+      const custody = await this.verifyReceipt(tx, outputIndex, remittance, originator)
+      tags.set(outputIndex, withSuffixTag(remittance.tags, custody))
     })
+    return {
+      ...args,
+      outputs: args.outputs.map(output =>
+        output.insertionRemittance === undefined || !tags.has(output.outputIndex)
+          ? output
+          : {
+              ...output,
+              insertionRemittance: {
+                ...output.insertionRemittance,
+                tags: tags.get(output.outputIndex)
+              }
+            }
+      )
+    }
   }
 
   /**
@@ -1066,7 +1120,7 @@ export class ColorPermissionModule implements PermissionsModule {
     outputIndex: number,
     remittance: BasketInsertion,
     originator: string
-  ): Promise<void> {
+  ): Promise<Custody> {
     const target = parseAssetBasket(remittance.basket)
     if (target === undefined)
       throw new Error('BRC-207: a receipt must name a per-asset value or authority basket')
@@ -1099,6 +1153,7 @@ export class ColorPermissionModule implements PermissionsModule {
         'BRC-207: the received output is not admitted and unspent in its asset overlay'
       )
     }
+    return custody
   }
 
   /* ----------------------------------------------------------------------
@@ -1220,7 +1275,8 @@ export class ColorPermissionModule implements PermissionsModule {
         basket: toolbox.specOpBasketPrefixOutputs,
         tags: [COLOR_BASKET_NAMESPACE],
         include: 'locking scripts',
-        includeCustomInstructions: true
+        includeCustomInstructions: true,
+        includeTags: true
       },
       originator
     )
@@ -1252,6 +1308,10 @@ export class ColorPermissionModule implements PermissionsModule {
     const managed = await this.managedInput(output, originator)
     if (managed === undefined)
       throw new Error('BRC-207: an explicit p color input is not a managed token output')
+    if (!carriesSuffixTag(output.tags, managed.custody))
+      throw new Error(
+        `BRC-207: token output ${managed.outpoint} was filed without its suffix tag; re-file it`
+      )
     await this.assertSupportedAsset(managed.assetId)
     if (
       !(await this.spendable(managed.assetId, [managed])).has(managed.outpoint) &&
@@ -1445,7 +1505,8 @@ export class ColorPermissionModule implements PermissionsModule {
     return {
       ...output,
       basket,
-      customInstructions: custodyInstructions(custodyOf(remittance))
+      customInstructions: custodyInstructions(custodyOf(remittance)),
+      tags: withSuffixTag(output.tags, remittance)
     }
   }
 
@@ -1711,41 +1772,61 @@ export class ColorPermissionModule implements PermissionsModule {
     if (inputs.length === 0) return callerBEEF
     const beef =
       callerBEEF === undefined ? new Beef() : parsed('inputBEEF', () => Beef.fromBinary(callerBEEF))
-    const baskets = new Map<string, ManagedInput[]>()
-    for (const input of inputs) {
-      if (input.sourceBEEF === undefined) {
-        const basket = assetBasket(input.assetId, input.role)
-        baskets.set(basket, [...(baskets.get(basket) ?? []), input])
-      } else mergeSource(beef, Beef.fromBinary(input.sourceBEEF), input.outpoint)
-    }
-    await eachInOrder(baskets, async ([basket, held]) => {
-      const sources = await this.sourceTransactions(basket, held, originator)
-      for (const input of held) mergeSource(beef, sources, input.outpoint)
+    await eachInOrder(inputs, async input => {
+      const source =
+        input.sourceBEEF === undefined
+          ? await this.sourceTransaction(input, originator)
+          : Beef.fromBinary(input.sourceBEEF)
+      mergeSource(beef, source, input.outpoint)
     })
     return beef.toBinary()
   }
 
   /**
-   * Reads one basket with entire transactions, a page at a time, until every input's source
-   * transaction has been returned, so no more BEEF is read than the selection needs.
+   * One selected input's output with its entire transaction, found by its derivation suffix tag.
+   * The returned output must be the selected one, with the same stored custody.
    */
-  protected async sourceTransactions(
-    basket: string,
-    inputs: readonly ManagedInput[],
-    originator: string
-  ): Promise<Beef> {
-    const txids = new Set(inputs.map(input => parseOutpoint(input.outpoint).txid))
-    const beef = new Beef()
-    for (let offset = 0; [...txids].some(txid => !holdsTransaction(beef, txid));) {
-      const page = await this.wallet.listOutputs(
-        { basket, include: 'entire transactions', limit: INPUT_BEEF_PAGE_LIMIT, offset },
-        originator
+  protected async sourceTransaction(input: ManagedInput, originator: string): Promise<Beef> {
+    const page = await this.wallet.listOutputs(
+      {
+        basket: assetBasket(input.assetId, input.role),
+        tags: [suffixTagOf(input.custody)],
+        include: 'entire transactions',
+        includeCustomInstructions: true,
+        limit: 1
+      },
+      originator
+    )
+    const output = page.outputs[0]
+    if (output?.outpoint !== input.outpoint || !(await this.sameCustody(output, input, originator)))
+      throw new Error(
+        `BRC-207: the wallet returned another output for token input ${input.outpoint}`
       )
-      if (page.BEEF !== undefined) beef.mergeBeef(page.BEEF)
-      offset += page.outputs.length
-      if (page.outputs.length < INPUT_BEEF_PAGE_LIMIT) break
+    return pageBeefOf(page)
+  }
+
+  /** Whether a listed output's stored custody is the selected input's. */
+  protected async sameCustody(
+    output: WalletOutput,
+    input: ManagedInput,
+    originator: string
+  ): Promise<boolean> {
+    if (output.customInstructions === undefined) return false
+    try {
+      const custody = parseCustody(
+        await maybeDecryptMetadata(this.wallet, output.customInstructions, originator),
+        undefined,
+        'managed output customInstructions'
+      )
+      return (
+        custody.assetId === input.custody.assetId &&
+        custody.derivationPrefix === input.custody.derivationPrefix &&
+        custody.derivationSuffix === input.custody.derivationSuffix &&
+        custody.senderIdentityKey === input.custody.senderIdentityKey
+      )
+    } catch {
+      return false
     }
-    return beef
   }
 
   /** One basket's token outputs of the asset, read from their locking scripts, excluding selected ones. */
@@ -1754,20 +1835,30 @@ export class ColorPermissionModule implements PermissionsModule {
     role: TokenRole,
     originator: string
   ): Promise<Candidate[]> {
-    const outputs = await this.listBasket(assetBasket(assetId, role), originator, {})
+    const outputs = await this.listBasket(assetBasket(assetId, role), originator, {
+      includeTags: true
+    })
     return outputs.flatMap(output => {
       if (
         output.spendable === false ||
         this.selected.has(output.outpoint) ||
         this.staged.has(output.outpoint) ||
-        output.customInstructions === undefined
+        output.customInstructions === undefined ||
+        // Untagged outputs (filed before suffix tags) are not selected; re-file them to spend them.
+        !(output.tags ?? []).some(tag => tag.startsWith(SUFFIX_TAG_PREFIX))
       )
         return []
       const source = this.sourceOutput(output)
       const token = tryReadTokenOutput(source.lockingScript, parseOutpoint(output.outpoint))
       if (token?.assetId !== assetId || token.role !== role) return []
       return [
-        { ...source, token, amount: token.amount, customInstructions: output.customInstructions }
+        {
+          ...source,
+          token,
+          amount: token.amount,
+          customInstructions: output.customInstructions,
+          tags: output.tags ?? []
+        }
       ]
     })
   }
@@ -1778,12 +1869,15 @@ export class ColorPermissionModule implements PermissionsModule {
     originator: string
   ): Promise<ManagedInput | undefined> {
     try {
-      const { outpoint, lockingScript, satoshis, token, customInstructions } = candidate
-      return await this.custodyInput(
+      const { outpoint, lockingScript, satoshis, token, customInstructions, tags } = candidate
+      const input = await this.custodyInput(
         { outpoint, lockingScript, satoshis, token },
         customInstructions,
         originator
       )
+      // An output not tagged with its custody's suffix cannot be fetched by it, so it is skipped.
+      if (input === undefined || !carriesSuffixTag(tags, input.custody)) return undefined
+      return input
     } catch {
       return undefined
     }
@@ -1920,6 +2014,7 @@ export class ColorPermissionModule implements PermissionsModule {
         satoshis: TOKEN_CARRIER_SATOSHIS,
         basket: assetBasket(assetId, 'value'),
         customInstructions: custodyInstructions(custody),
+        tags: [suffixTagOf(custody)],
         outputDescription: 'BRC-207 token change'
       }
     }
@@ -2368,7 +2463,7 @@ export class ColorPermissionModule implements PermissionsModule {
   protected async listBasket(
     basket: string,
     originator: string,
-    filter: Pick<ListOutputsArgs, 'tags' | 'tagQueryMode'>
+    filter: Pick<ListOutputsArgs, 'tags' | 'tagQueryMode' | 'includeTags'>
   ): Promise<WalletOutput[]> {
     const outputs: WalletOutput[] = []
     for (;;) {
@@ -2377,6 +2472,7 @@ export class ColorPermissionModule implements PermissionsModule {
           basket,
           tags: filter.tags,
           tagQueryMode: filter.tagQueryMode,
+          includeTags: filter.includeTags,
           include: 'locking scripts',
           includeCustomInstructions: true,
           limit: LIST_PAGE_LIMIT,

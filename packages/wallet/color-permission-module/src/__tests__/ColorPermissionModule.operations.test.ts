@@ -19,6 +19,7 @@ import {
   COLOR_KEY_ID,
   colorProtocolID,
   colorTopic,
+  derivationSuffixTag,
   DISCOVERY_TOPIC,
   ISSUE
 } from '../identifiers.js'
@@ -621,6 +622,7 @@ describe('ColorPermissionModule token operations', () => {
       expect(provider.submissions).toEqual([{ topics: [DISCOVERY_TOPIC], txid: tx.id('hex') }])
       const [outpoint, stored] = [...wallet.outputs].find(([, output]) => output.vout === 0)!
       expect(stored.basket).toBe(assetBasket(`${outpoint.slice(0, 64)}_0`, 'authority'))
+      expect(stored.tags).toEqual([derivationSuffixTag(deploy.remittance.derivationSuffix)])
       const inventory = (await module.handleRequest(
         {
           method: 'listOutputs',

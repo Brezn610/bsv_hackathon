@@ -59,11 +59,19 @@ the manager's `getVersion` string.
   indices and the approved facts name the requested outputs). The module selects
   admitted token inputs and adds token change in `createAction`, and supplies
   the source transactions of the inputs it selects in `inputBEEF`, merged with
-  any `inputBEEF` the caller gave: it reads the asset basket with entire
-  transactions a page of 10 outputs at a time, stops at the page that returns
-  the last selected transaction, and keeps only each selected transaction with
-  its proof or unproven ancestors. A selected output whose transaction the
-  wallet does not return in full fails the call, naming the outpoint. The
+  any `inputBEEF` the caller gave. Every output the module files (token
+  change, owned outputs, receipts, deploys and handoff splits) carries the tag
+  `color_suffix_<hex>`, the lowercase hex of the UTF-8 bytes of its custody's
+  derivation suffix (BRC-100 lowercases tags, so the suffix itself is not
+  used); a suffix longer than 143 bytes cannot be filed. The module reads each
+  selected input's transaction with one `listOutputs` by that tag and
+  `limit: 1`, checks that the wallet returned the selected output with the
+  same custody, and keeps only that transaction with its proof or unproven
+  ancestors. An output without its suffix tag is not selected, and an app-named
+  input without it is refused: outputs filed before suffix tags must be filed
+  again (`internalizeAction` through the module) to be spent. Suffix tags are
+  left out of the `p color assets` view. A selected output whose transaction
+  the wallet does not return in full fails the call, naming the outpoint. The
   module stages its record of each input it signs for (outpoint, script,
   satoshis, asset and decrypted custody) when `createAction` funds the action,
   and when the wallet's `createAction` comes back it binds the records of the

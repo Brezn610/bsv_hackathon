@@ -28,6 +28,7 @@ import {
   assetBasket,
   COLOR_KEY_ID,
   colorProtocolID,
+  derivationSuffixTag,
   DISCOVERY_TOPIC,
   ISSUE
 } from '../identifiers.js'
@@ -40,6 +41,7 @@ interface StoredOutput {
   customInstructions?: string
   reservedBy?: string
   spent: boolean
+  tags?: string[]
 }
 
 /** Validates one input's unlocking script against its source output with the script interpreter. */
@@ -105,13 +107,20 @@ export class FakeWallet {
   encrypt: WalletInterface['encrypt'] = async args => await this.proto.encrypt(args)
   decrypt: WalletInterface['decrypt'] = async args => await this.proto.decrypt(args)
 
-  store(tx: Transaction, vout: number, basket?: string, customInstructions?: string): void {
+  store(
+    tx: Transaction,
+    vout: number,
+    basket?: string,
+    customInstructions?: string,
+    tags?: string[]
+  ): void {
     this.outputs.set(`${tx.id('hex')}.${vout}`, {
       tx,
       vout,
       basket,
       customInstructions,
-      spent: false
+      spent: false,
+      tags
     })
   }
 
@@ -124,7 +133,12 @@ export class FakeWallet {
           ? !output.spent &&
             output.basket?.startsWith(`${args.tags?.[0]} `) === true &&
             !(this.hideReserved && output.reservedBy !== undefined)
-          : !output.spent && output.reservedBy === undefined && output.basket === args.basket
+          : !output.spent &&
+            output.reservedBy === undefined &&
+            output.basket === args.basket &&
+            (args.tags === undefined ||
+              args.tags.length === 0 ||
+              args.tags.some(tag => output.tags?.includes(tag) === true))
       )
       .sort(([a], [b]) => (a < b ? -1 : 1))
     const offset = args.offset ?? 0
@@ -144,7 +158,7 @@ export class FakeWallet {
               : undefined,
           customInstructions:
             args.includeCustomInstructions === true ? output.customInstructions : undefined,
-          tags: args.includeTags === true ? [] : undefined
+          tags: args.includeTags === true ? (output.tags ?? []) : undefined
         }
       })
     }
@@ -198,7 +212,7 @@ export class FakeWallet {
     this.pending.delete(args.reference)
     for (const input of pending.args.inputs ?? []) this.outputs.get(input.outpoint)!.spent = true
     pending.args.outputs?.forEach((output, vout) => {
-      this.store(pending.tx, vout, output.basket, output.customInstructions)
+      this.store(pending.tx, vout, output.basket, output.customInstructions, output.tags)
     })
     return { txid: pending.tx.id('hex'), tx: pending.tx.toAtomicBEEF() }
   }
@@ -215,7 +229,13 @@ export class FakeWallet {
     for (const output of args.outputs) {
       const remittance = output.insertionRemittance
       if (remittance !== undefined)
-        this.store(tx, output.outputIndex, remittance.basket, remittance.customInstructions)
+        this.store(
+          tx,
+          output.outputIndex,
+          remittance.basket,
+          remittance.customInstructions,
+          remittance.tags
+        )
     }
     return { accepted: true }
   }
@@ -348,7 +368,8 @@ export async function deployAsset(
     tx,
     0,
     assetBasket(assetId, amount === 0n ? 'authority' : 'value'),
-    JSON.stringify({ version: 1, assetId: ISSUE, ...custody })
+    JSON.stringify({ version: 1, assetId: ISSUE, ...custody }),
+    [derivationSuffixTag(custody.derivationSuffix)!]
   )
   return { assetId, tx }
 }
@@ -417,23 +438,29 @@ export async function tokenPayment(
   return { tx, customInstructions: JSON.stringify(custody) }
 }
 
-/** Gives `holder` admitted outputs of each amount (0 for an authority), as completed receipts. */
+/**
+ * Gives `holder` admitted outputs of each amount (0 for an authority), as completed receipts filed
+ * with their suffix tag, or untagged as filed before suffix tags.
+ */
 export async function holdTokens(
   holder: FakeWallet,
   provider: FakeProvider,
   assetId: string,
-  amounts: bigint[]
+  amounts: bigint[],
+  tagged = true
 ): Promise<Transaction[]> {
   const sender = new FakeWallet()
   const txs: Transaction[] = []
   for (const amount of amounts) {
     const { tx, customInstructions } = await tokenPayment(sender, holder, assetId, amount)
     provider.admit(assetId, tx, 0)
+    const { derivationSuffix } = JSON.parse(customInstructions) as { derivationSuffix: string }
     holder.store(
       tx,
       0,
       assetBasket(assetId, amount === 0n ? 'authority' : 'value'),
-      customInstructions
+      customInstructions,
+      tagged ? [derivationSuffixTag(derivationSuffix)!] : undefined
     )
     txs.push(tx)
   }
