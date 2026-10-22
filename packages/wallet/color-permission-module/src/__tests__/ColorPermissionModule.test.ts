@@ -770,7 +770,7 @@ describe('ColorPermissionModule', () => {
       expect([...internals().bound.keys()]).toEqual([firstReference])
     })
 
-    it('binds nothing for a result without a signable transaction and drops that call’s staging', async () => {
+    it('binds nothing for a result without a signable transaction and unstages its inputs', async () => {
       await holdTokens(wallet, provider, assetId, [300n])
       const funded = await fund()
       expect(internals().staged.size).toBe(1)
@@ -781,21 +781,6 @@ describe('ColorPermissionModule', () => {
       )
       expect(internals().staged.size).toBe(0)
       expect(internals().bound.size).toBe(0)
-    })
-
-    it('keeps a staged input from other sends until its createAction comes back, for at most 30 seconds', async () => {
-      await holdTokens(wallet, provider, assetId, [300n])
-      // The wallet call for this funding never comes back.
-      await fund()
-      await expect(fund()).rejects.toThrow('insufficient spendable balance')
-      const now = Date.now()
-      const clock = jest.spyOn(Date, 'now').mockReturnValue(now + 30_000)
-      try {
-        const funded = await fund()
-        expect(funded.inputs).toHaveLength(1)
-      } finally {
-        clock.mockRestore()
-      }
     })
 
     it('defers to storage once the createAction has come back', async () => {

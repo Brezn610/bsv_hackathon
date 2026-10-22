@@ -71,11 +71,13 @@ the manager's `getVersion` string.
   `signAction` signs only the inputs bound to its reference, without listing
   the wallet's outputs; a wallet may hide an action's reserved inputs from its
   listings (wallet-toolbox's `auto` action-batch mode does). Which outputs are
-  available is storage's to decide: a staged input is kept from other sends
-  only until its `createAction` comes back, or for at most 30 seconds if it
-  never does. A reference's records are dropped when `signAction` signs or
-  refuses, and on `dispose()`; the records of an action that is aborted before
-  `signAction` stay unused until `dispose()`. In
+  available is storage's to decide; the module also skips outputs staged or
+  being selected by its own calls. A reference's records are dropped when
+  `signAction` signs or refuses, and on `dispose()`. Two cases leave records
+  until `dispose()`: an action aborted before `signAction` leaves its bound
+  records unused, and a wallet `createAction` that fails after the module
+  funded it leaves its inputs staged, so the module does not select them again
+  until `dispose()`. In
   `signAction` it checks the funded transaction against the plan, asks the user
   to approve it (`color_send`: every asset leg, satoshi totals and fee, the
   signatures it releases), signs the token inputs with any `sighashTypes`

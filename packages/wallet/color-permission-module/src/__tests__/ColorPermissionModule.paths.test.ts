@@ -329,6 +329,8 @@ describe('ColorPermissionModule boundaries', () => {
       ]
     })
     expect(funded.inputs!.map(input => input.outpoint)).toEqual([outpoint])
+    // That funding never reaches the wallet; drop its staged input so the next call can name it.
+    module.dispose()
     provider.spend(outpoint)
     await expect(
       createAction({

@@ -97,11 +97,6 @@ const LIST_PAGE_LIMIT = 10_000
 /** Outputs per page when reading selected inputs' source transactions, which carry BEEF. */
 const INPUT_BEEF_PAGE_LIMIT = 10
 const SUBMIT_ATTEMPTS = 3
-/**
- * How long a staged input is kept from other sends while its createAction has not come back, so
- * a wallet call that fails after the module funded it does not hold the output for longer.
- */
-const STAGE_HOLD_MS = 30_000
 const NOSEND_EXPIRY_LABEL_PREFIX = 'p nosend expiry '
 const STATE_TAG_PREFIX = 'color_state_'
 const UTF8_ENCODER = new TextEncoder()
@@ -137,15 +132,6 @@ export interface ManagedInput extends SourceOutput {
 }
 
 type InventoryState = 'available' | 'reserved'
-
-/** A funded action's managed input, staged until its createAction comes back. */
-interface StagedInput {
-  input: ManagedInput
-  /** The module call that staged it. */
-  call: number
-  /** When it was staged, in milliseconds. */
-  at: number
-}
 
 /** Runs an SDK parser on untrusted input, prefixing its failure as a BRC-207 error. */
 function parsed<T>(label: string, parse: () => T): T {
@@ -884,14 +870,10 @@ export class ColorPermissionModule implements PermissionsModule {
   readonly capabilities: Readonly<Record<string, string>> = { 'brc207-color': '5' }
   /** Outputs a send in progress has selected, so a concurrent send does not select them too. */
   protected readonly selected = new Set<string>()
-  /**
-   * The managed inputs of funded actions whose createAction has not come back, by outpoint. Each
-   * entry names the module call that staged it.
-   */
-  protected readonly staged = new Map<string, StagedInput>()
+  /** The managed inputs of funded actions whose createAction has not come back, by outpoint. */
+  protected readonly staged = new Map<string, ManagedInput>()
   /** The managed inputs the module signs for, by the action reference they were bound to. */
   protected readonly bound = new Map<string, ManagedInput[]>()
-  protected stagingCalls = 0
   protected readonly supportedAssets = new Map<string, Promise<void>>()
   protected identityKey?: Promise<string>
 
@@ -1146,7 +1128,7 @@ export class ColorPermissionModule implements PermissionsModule {
     const { planned, outputs } = await this.planOutputs(plan, args, originator)
     // The hold keeps concurrent sends in this module from choosing the same outputs while it plans.
     // Once this handler returns, the inputs are staged until the action's createAction comes back
-    // (onResponse), when storage has reserved them; availability is then storage's to decide.
+    // (onResponse) and moves them to its reference; storage has then reserved them.
     const reserved = new Set<string>()
     try {
       const explicit = await this.explicitInputs(args, originator)
@@ -1176,43 +1158,33 @@ export class ColorPermissionModule implements PermissionsModule {
 
   /** Stages a funded action's managed inputs until its createAction comes back. */
   protected stage(inputs: readonly ManagedInput[]): void {
-    const call = ++this.stagingCalls
-    const at = Date.now()
-    for (const [outpoint, entry] of this.staged)
-      if (at - entry.at >= STAGE_HOLD_MS) this.staged.delete(outpoint)
-    for (const input of inputs) this.staged.set(input.outpoint, { input, call, at })
-  }
-
-  /** Whether a staged input is still kept from other sends. */
-  protected isStaged(outpoint: string): boolean {
-    const entry = this.staged.get(outpoint)
-    return entry !== undefined && Date.now() - entry.at < STAGE_HOLD_MS
+    for (const input of inputs) this.staged.set(input.outpoint, input)
   }
 
   /**
-   * Binds the staged inputs that the returned transaction spends to its action reference, and
-   * drops the rest of the staging of the calls they came from. A result without a signable
-   * transaction binds nothing.
+   * Moves the staged inputs the returned transaction spends to its action reference. A result
+   * without a signable transaction binds nothing; its named inputs are only unstaged.
    */
   protected bindAction(result: CreateActionResult): void {
     const signable = result.signableTransaction
     const atomic = signable?.tx ?? result.tx
     if (atomic === undefined) return
-    let outpoints: string[]
+    let tx: Transaction
     try {
-      outpoints = Transaction.fromAtomicBEEF(atomic).inputs.map(input => inputOutpoint(input))
+      tx = Transaction.fromAtomicBEEF(atomic)
     } catch {
       return // the manager refuses a malformed transaction itself
     }
-    const named = outpoints.flatMap(outpoint => this.staged.get(outpoint) ?? [])
-    const calls = new Set(named.map(entry => entry.call))
-    for (const [outpoint, entry] of this.staged)
-      if (calls.has(entry.call)) this.staged.delete(outpoint)
-    if (signable !== undefined && named.length > 0)
-      this.bound.set(
-        signable.reference,
-        named.map(entry => entry.input)
-      )
+    for (const input of tx.inputs) {
+      const outpoint = inputOutpoint(input)
+      const staged = this.staged.get(outpoint)
+      if (staged === undefined) continue
+      this.staged.delete(outpoint)
+      if (signable === undefined) continue
+      const records = this.bound.get(signable.reference) ?? []
+      records.push(staged)
+      this.bound.set(signable.reference, records)
+    }
   }
 
   protected reserve(reserved: Set<string>, inputs: ReadonlyArray<{ outpoint: string }>): void {
@@ -1275,7 +1247,7 @@ export class ColorPermissionModule implements PermissionsModule {
     output: WalletOutput,
     originator: string
   ): Promise<void> {
-    if (!output.spendable)
+    if (!output.spendable || this.staged.has(output.outpoint) || this.selected.has(output.outpoint))
       throw new Error('BRC-207: an explicit p color input is reserved by another action')
     const managed = await this.managedInput(output, originator)
     if (managed === undefined)
@@ -1787,7 +1759,7 @@ export class ColorPermissionModule implements PermissionsModule {
       if (
         output.spendable === false ||
         this.selected.has(output.outpoint) ||
-        this.isStaged(output.outpoint) ||
+        this.staged.has(output.outpoint) ||
         output.customInstructions === undefined
       )
         return []
