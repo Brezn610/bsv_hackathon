@@ -1766,61 +1766,52 @@ export class ColorPermissionModule implements PermissionsModule {
     if (inputs.length === 0) return callerBEEF
     const beef =
       callerBEEF === undefined ? new Beef() : parsed('inputBEEF', () => Beef.fromBinary(callerBEEF))
-    await eachInOrder(inputs, async input => {
-      const source =
-        input.sourceBEEF === undefined
-          ? await this.sourceTransaction(input, originator)
-          : Beef.fromBinary(input.sourceBEEF)
-      mergeSource(beef, source, input.outpoint)
+    const baskets = new Map<string, ManagedInput[]>()
+    for (const input of inputs) {
+      if (input.sourceBEEF !== undefined) {
+        mergeSource(beef, Beef.fromBinary(input.sourceBEEF), input.outpoint)
+        continue
+      }
+      const basket = assetBasket(input.assetId, input.role)
+      baskets.set(basket, [...(baskets.get(basket) ?? []), input])
+    }
+    await eachInOrder(baskets, async ([basket, selected]) => {
+      const sources = await this.sourceTransactions(basket, selected, originator)
+      for (const input of selected) mergeSource(beef, sources, input.outpoint)
     })
     return beef.toBinary()
   }
 
   /**
-   * One selected input's output with its entire transaction, found by its derivation suffix tag.
-   * The returned output must be the selected one, with the same stored custody.
+   * The selected inputs of one basket with their entire transactions, in one listing by their
+   * suffix tags. The listing must return exactly the selected outputs.
    */
-  protected async sourceTransaction(input: ManagedInput, originator: string): Promise<Beef> {
+  protected async sourceTransactions(
+    basket: string,
+    selected: readonly ManagedInput[],
+    originator: string
+  ): Promise<Beef> {
     const listing = await this.wallet.listOutputs(
       {
-        basket: assetBasket(input.assetId, input.role),
-        tags: [suffixTagOf(input.custody)],
+        basket,
+        tags: selected.map(input => suffixTagOf(input.custody)),
+        tagQueryMode: 'any',
         include: 'entire transactions',
-        includeCustomInstructions: true,
-        limit: 1
+        limit: selected.length
       },
       originator
     )
-    const output = listing.outputs[0]
-    if (output?.outpoint !== input.outpoint || !(await this.sameCustody(output, input, originator)))
+    const wanted = new Set(selected.map(input => input.outpoint))
+    const returned = new Set(listing.outputs.map(output => output.outpoint))
+    const missing = [...wanted].filter(outpoint => !returned.has(outpoint))
+    const extra = [...returned].filter(outpoint => !wanted.has(outpoint))
+    if (missing.length > 0 || extra.length > 0 || listing.outputs.length !== wanted.size)
       throw new Error(
-        `BRC-207: the wallet returned another output for token input ${input.outpoint}`
+        `BRC-207: the wallet returned other outputs than the selected token inputs: missing ${
+          missing.join(', ') || 'none'
+        }; extra ${extra.join(', ') || 'none'}`
       )
     return listingBeef(listing)
-  }
-
-  /** Whether a listed output's stored custody is the selected input's. */
-  protected async sameCustody(
-    output: WalletOutput,
-    input: ManagedInput,
-    originator: string
-  ): Promise<boolean> {
-    if (output.customInstructions === undefined) return false
-    try {
-      const custody = parseCustody(
-        await maybeDecryptMetadata(this.wallet, output.customInstructions, originator),
-        undefined,
-        'managed output customInstructions'
-      )
-      return (
-        custody.assetId === input.custody.assetId &&
-        custody.derivationPrefix === input.custody.derivationPrefix &&
-        custody.derivationSuffix === input.custody.derivationSuffix &&
-        custody.senderIdentityKey === input.custody.senderIdentityKey
-      )
-    } catch {
-      return false
-    }
   }
 
   /** One basket's token outputs of the asset, read from their locking scripts, excluding selected ones. */

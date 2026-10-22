@@ -319,9 +319,9 @@ describe('ColorPermissionModule', () => {
           input.sourceTransaction!.id('hex')
         )
       ).toEqual([middle.id('hex')])
-      // The unreadable record, then the 200-unit output to select and to check the output its
-      // suffix tag finds; signing uses the bound record. Never the 50.
-      expect(decrypt).toHaveBeenCalledTimes(3)
+      // The unreadable record, then the 200-unit output to select; signing uses the bound record.
+      // Never the 50.
+      expect(decrypt).toHaveBeenCalledTimes(2)
     })
 
     it('skips outputs the overlay no longer reports and fails on an insufficient balance', async () => {
@@ -933,8 +933,6 @@ describe('ColorPermissionModule', () => {
       Beef.fromBinary(beef!)
         .txs.map(tx => tx.txid)
         .sort()
-    const beefCalls = (): number =>
-      wallet.listOutputsCalls.filter(call => call.include === 'entire transactions').length
 
     const tagOf = (tx: Transaction): string => {
       const { derivationSuffix } = JSON.parse(
@@ -964,26 +962,69 @@ describe('ColorPermissionModule', () => {
       expect(beef.isValid()).toBe(true)
     })
 
-    it('reads a selected input’s transaction with one listing by its suffix tag', async () => {
-      const [, selected] = await holdTokens(wallet, provider, assetId, [60n, 300n, 10n, 20n])
-      const output = await recipientOutput(wallet, new FakeWallet(), assetId, 100n)
+    const beefListings = () =>
+      wallet.listOutputsCalls
+        .filter(call => call.include === 'entire transactions')
+        .map(({ basket, tags, tagQueryMode, limit, includeCustomInstructions }) => ({
+          basket,
+          tags,
+          tagQueryMode,
+          limit,
+          includeCustomInstructions
+        }))
+
+    it('reads the selected inputs of one basket in one listing by their suffix tags', async () => {
+      const [, first, second] = await holdTokens(wallet, provider, assetId, [60n, 300n, 200n, 20n])
+      const output = await recipientOutput(wallet, new FakeWallet(), assetId, 400n)
       wallet.listOutputsCalls.length = 0
       const funded = await fund({ outputs: [output] })
-      expect(
-        wallet.listOutputsCalls
-          .filter(call => call.include === 'entire transactions')
-          .map(({ basket, tags, limit, offset }) => ({ basket, tags, limit, offset }))
-      ).toEqual([
+      expect(funded.inputs?.map(input => input.outpoint)).toEqual([
+        outpointOf(first),
+        outpointOf(second)
+      ])
+      expect(beefListings()).toEqual([
         {
           basket: assetBasket(assetId, 'value'),
-          tags: [tagOf(selected)],
-          limit: 1,
-          offset: undefined
+          tags: [tagOf(first), tagOf(second)],
+          tagQueryMode: 'any',
+          limit: 2,
+          includeCustomInstructions: undefined
         }
       ])
-      expect(beefCalls()).toBe(1)
       expect(txids(funded.inputBEEF)).toEqual(
-        [selected.id('hex'), sourceOf(selected).id('hex')].sort()
+        [first, second, sourceOf(first), sourceOf(second)].map(tx => tx.id('hex')).sort()
+      )
+    })
+
+    it('reads each asset’s selected inputs in one listing per basket', async () => {
+      const other = (await deployAsset(new FakeWallet(), provider, 1_000n)).assetId
+      const [mine] = await holdTokens(wallet, provider, assetId, [300n])
+      const [theirs] = await holdTokens(wallet, provider, other, [300n])
+      wallet.listOutputsCalls.length = 0
+      const funded = await fund({
+        labels: ColorPlan.toLabels({
+          version: 1,
+          assets: [assetId, other],
+          ownedOutputs: [],
+          operations: [
+            { assetId, operation: 'transfer' },
+            { assetId: other, operation: 'transfer' }
+          ],
+          inputPositions: [],
+          changePositions: [],
+          sighashTypes: []
+        }),
+        outputs: [
+          await recipientOutput(wallet, new FakeWallet(), assetId, 100n),
+          await recipientOutput(wallet, new FakeWallet(), other, 100n)
+        ]
+      })
+      expect(beefListings().map(({ basket, tags, limit }) => ({ basket, tags, limit }))).toEqual([
+        { basket: assetBasket(assetId, 'value'), tags: [tagOf(mine)], limit: 1 },
+        { basket: assetBasket(other, 'value'), tags: [tagOf(theirs)], limit: 1 }
+      ])
+      expect(txids(funded.inputBEEF)).toEqual(
+        [mine, theirs, sourceOf(mine), sourceOf(theirs)].map(tx => tx.id('hex')).sort()
       )
     })
 
@@ -1020,8 +1061,8 @@ describe('ColorPermissionModule', () => {
       expect(funded.inputs?.map(input => input.outpoint)).toEqual([outpointOf(other)])
     })
 
-    it('refuses the transaction when its suffix tag finds another output', async () => {
-      // Two outputs share the selected output's tag, and storage lists the other one first.
+    it('refuses a listing that returns other outputs than the selected ones', async () => {
+      // Another output carries the selected output's tag, and storage lists it first.
       let selected: Transaction
       let intruder: Transaction
       do {
@@ -1032,7 +1073,7 @@ describe('ColorPermissionModule', () => {
       await expect(
         fund({ outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)] })
       ).rejects.toThrow(
-        `BRC-207: the wallet returned another output for token input ${outpointOf(selected)}`
+        `BRC-207: the wallet returned other outputs than the selected token inputs: missing ${outpointOf(selected)}; extra ${outpointOf(intruder)}`
       )
     })
 

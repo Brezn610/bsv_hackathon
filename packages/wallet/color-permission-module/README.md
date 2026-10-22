@@ -63,11 +63,12 @@ the manager's `getVersion` string.
   change, owned outputs, receipts, deploys and handoff splits) carries the tag
   `p color <hex>`: the lowercase hex of the SHA-256 of the UTF-8 bytes of its
   custody's derivation suffix. The tag is 72 characters
-  whatever the suffix, and storage keeps nothing of the suffix itself. The module reads each
-  selected input's transaction with one `listOutputs` by that tag and
-  `limit: 1`, checks that the wallet returned the selected output with the
-  same custody, and keeps only that transaction with its proof or unproven
-  ancestors. An output without its suffix tag is not selected, and an app-named
+  whatever the suffix, and storage keeps nothing of the suffix itself. The module reads the
+  transactions of the inputs it selects with one `listOutputs` per asset
+  basket, by their tags (`tagQueryMode: 'any'`, `limit` the number of
+  selected inputs), checks that the wallet returned exactly the selected
+  outputs, and keeps only each selected transaction with its proof or
+  unproven ancestors. An output without its suffix tag is not selected, and an app-named
   input without it is refused, so outputs filed without the tag are not spent
   through the module. Suffix tags are
   left out of the `p color assets` view. A selected output whose transaction
