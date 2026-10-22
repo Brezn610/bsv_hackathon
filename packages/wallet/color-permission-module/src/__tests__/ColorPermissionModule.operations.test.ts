@@ -127,7 +127,10 @@ describe('ColorPermissionModule token operations', () => {
 
   /** Runs the createAction and signAction hooks around the fake wallet, as the permissions manager does. */
   async function run(args: Partial<CreateActionArgs>): Promise<Transaction> {
-    const created: CreateActionResult = await wallet.createAction(await createAction(args))
+    const created = (await module.onResponse(await wallet.createAction(await createAction(args)), {
+      method: 'createAction',
+      originator: APP
+    })) as CreateActionResult
     const signable = created.signableTransaction!
     const action: PermissionsModuleAction = {
       reference: signable.reference,

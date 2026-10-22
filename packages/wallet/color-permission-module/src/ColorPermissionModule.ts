@@ -12,6 +12,7 @@ import {
   type CreateActionArgs,
   type CreateActionInput,
   type CreateActionOutput,
+  type CreateActionResult,
   type CreateSignatureArgs,
   type InternalizeActionArgs,
   type ListActionsArgs,
@@ -96,6 +97,11 @@ const LIST_PAGE_LIMIT = 10_000
 /** Outputs per page when reading selected inputs' source transactions, which carry BEEF. */
 const INPUT_BEEF_PAGE_LIMIT = 10
 const SUBMIT_ATTEMPTS = 3
+/**
+ * How long a staged input is kept from other sends while its createAction has not come back, so
+ * a wallet call that fails after the module funded it does not hold the output for longer.
+ */
+const STAGE_HOLD_MS = 30_000
 const NOSEND_EXPIRY_LABEL_PREFIX = 'p nosend expiry '
 const STATE_TAG_PREFIX = 'color_state_'
 const UTF8_ENCODER = new TextEncoder()
@@ -131,6 +137,15 @@ export interface ManagedInput extends SourceOutput {
 }
 
 type InventoryState = 'available' | 'reserved'
+
+/** A funded action's managed input, staged until its createAction comes back. */
+interface StagedInput {
+  input: ManagedInput
+  /** The module call that staged it. */
+  call: number
+  /** When it was staged, in milliseconds. */
+  at: number
+}
 
 /** Runs an SDK parser on untrusted input, prefixing its failure as a BRC-207 error. */
 function parsed<T>(label: string, parse: () => T): T {
@@ -870,10 +885,13 @@ export class ColorPermissionModule implements PermissionsModule {
   /** Outputs a send in progress has selected, so a concurrent send does not select them too. */
   protected readonly selected = new Set<string>()
   /**
-   * The managed inputs of each funded action, by outpoint, kept from createAction until its
-   * signAction so the module signs from its own records instead of listing the wallet's outputs.
+   * The managed inputs of funded actions whose createAction has not come back, by outpoint. Each
+   * entry names the module call that staged it.
    */
-  protected readonly held = new Map<string, ManagedInput>()
+  protected readonly staged = new Map<string, StagedInput>()
+  /** The managed inputs the module signs for, by the action reference they were bound to. */
+  protected readonly bound = new Map<string, ManagedInput[]>()
+  protected stagingCalls = 0
   protected readonly supportedAssets = new Map<string, Promise<void>>()
   protected identityKey?: Promise<string>
 
@@ -888,10 +906,11 @@ export class ColorPermissionModule implements PermissionsModule {
     this.requestTokenAccess = options.requestTokenAccess
   }
 
-  /** Clears in-memory selections, kept input records and asset checks. */
+  /** Clears in-memory selections, staged and bound input records and asset checks. */
   dispose(): void {
     this.selected.clear()
-    this.held.clear()
+    this.staged.clear()
+    this.bound.clear()
     this.supportedAssets.clear()
     this.identityKey = undefined
   }
@@ -960,6 +979,7 @@ export class ColorPermissionModule implements PermissionsModule {
     res: unknown,
     context: { method: string; originator: string; action?: PermissionsModuleAction }
   ): Promise<unknown> {
+    if (context.method === 'createAction') this.bindAction(res as CreateActionResult)
     if (context.method === 'signAction' && context.action !== undefined) {
       await this.fileDeploy(res as SignActionResult, context.action, context.originator)
       // A noSend action is always a BRC-177 handoff (createAction refuses any other): its
@@ -1125,9 +1145,8 @@ export class ColorPermissionModule implements PermissionsModule {
     assertPlanSupported(plan, args)
     const { planned, outputs } = await this.planOutputs(plan, args, originator)
     // The hold keeps concurrent sends in this module from choosing the same outputs while it plans.
-    // It ends when this handler returns: the wallet then reserves the inputs and leaves them out of
-    // its listings, and storage rejects a second action that tries to spend one. The input records
-    // are kept in `held` until signAction, which signs from them.
+    // Once this handler returns, the inputs are staged until the action's createAction comes back
+    // (onResponse), when storage has reserved them; availability is then storage's to decide.
     const reserved = new Set<string>()
     try {
       const explicit = await this.explicitInputs(args, originator)
@@ -1142,16 +1161,58 @@ export class ColorPermissionModule implements PermissionsModule {
       )
       sighashScopes(plan, new Set([...explicit.managed, ...inputs].map(input => input.outpoint)))
       const inputBEEF = await this.inputBeef(args.inputBEEF, inputs, originator)
-      for (const input of [...explicit.managed, ...inputs]) this.held.set(input.outpoint, input)
-      return {
+      const funded = {
         ...args,
         inputs: orderInputs(explicit.inputs, tokenInputs(inputs), plan.inputPositions),
         outputs: placeChange(outputs, changes, plan.changePositions),
         ...(inputBEEF === undefined ? {} : { inputBEEF })
       }
+      this.stage([...explicit.managed, ...inputs])
+      return funded
     } finally {
       for (const outpoint of reserved) this.selected.delete(outpoint)
     }
+  }
+
+  /** Stages a funded action's managed inputs until its createAction comes back. */
+  protected stage(inputs: readonly ManagedInput[]): void {
+    const call = ++this.stagingCalls
+    const at = Date.now()
+    for (const [outpoint, entry] of this.staged)
+      if (at - entry.at >= STAGE_HOLD_MS) this.staged.delete(outpoint)
+    for (const input of inputs) this.staged.set(input.outpoint, { input, call, at })
+  }
+
+  /** Whether a staged input is still kept from other sends. */
+  protected isStaged(outpoint: string): boolean {
+    const entry = this.staged.get(outpoint)
+    return entry !== undefined && Date.now() - entry.at < STAGE_HOLD_MS
+  }
+
+  /**
+   * Binds the staged inputs that the returned transaction spends to its action reference, and
+   * drops the rest of the staging of the calls they came from. A result without a signable
+   * transaction binds nothing.
+   */
+  protected bindAction(result: CreateActionResult): void {
+    const signable = result.signableTransaction
+    const atomic = signable?.tx ?? result.tx
+    if (atomic === undefined) return
+    let outpoints: string[]
+    try {
+      outpoints = Transaction.fromAtomicBEEF(atomic).inputs.map(input => inputOutpoint(input))
+    } catch {
+      return // the manager refuses a malformed transaction itself
+    }
+    const named = outpoints.flatMap(outpoint => this.staged.get(outpoint) ?? [])
+    const calls = new Set(named.map(entry => entry.call))
+    for (const [outpoint, entry] of this.staged)
+      if (calls.has(entry.call)) this.staged.delete(outpoint)
+    if (signable !== undefined && named.length > 0)
+      this.bound.set(
+        signable.reference,
+        named.map(entry => entry.input)
+      )
   }
 
   protected reserve(reserved: Set<string>, inputs: ReadonlyArray<{ outpoint: string }>): void {
@@ -1723,7 +1784,13 @@ export class ColorPermissionModule implements PermissionsModule {
   ): Promise<Candidate[]> {
     const outputs = await this.listBasket(assetBasket(assetId, role), originator, {})
     return outputs.flatMap(output => {
-      if (this.selected.has(output.outpoint) || output.customInstructions === undefined) return []
+      if (
+        output.spendable === false ||
+        this.selected.has(output.outpoint) ||
+        this.isStaged(output.outpoint) ||
+        output.customInstructions === undefined
+      )
+        return []
       const source = this.sourceOutput(output)
       const token = tryReadTokenOutput(source.lockingScript, parseOutpoint(output.outpoint))
       if (token?.assetId !== assetId || token.role !== role) return []
@@ -1904,22 +1971,15 @@ export class ColorPermissionModule implements PermissionsModule {
     const tx = action.transaction
     const tokens = transactionTokens(tx, true)
     assertTransactionOperations(plan, tokens)
-    const managed = this.heldInputs(createArgs)
+    // Only the records bound to this reference are the module's to sign.
+    const managed = this.bound.get(action.reference) ?? []
     try {
       return await this.signHeld(args, { plan, createArgs, tx, tokens }, managed, originator)
     } finally {
       // Signed, refused or failed, the action is done with these records; the manager aborts a
       // refused or failed action, which returns its inputs to the wallet.
-      for (const input of managed) this.held.delete(input.outpoint)
+      this.bound.delete(action.reference)
     }
-  }
-
-  /** The kept records of the module's inputs among the action's inputs. */
-  protected heldInputs(createArgs: CreateActionArgs): ManagedInput[] {
-    return (createArgs.inputs ?? []).flatMap(input => {
-      const managed = this.held.get(input.outpoint)
-      return managed === undefined ? [] : [managed]
-    })
   }
 
   /** Rechecks, approves and signs the module's inputs of a funded action. */
