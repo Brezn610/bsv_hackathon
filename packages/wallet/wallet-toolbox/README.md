@@ -41,8 +41,11 @@ default is 12 and zero disables this fallback. Ranges are compacted without
 dropping pending work; compaction may recheck intervening heights.
 
 The lagged `TaskReviewProvenTxs` audit starts at the minimum stored proof
-height, leaves an empty wallet uncheckpointed, repairs older checkpoints in
-empty history, and retains fair bounded retries through restart and tip retreat.
+height on the built-in SQL and IndexedDB providers, leaves an empty wallet
+uncheckpointed, repairs older checkpoints in empty history, and retains fair
+bounded retries through restart and tip retreat. Custom storage providers may
+override `getProvenTxsReviewStartHeight`; its safe default starts at zero when
+proofs exist, so custom providers can retain a longer initial audit.
 Recent rolling scans and these forward cursors do not establish detection of
 an arbitrary historical reorg below both cursors; deeper ancestry reconciliation
 remains separate work.
