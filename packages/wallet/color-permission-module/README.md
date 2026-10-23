@@ -68,7 +68,8 @@ the manager's `getVersion` string.
   normally with one `listOutputs` per asset basket and `limit` the number of
   selected inputs, capped at 10,000 per page. Different payments may share a
   suffix. When more matching rows exist, the module pages within the initial
-  nonnegative safe-integer `totalOutputs` count; a changed count, duplicate row,
+  nonnegative safe-integer `totalOutputs` count and stops once every selected source
+  is found; a changed count, duplicate row,
   oversized page, stalled traversal or missing selected output fails the call.
   Only selected transactions and their proofs or unproven ancestors are retained;
   other same-tag outputs are neither spent nor credited. An output without its suffix tag is not selected, and an app-named

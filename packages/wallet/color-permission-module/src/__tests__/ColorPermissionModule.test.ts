@@ -1249,6 +1249,25 @@ describe('ColorPermissionModule', () => {
       }
     )
 
+    it('stops once all selected sources are found, without fetching other same-tag receipts', async () => {
+      const [held] = await holdTokens(wallet, provider, assetId, [300n])
+      const listOutputs = wallet.listOutputs.bind(wallet)
+      let sourceCalls = 0
+      wallet.listOutputs = async args => {
+        const result = await listOutputs(args)
+        if (args.include !== 'entire transactions') return result
+        sourceCalls++
+        if (sourceCalls > 1) throw new Error('unnecessary source page')
+        return { ...result, totalOutputs: 10_000 }
+      }
+      const funded = await fund({
+        outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
+      })
+      expect(sourceCalls).toBe(1)
+      expect(funded.inputs?.map(input => input.outpoint)).toEqual([outpointOf(held)])
+      expect(txids(funded.inputBEEF)).toEqual([held.id('hex'), sourceOf(held).id('hex')].sort())
+    })
+
     it.each([
       'changed count',
       'duplicate',

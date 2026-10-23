@@ -203,6 +203,15 @@ function listingBeef(listing: ListOutputsResult): Beef {
   return listing.BEEF === undefined ? new Beef() : Beef.fromBinary(listing.BEEF)
 }
 
+/** Merges only wanted source transactions from a page and returns the number found. */
+function mergeSourcePage(into: Beef, page: ListOutputsResult, wanted: ReadonlySet<string>): number {
+  const selected = page.outputs.filter(output => wanted.has(output.outpoint))
+  if (selected.length === 0) return 0
+  const beef = listingBeef(page)
+  for (const output of selected) mergeSource(into, beef, output.outpoint)
+  return selected.length
+}
+
 function tokenInputs(inputs: readonly ManagedInput[]): CreateActionInput[] {
   return inputs.map(input => ({
     outpoint: input.outpoint,
@@ -1809,6 +1818,10 @@ export class ColorPermissionModule implements PermissionsModule {
         }; extra ${extra.join(', ') || 'none'}; ${reason}`
       )
     }
+    const track = (outpoint: string): void => {
+      if (seen.has(outpoint)) refuse('the listing repeated an output')
+      seen.add(outpoint)
+    }
     const query: ListOutputsArgs = {
       basket,
       tags: selected.map(input => input.suffixTag),
@@ -1822,29 +1835,23 @@ export class ColorPermissionModule implements PermissionsModule {
       refuse('the matching output count is not a nonnegative safe integer')
     const sources = new Beef()
     let offset = 0
+    let remaining = wanted.size
     for (;;) {
       if (page.totalOutputs !== total) refuse('the matching output count changed during listing')
-      for (const output of page.outputs) {
-        if (seen.has(output.outpoint)) refuse('the listing repeated an output')
-        seen.add(output.outpoint)
-      }
+      for (const output of page.outputs) track(output.outpoint)
       if (
         page.outputs.length > limit ||
         page.outputs.length > total - offset ||
         (page.outputs.length === 0 && offset < total)
       )
         refuse('the listing exceeded its bounds or made no progress')
-      const selectedPage = page.outputs.filter(output => wanted.has(output.outpoint))
-      if (selectedPage.length > 0) {
-        const beef = listingBeef(page)
-        for (const output of selectedPage) mergeSource(sources, beef, output.outpoint)
-      }
+      remaining -= mergeSourcePage(sources, page, wanted)
       offset += page.outputs.length
-      if (offset === total) break
+      if (remaining === 0 || offset === total) break
       limit = Math.min(LIST_PAGE_LIMIT, total - offset)
       page = await this.wallet.listOutputs({ ...query, limit, offset }, originator)
     }
-    if ([...wanted].some(outpoint => !seen.has(outpoint))) refuse('a selected input is missing')
+    if (remaining > 0) refuse('a selected input is missing')
     return sources
   }
 
