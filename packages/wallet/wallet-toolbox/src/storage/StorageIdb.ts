@@ -810,6 +810,14 @@ export class StorageIdb extends StorageProvider implements WalletStorageProvider
     if (args.trx == null) await dbTrx.done
   }
 
+  override async getProvenTxsReviewStartHeight(): Promise<number | undefined> {
+    let minimum: number | undefined
+    await this.filterProvenTxs({ partial: {} }, row => {
+      minimum = minimum === undefined ? row.height : Math.min(minimum, row.height)
+    })
+    return minimum
+  }
+
   async findProvenTxs(args: FindProvenTxsArgs): Promise<TableProvenTx[]> {
     const results: TableProvenTx[] = []
     await this.filterProvenTxs(args, r => {
@@ -1683,8 +1691,8 @@ export class StorageIdb extends StorageProvider implements WalletStorageProvider
     const store = dbTrx.objectStore('monitor_events')
     const cursor =
       args.partial?.id != null && args.partial.id !== 0
-        ? await store.openCursor(args.partial.id)
-        : await store.openCursor()
+        ? await store.openCursor(args.partial.id, args.orderDescending ? 'prev' : 'next')
+        : await store.openCursor(null, args.orderDescending ? 'prev' : 'next')
     await scanCursor<TableMonitorEvent>(
       cursor,
       args.since,
