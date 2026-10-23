@@ -1828,15 +1828,20 @@ export class ColorPermissionModule implements PermissionsModule {
       tagQueryMode: 'any',
       include: 'entire transactions'
     }
-    let limit = Math.min(selected.length, LIST_PAGE_LIMIT)
-    let page = await this.wallet.listOutputs({ ...query, limit }, originator)
-    const total = typeof page.totalOutputs === 'number' ? page.totalOutputs : NaN
+    const firstLimit = Math.min(selected.length, LIST_PAGE_LIMIT)
+    const first = await this.wallet.listOutputs({ ...query, limit: firstLimit }, originator)
+    const total = typeof first.totalOutputs === 'number' ? first.totalOutputs : Number.NaN
     if (!Number.isSafeInteger(total) || total < 0)
       refuse('the matching output count is not a nonnegative safe integer')
     const sources = new Beef()
-    let offset = 0
-    let remaining = wanted.size
-    for (;;) {
+    // Each next page depends on the validated preceding page. Await it before continuing;
+    // this continuation keeps pages serial and never schedules unneeded lookups in advance.
+    const visit = async (
+      page: ListOutputsResult,
+      limit: number,
+      offset: number,
+      remaining: number
+    ): Promise<Beef> => {
       if (page.totalOutputs !== total) refuse('the matching output count changed during listing')
       for (const output of page.outputs) track(output.outpoint)
       if (
@@ -1845,14 +1850,18 @@ export class ColorPermissionModule implements PermissionsModule {
         (page.outputs.length === 0 && offset < total)
       )
         refuse('the listing exceeded its bounds or made no progress')
-      remaining -= mergeSourcePage(sources, page, wanted)
-      offset += page.outputs.length
-      if (remaining === 0 || offset === total) break
-      limit = Math.min(LIST_PAGE_LIMIT, total - offset)
-      page = await this.wallet.listOutputs({ ...query, limit, offset }, originator)
+      const nextRemaining = remaining - mergeSourcePage(sources, page, wanted)
+      const nextOffset = offset + page.outputs.length
+      if (nextRemaining === 0) return sources
+      if (nextOffset === total) refuse('a selected input is missing')
+      const nextLimit = Math.min(LIST_PAGE_LIMIT, total - nextOffset)
+      const next = await this.wallet.listOutputs(
+        { ...query, limit: nextLimit, offset: nextOffset },
+        originator
+      )
+      return await visit(next, nextLimit, nextOffset, nextRemaining)
     }
-    if (remaining > 0) refuse('a selected input is missing')
-    return sources
+    return await visit(first, firstLimit, 0, wanted.size)
   }
 
   /** One basket's token outputs of the asset, read from their locking scripts, excluding selected ones. */
