@@ -220,10 +220,12 @@ export class StorageIdb extends StorageProvider implements WalletStorageProvider
   async initDB(storageName?: string, storageIdentityKey?: string): Promise<IDBPDatabase<StorageIdbSchema>> {
     const chain = this.chain
     const maxOutputScript = 1024
-    const db = await openDB<StorageIdbSchema>(this.dbName, 6, {
+    const db = await openDB<StorageIdbSchema>(this.dbName, 7, {
       upgrade(db, _oldVersion, _newVersion, transaction) {
         upgradeAllStoresV1(db)
         upgradeActionBatchStoresV2(db)
+        const proofs = transaction.objectStore('proven_txs')
+        if (!proofs.indexNames.contains('height')) proofs.createIndex('height', 'height')
         const transactions = transaction.objectStore('transactions')
         if (!transactions.indexNames.contains('txid_userId')) {
           transactions.createIndex('txid_userId', ['txid', 'userId'])
@@ -811,11 +813,11 @@ export class StorageIdb extends StorageProvider implements WalletStorageProvider
   }
 
   override async getProvenTxsReviewStartHeight(): Promise<number | undefined> {
-    let minimum: number | undefined
-    await this.filterProvenTxs({ partial: {} }, row => {
-      minimum = minimum === undefined ? row.height : Math.min(minimum, row.height)
-    })
-    return minimum
+    const dbTrx = this.toDbTrx(['proven_txs'], 'readonly')
+    const cursor = await dbTrx.objectStore('proven_txs').index('height').openKeyCursor()
+    const height = cursor === null ? undefined : Number(cursor.key)
+    await dbTrx.done
+    return height
   }
 
   async findProvenTxs(args: FindProvenTxsArgs): Promise<TableProvenTx[]> {
