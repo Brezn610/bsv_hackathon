@@ -6,6 +6,13 @@ attention to changes that materially alter behavior or extend functionality.
 
 ## wallet-toolbox 2.15.0
 
+- `GoChaintracksServiceClient` accepts Go orphan-hash reorg announcements as well
+  as the existing TypeScript shape. Orphan headers are resolved sequentially under
+  one event deadline and validated before Monitor receives the ordered list.
+  Adds `streamErrorCount` and optional bounded `onStreamError` diagnostics.
+  Rejected events do not discard following complete events in the same chunk.
+  No listener, schema or consumer migration is required.
+
 - `TaskReorg` rechecks the latest 12 heights after each processed tip without
   requiring reorg events. It persists unresolved recovery ranges before remote
   work and retries them once per minute, including after restart and after
