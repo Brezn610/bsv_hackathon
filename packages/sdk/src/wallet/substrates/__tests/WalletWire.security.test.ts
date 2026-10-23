@@ -420,12 +420,34 @@ describe('WalletWire strict binary framing', () => {
       totalOutputs: 2 ** 40,
       outputs: []
     })
-    await expect(read(frame(2n ** 64n - 1n))).resolves.toEqual({
-      totalOutputs: 2 ** 64,
+    // The largest double below 2^64 is exact; 2^64 - 1 rounds to 2^64, outside the bound.
+    await expect(read(frame(2n ** 64n - 2048n))).resolves.toEqual({
+      totalOutputs: 2 ** 64 - 2048,
       outputs: []
     })
+    await expect(read(frame(2n ** 64n - 1n))).rejects.toThrow('unsigned 64-bit wire representation')
     // A count frame keeps its 2^32 - 1 bound.
     await expect(read(frame(2n ** 40n), 'savings')).rejects.toThrow('listOutputs totalOutputs')
+  })
+
+  it('keeps canonical CompactSize framing for a balance frame', async () => {
+    const read = async (bytes: number[]) =>
+      await new WalletWireTransceiver({ transmitToWallet: async () => bytes }).listOutputs({
+        basket: 'p color balance aa'
+      })
+    const beefAbsent = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]
+    // 1 encoded with a 3-, 5- and 9-byte prefix.
+    for (const total of [
+      [0xfd, 0x01, 0x00],
+      [0xfe, 0x01, 0x00, 0x00, 0x00],
+      [0xff, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    ]) {
+      await expect(read([0, ...total, ...beefAbsent])).rejects.toThrow('non-canonical varInt')
+    }
+    // Truncated varints.
+    for (const total of [[0xfd, 0x01], [0xfe, 0x01, 0x00, 0x01], [0xff, 0x01, 0x00, 0x00, 0x00, 0x01]]) {
+      await expect(read([0, ...total])).rejects.toThrow('exceeds available data')
+    }
   })
 
   it('frames Unicode discovery attributes by UTF-8 byte length', async () => {

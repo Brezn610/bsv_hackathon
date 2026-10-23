@@ -1301,6 +1301,11 @@ export default class WalletWireProcessor implements WalletWire {
             resultWriter.writeUInt8(0) // errorByte = 0
 
             // totalOutputs
+            if (outputsPage.total >= 2 ** 64) {
+              throw new Error(
+                'listOutputs balance totalOutputs must be below 2^64 (unsigned 64-bit wire representation)'
+              )
+            }
             resultWriter.writeVarIntNum(outputsPage.total)
 
             // BEEF length and BEEF or -1

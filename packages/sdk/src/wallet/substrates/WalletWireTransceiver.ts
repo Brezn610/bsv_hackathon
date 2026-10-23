@@ -71,6 +71,7 @@ import { validateWalletArgs } from '../WalletArgumentValidation.js'
 import { isBalanceQuery } from '../moduleBalanceQuery.js'
 import { snapshotWalletResultRequest, validateWalletResult } from '../WalletResultValidation.js'
 import { isUnsafeRecordKey } from '../../primitives/SafeRecord.js'
+import { readVarIntBnStrict } from '../../primitives/readVarIntNumStrict.js'
 
 const MAX_WIRE_RESPONSE_COLLECTION_ITEMS = 100_000
 
@@ -713,9 +714,9 @@ export default class WalletWireTransceiver implements WalletInterface {
 
     const result = await this.#transmit('listOutputs', originator, paramWriter.toUint8Array())
     const resultReader = new ReaderUint8Array(result)
-    // A BRC-112 balance is not an output count: read the full varint, rounded above 2^53.
+    // A BRC-112 balance is not an output count: read the full canonical varint, rounded above 2^53.
     const totalOutputs = isBalanceQuery(args.basket)
-      ? Number(resultReader.readVarIntBn().toString(10))
+      ? Number(readVarIntBnStrict(resultReader).toString(10))
       : this.#requireInteger(
           resultReader.readVarIntNumStrict(false),
           'listOutputs totalOutputs',

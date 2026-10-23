@@ -2311,10 +2311,20 @@ describe('BRC-112 balance results', () => {
 
   it('accept balances above 2^32 - 1 and above 2^53 for both balance forms', () => {
     for (const basket of ['balance default', 'p color balance aa']) {
-      for (const totalOutputs of [2 ** 32, 2 ** 53 + 2, 2 ** 70]) {
+      for (const totalOutputs of [2 ** 32, 2 ** 53 + 2, 2 ** 64 - 2048]) {
         expect(
           validateWalletResult('listOutputs', { totalOutputs, outputs: [] }, { basket })
         ).toEqual({ totalOutputs, outputs: [] })
+      }
+    }
+  })
+
+  it('reject balances at or above 2^64, the unsigned 64-bit wire bound', () => {
+    for (const basket of ['balance default', 'p color balance aa']) {
+      for (const totalOutputs of [2 ** 64, 2 ** 70, Number.MAX_VALUE]) {
+        expect(() =>
+          validateWalletResult('listOutputs', { totalOutputs, outputs: [] }, { basket })
+        ).toThrow('unsigned 64-bit wire representation')
       }
     }
   })

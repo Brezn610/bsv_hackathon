@@ -1784,6 +1784,17 @@ describe('WalletWire Integration Tests', () => {
       }
     })
 
+    it('rejects a balance of 2^64 or more instead of wrapping it on the wire', async () => {
+      for (const basket of ['balance default', 'p color balance aa']) {
+        for (const totalOutputs of [2 ** 64, 2 ** 70, Number.MAX_VALUE]) {
+          const wallet = createTestWalletWire(
+            mockUnsupportedMethods({ listOutputs: jest.fn().mockResolvedValue({ totalOutputs, outputs: [] }) })
+          )
+          await expect(wallet.listOutputs({ basket })).rejects.toThrow('unsigned 64-bit wire representation')
+        }
+      }
+    })
+
     it('rejects a module balance that is not a nonnegative integer', async () => {
       for (const totalOutputs of ['5', -1, 1.5]) {
         const wallet = createTestWalletWire(

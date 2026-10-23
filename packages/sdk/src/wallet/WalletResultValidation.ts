@@ -2094,8 +2094,18 @@ function validateListOutputs(result: UnknownRecord, call: string, request?: unkn
   const requestArgs = requestRecord(request)
   if (isBalanceQuery(requestArgs?.basket)) {
     const balance = result.totalOutputs
-    if (typeof balance !== 'number' || !intrinsicNumberIsInteger(balance) || balance < 0) {
-      invalid(call, 'totalOutputs', 'a nonnegative integer balance for a balance query')
+    // The binary transport carries a balance as a CompactSize: an unsigned 64-bit integer.
+    if (
+      typeof balance !== 'number' ||
+      !intrinsicNumberIsInteger(balance) ||
+      balance < 0 ||
+      balance >= 2 ** 64
+    ) {
+      invalid(
+        call,
+        'totalOutputs',
+        'a nonnegative integer balance below 2^64 (unsigned 64-bit wire representation) for a balance query'
+      )
     }
     if (!arrayIsArray(result.outputs) || result.outputs.length !== 0) {
       invalid(call, 'outputs', 'an empty array for a balance query')
