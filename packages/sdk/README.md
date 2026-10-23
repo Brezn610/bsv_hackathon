@@ -28,6 +28,28 @@ See [identity integration](../../docs/guides/identity-did-vc.md) and
 [migration guidance](../../docs/guides/identity-did-vc-migration.md) before upgrading.
 This is a source candidate; publication and deployment are separate actions.
 
+## Module balances and listOutputs spendability (4.0 candidate)
+
+`ListOutputsResult.totalOutputs` is `PositiveIntegerOrZero | DecimalString`. A
+BRC-112 module balance query (`p <module> balance <basket>`) returns the exact
+balance as decimal text, with no outputs and no BEEF. Every other query still
+returns a count. The binary `listOutputs` response carries that text and each
+output's `spendable` byte, so both ends of a binary wallet connection must be
+on 4.0.
+
+Code that uses `totalOutputs` as a number narrows it first:
+
+```ts
+// 3.x
+const { totalOutputs } = await wallet.listOutputs({ basket: 'default' })
+const pages = Math.ceil(totalOutputs / 100)
+
+// 4.0
+const { totalOutputs } = await wallet.listOutputs({ basket: 'default' })
+if (typeof totalOutputs !== 'number') throw new Error('Expected an output count')
+const pages = Math.ceil(totalOutputs / 100)
+```
+
 ## Wallet integration
 
 For application-to-wallet integrations, the SDK exposes the BRC-100 `WalletClient` interface. BSV Desktop and BSV Browser are the BSV Association reference implementations for this interface; vendor distributions such as Babbage's Metanet Desktop / Metanet Explorer and Hudos Browser can implement the same interface with their own branding and service defaults.
@@ -616,3 +638,12 @@ Use a wallet with the matching Toolbox parser fix. The binary wire format is
 unchanged and cannot carry structured review evidence; choose a compatible
 transport before financial operations rather than retrying an ambiguous failure.
 No BRC-100 call or storage-schema migration is required.
+
+### Existing certificate compatibility
+
+The 4.0.0 source candidate restores bounded historical certificate types through
+existing listing, proof, discovery, relinquishment and authentication APIs. New
+signing and acquisition still require exactly 32 type bytes. Legacy binary
+operations require upgraded adapters at both endpoints, including registration
+of the internal HTTP transport endpoint when using `HTTPWalletWire`; ordinary
+encodings are unchanged. See [the protocol and rollout contract](../../specs/wallet/legacy-certificate-wire.md).

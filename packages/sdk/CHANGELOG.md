@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec2.0.0.html).
 
+## Legacy certificate compatibility (4.0.0 candidate)
+
+- Restore existing certificate listing, discovery, proof, relinquishment, signature
+  verification and BRC-103 requests for canonical Base64 types of 1–128 bytes.
+  New signing and both acquisition protocols still require exactly 32 bytes.
+- Add an opt-in binary substrate profile with sentinel type slots and phantom
+  certificate metadata; original signed objects and ordinary encodings remain
+  unchanged. Binary HTTP includes a dedicated internal capability endpoint and
+  explicit missing-route probe fallback; wallet routers must register the new
+  transport route. Both adapters must upgrade for legacy binary use. No new BRC-100
+  app API or storage schema/RPC is required; strict remote relinquishment servers
+  must upgrade their SDK reference validator.
+- Historical note: SDK 2.8.0 began rejecting non-32-byte types accepted by earlier
+  signing/JSON paths. Those types never reliably round-tripped through the old
+  fixed-width binary parser. This profile restores their use without reissuance.
+
 ## Table of Contents
 
 - [Unreleased](#unreleased)
@@ -214,7 +230,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
-### Fixed (3.2.2 candidate)
+### Fixed (4.0.0 candidate)
 
 - `verifyNonce` returns `false` when the wallet rejects an HMAC mismatch
   (`ERR_INVALID_HMAC`, or an error whose message is exactly `HMAC is not valid`)
@@ -222,6 +238,35 @@ All notable changes to this project will be documented in this file. The format 
   unverifiable-nonce error, and an authentication server can answer 401 so
   `AuthFetch` drops the stale session and re-handshakes (issue #1086).
   Other wallet failures still reject. No API, wire, or wallet-data migration.
+
+### Overlay topic and lookup service names (4.0.0 candidate)
+
+- `TopicBroadcaster` (`SHIPBroadcaster`) topics and `OverlayAdminTokenTemplate`
+  SHIP/SLAP names accept the `tm_` or `ls_` prefix followed by lowercase
+  letters and digits in segments joined by single underscores, up to 256 bytes
+  (the overlay engine's topic limit). The previous grammar allowed letters only
+  and 50 characters, which refused the BRC-207 per-asset names
+  `tm_color_<txid>_<vout>` and `ls_color_<txid>_<vout>`. Leading, trailing and
+  consecutive underscores, uppercase, other characters and a missing prefix are
+  still rejected.
+- Adds `isOverlayTopicName`, `isOverlayLookupServiceName`,
+  `OVERLAY_TOPIC_NAME_PATTERN`, `OVERLAY_LOOKUP_SERVICE_NAME_PATTERN` and
+  `MAX_OVERLAY_NAME_BYTES` to the overlay tools exports.
+- Migration: none. Every name accepted before is still accepted.
+
+### BRC-112 module balances and listOutputs spendability (4.0.0 candidate)
+
+- `ListOutputsResult.totalOutputs` is `PositiveIntegerOrZero | DecimalString`.
+  A BRC-112 module balance query (`p <module> balance <basket>`) returns the
+  exact balance as canonical decimal text with no outputs and no BEEF; every
+  other query still returns a count. Result validation requires decimal text
+  for those queries and rejects it for all others.
+- The BRC-100 binary `listOutputs` response carries the module balance as a
+  UTF-8 string and each output's `spendable` byte after its locking script, as
+  BRC-100 specifies. Both sides of a binary connection must update together:
+  earlier codecs neither write nor read the `spendable` byte.
+- Migration: TypeScript that compares or adds `totalOutputs` must first check
+  `typeof totalOutputs === 'number'`. Ordinary baskets always return a number.
 
 ### Fixed (3.2.1 candidate)
 
