@@ -112,6 +112,8 @@ describe('TaskReorg recent-height review', () => {
     m.monitor.lastNewHeader = { height: 100, hash: 'tip-100' }
 
     expect(await task.runTask()).toContain('review unavailable')
+    expect(m.chaintracks.findHeaderForHeight).toHaveBeenCalledTimes(1)
+    expect(m.monitor.logEvent).toHaveBeenLastCalledWith('ReorgRecovery', expect.stringContaining('[[97,100]]'))
     expect(task.trigger(Date.now()).run).toBe(false)
     expect(task.trigger(Date.now() + 60_000).run).toBe(true)
 

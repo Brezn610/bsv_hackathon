@@ -59,7 +59,10 @@ export async function reviewProvenTxHeights(monitor: Monitor, range: HeightRange
       // A transient header/proof/storage failure must not erase the rest of the batch.
       // Do not copy remote exception text into durable monitor diagnostics.
       result.log += `  height ${height} review unavailable\n`
-      result.unresolvedHeights.push(height)
+      // Stop this batch after a transport/storage exception: repeatedly waiting on
+      // the same unavailable provider would block every other monitor task.
+      for (let pending = height; pending <= range.maxHeight; pending++) result.unresolvedHeights.push(pending)
+      return
     }
     return await reviewNext(height + 1)
   }
