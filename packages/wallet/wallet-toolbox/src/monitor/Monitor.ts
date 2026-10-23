@@ -212,9 +212,10 @@ export class Monitor {
       // comment on `supportsReorgEvents`): `false` means subscribeHeaders /
       // subscribeReorgs are unsupported stubs that must not be called, e.g.
       // ChaintracksServiceClient, an HTTP-polling client. TaskNewHeader polls
-      // height, but TaskReorg only drains deactivated-header notifications.
-      // TaskReviewProvenTxs supplies a separate lagged proof audit; there is
-      // no reorg polling fallback here. Skip without touching the network.
+      // the tip. TaskReorg checks recent proofs and journals unresolved heights
+      // and observed tip gaps for bounded retries independent of push events.
+      // TaskReviewProvenTxs bootstraps its separate lagged audit from a safe
+      // proof-height lower bound. Skip push registration without touching the network.
       if (eventSource.supportsReorgEvents === false) return
       const actualChain = await eventSource.getChain()
       if (actualChain !== this.chain) {
@@ -421,12 +422,11 @@ export class Monitor {
    * Best-effort attempt to (re)register the optional Chaintracks header/reorg
    * push subscriptions ahead of this scheduler tick.
    *
-   * TaskNewHeader polls height; TaskReorg only drains deactivated-header
-   * notifications. TaskReviewProvenTxs supplies a separate lagged proof
-   * audit. An offline,
-   * unimplemented (see the `supportsReorgEvents` skip in `_init`), or
-   * otherwise misconfigured event source must not stop the scheduler that
-   * runs every other maintenance task.
+   * TaskNewHeader polls the tip. TaskReorg handles deactivated-header events,
+   * checks a recent proof window at each processed tip and retries journaled
+   * heights and observed tip gaps even without another event. TaskReviewProvenTxs
+   * supplies the separate lagged proof audit. A failed, unsupported or offline
+   * event source must not stop these tasks or the rest of the scheduler.
    *
    * A failure here is swallowed and logged once per outage; the `ready`
    * getter's own `.catch` resets `_readyInit` first, so the *next* call to
