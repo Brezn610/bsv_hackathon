@@ -6,6 +6,14 @@ attention to changes that materially alter behavior or extend functionality.
 
 ## wallet-toolbox 2.15.0
 
+- With the compatibility SDK, existing certificate references accept bounded
+  historical types through the normal BRC-100 APIs. Storage listing and proof
+  retain their existing queries; relinquishment inherits the updated SDK
+  reference validator on both manager and provider. Upgrade the remote storage
+  SDK for legacy relinquishment. No records, signatures or schemas are rewritten,
+  and new signing/acquisition remain strict at 32 bytes.
+
+
 - Adds a `regtest` `Chain` for Teranode regression-network deployments
   (go-chaincfg `RegressionNetParams`). `genesisHeader('regtest')` returns the
   canonical regtest genesis header; `ChaintracksServiceClient` and
@@ -29,6 +37,15 @@ attention to changes that materially alter behavior or extend functionality.
   sending it to a relative URL, which a browser resolves against the page's
   origin. `Services.hashToHeader` no longer falls back to WhatsOnChain on those
   networks, so their headers come only from ChainTracks.
+- BRC-177 `p nosend expiry never` is supported. The anchor funds the protected
+  action without a reclaim allowance, no reclaim transaction is built or
+  armed, and the action has no deadline, so the monitor never reclaims it. An
+  unreleased `never` action can still be aborted; aborting a released one, in
+  any later state, fails because its payment is permanently sent. Released
+  `never` actions are left out of the expiry lifecycle scan, and storage
+  `createAction` refuses caller-supplied BRC-177 metadata. `Brc177NoSendExpiryMode` gains
+  `never`, `Brc177NoSendExpiry.value` is `null` for it, and the activation
+  result's `deadline` is `null`.
 - `WalletPermissionsManager` passes `signAction` through the permission modules
   that handled the action's `createAction`, both for a caller's `signAction`
   and for the signing step of a one-call `createAction`. Modules receive it via
