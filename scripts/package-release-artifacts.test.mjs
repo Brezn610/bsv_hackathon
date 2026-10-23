@@ -4,7 +4,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { parse as parseYaml } from 'yaml'
 
 import {
   canonicalizePackedManifest,
@@ -30,14 +29,12 @@ const PROJECTS_PATH = path.join(REPOSITORY_ROOT, 'governance/repository-health/p
 
 test('the workspace build uses the governed npm artifact runtime', () => {
   const policy = JSON.parse(fs.readFileSync(POLICY_PATH, 'utf8'))
-  const workflow = parseYaml(
-    fs.readFileSync(path.join(REPOSITORY_ROOT, '.github/workflows/ci.yml'), 'utf8')
-  )
-  const setup = workflow.jobs.build.steps.filter(step =>
-    step.uses?.startsWith('actions/setup-node@')
-  )
-  assert.equal(setup.length, 1)
-  assert.equal(setup[0].with['node-version'], policy.buildRuntime.node)
+  // Repository-health runs these contracts before installing dependencies.
+  const workflow = fs.readFileSync(path.join(REPOSITORY_ROOT, '.github/workflows/ci.yml'), 'utf8')
+  const build = workflow.split(/(?=^  [\w-]+:\n)/m).find(job => job.startsWith('  build:\n'))
+  assert.ok(build)
+  const versions = [...build.matchAll(/^\s+node-version: (.+)$/gm)].map(match => match[1])
+  assert.deepEqual(versions, [policy.buildRuntime.node])
 })
 
 test('deterministic UUIDs are stable RFC 9562 version 8 identifiers', () => {
