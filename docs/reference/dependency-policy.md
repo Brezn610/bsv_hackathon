@@ -157,7 +157,7 @@ The available Puppeteer upgrade selects an adapter without the provenance
 required by the existing no-downgrade policy.
 
 An exact-parent removal excludes only `puppeteer-core@25.11.0>chromium-bidi`;
-the harness explicitly selects CDP and retains its full browser, WASM, worker,
+the unchanged harness retains Chrome's existing CDP default and its full browser, WASM, worker,
 CSP and streaming-fallback assertions. Public package APIs, application-wallet
 transports, audit thresholds and provenance protections are unchanged. The
 remaining Zod 4 mutation-tooling path has a narrow patched-version floor
@@ -389,9 +389,11 @@ are the same governed false positive after workflow line movement; retain the
 check and the exception evidence rather than deleting the deterministic lock
 refresh.
 
-Breaking major upgrades are handled as focused migrations with an explicit
-compatibility and rollback plan. They are not forced into the workspace through
-transitive overrides.
+Major dependency upgrades require focused compatibility work and an explicit
+rollback plan. They must preserve the [compatibility contract](../about/compatibility.md),
+including existing application-wallet boundaries; a major version or migration
+plan never authorizes breaking those contracts. Do not force incompatible
+dependency APIs into the workspace through transitive overrides.
 
 See [Release and Operations Guide](./release-operations.md) for the complete
 preflight, publication, reconciliation, image, failure, and rollback path.

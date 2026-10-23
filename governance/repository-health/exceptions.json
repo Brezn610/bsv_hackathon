@@ -416,7 +416,7 @@
       "category": "override",
       "target": "Exact puppeteer-core@25.11.0 chromium-bidi dependency removal in the private CDP browser test harness",
       "owner": "ts-stack-maintainers",
-      "reason": "VeriFast browser qualification launches Chrome over CDP and does not use WebDriver BiDi. Puppeteer loads the BiDi implementation dynamically only for that protocol. Its unused chromium-bidi 17.0.2 path retains vulnerable Zod 3; available Puppeteer 25.13-25.16 upgrades select a chromium-bidi release without the provenance required by the existing no-downgrade policy. Remove only that unused exact-parent dependency and explicitly select CDP in the harness. No public package contract, browser test assertion, audit threshold or provenance control changes.",
+      "reason": "VeriFast browser qualification launches Chrome over CDP and does not use WebDriver BiDi. Puppeteer loads the BiDi implementation dynamically only for that protocol. Its unused chromium-bidi 17.0.2 path retains vulnerable Zod 3; available Puppeteer 25.13-25.16 upgrades select a chromium-bidi release without the provenance required by the existing no-downgrade policy. Remove only that unused exact-parent dependency and retain the unchanged harness and Chrome's existing CDP default. No public package contract, browser test assertion, audit threshold or provenance control changes.",
       "evidence": [
         "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5",
         "https://github.com/puppeteer/puppeteer/releases/tag/puppeteer-core-v25.13.0",
