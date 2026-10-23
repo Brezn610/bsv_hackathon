@@ -790,6 +790,33 @@ describe('ColorPermissionModule', () => {
       expect(internals().bound.size).toBe(0)
     })
 
+    it.each(['absent', 'malformed', 'unrelated'] as const)(
+      'preserves staged inputs after an %s transaction response until the matching result arrives',
+      async kind => {
+        const [held] = await holdTokens(wallet, provider, assetId, [300n])
+        const funded = await fund()
+        const created = await wallet.createAction(funded)
+        const unrelated = new Transaction()
+        unrelated.addOutput({ lockingScript: LockingScript.fromASM('OP_TRUE'), satoshis: 1 })
+        const result =
+          kind === 'absent'
+            ? { txid: 'a'.repeat(64) }
+            : { tx: kind === 'malformed' ? [0] : unrelated.toAtomicBEEF() }
+
+        await expect(
+          module.onResponse(result, { method: 'createAction', originator: APP })
+        ).resolves.toBe(result)
+        expect([...internals().staged.keys()]).toEqual([outpointOf(held)])
+        expect(internals().bound.size).toBe(0)
+
+        await module.onResponse(created, { method: 'createAction', originator: APP })
+        expect(internals().staged.size).toBe(0)
+        const signed = await wallet.signAction(await signHook(signingAction(created)))
+        expect(validInput(Transaction.fromAtomicBEEF(signed.tx!), 0)).toBe(true)
+        expect(internals().bound.size).toBe(0)
+      }
+    )
+
     it('defers to storage once the createAction has come back', async () => {
       await holdTokens(wallet, provider, assetId, [300n])
       const { created } = await fundAndCreate()
@@ -1052,6 +1079,42 @@ describe('ColorPermissionModule', () => {
       )
     })
 
+    it.each(['reserved', 'staged'] as const)(
+      'refuses an app-named input already %s by another action',
+      async state => {
+        const [held] = await holdTokens(wallet, provider, assetId, [300n])
+        const output = await recipientOutput(wallet, new FakeWallet(), assetId, 100n)
+        const first = await fund({ outputs: [output] })
+        if (state === 'reserved') {
+          const created = await wallet.createAction(first)
+          await module.onResponse(created, { method: 'createAction', originator: APP })
+        }
+        await expect(
+          fund({
+            inputs: [
+              { outpoint: outpointOf(held), unlockingScriptLength: 108, inputDescription: 'Mine' }
+            ],
+            outputs: [output]
+          })
+        ).rejects.toThrow('BRC-207: an explicit p color input is reserved by another action')
+        expect(prompts).toEqual([])
+      }
+    )
+
+    it('refuses an app-named token input whose wallet record has no custody instructions', async () => {
+      const [held] = await holdTokens(wallet, provider, assetId, [300n])
+      wallet.outputs.get(outpointOf(held))!.customInstructions = undefined
+      await expect(
+        fund({
+          inputs: [
+            { outpoint: outpointOf(held), unlockingScriptLength: 108, inputDescription: 'Mine' }
+          ],
+          outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
+        })
+      ).rejects.toThrow('BRC-207: an explicit p color input is not a managed token output')
+      expect(prompts).toEqual([])
+    })
+
     it('lists a selected output by the suffix tag it carries, whatever its value', async () => {
       const [retagged] = await holdTokens(wallet, provider, assetId, [300n, 200n])
       const tag = derivationSuffixTag('another suffix')
@@ -1079,6 +1142,38 @@ describe('ColorPermissionModule', () => {
         `BRC-207: the wallet returned other outputs than the selected token inputs: missing ${outpointOf(selected)}; extra ${outpointOf(intruder)}`
       )
     })
+
+    it.each(['missing', 'duplicate'] as const)(
+      'refuses a source listing with a %s selected output even when no foreign output is returned',
+      async kind => {
+        const [held] = await holdTokens(wallet, provider, assetId, [300n])
+        const listOutputs = wallet.listOutputs.bind(wallet)
+        wallet.listOutputs = async args => {
+          const result = await listOutputs(args)
+          if (args.include === 'entire transactions') {
+            result.outputs = kind === 'missing' ? [] : [...result.outputs, result.outputs[0]]
+          }
+          return result
+        }
+        await expect(
+          fund({ outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)] })
+        ).rejects.toThrow(
+          `BRC-207: the wallet returned other outputs than the selected token inputs: missing ${
+            kind === 'missing' ? outpointOf(held) : 'none'
+          }; extra none`
+        )
+        expect(prompts).toEqual([])
+        wallet.listOutputs = listOutputs
+        // A refused listing must release the selection so a corrected response can fund it.
+        expect(
+          (
+            await fund({
+              outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
+            })
+          ).inputs?.map(input => input.outpoint)
+        ).toEqual([outpointOf(held)])
+      }
+    )
 
     it('merges the caller’s inputBEEF with the module’s', async () => {
       const [selected] = await holdTokens(wallet, provider, assetId, [300n])
