@@ -60,6 +60,7 @@ export class ReorgRecovery {
   }
 
   next(tipHeight: number, budget: number): RecoveryRange | undefined {
+    if (budget <= 0) return undefined
     const eligible = this.ranges.filter(range => range[0] <= tipHeight)
     const range = eligible.find(range => range[1] >= this.cursor) ?? eligible[0]
     if (!range) return undefined

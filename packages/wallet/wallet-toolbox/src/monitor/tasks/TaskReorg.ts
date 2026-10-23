@@ -155,6 +155,11 @@ export class TaskReorg extends WalletMonitorTask {
   }
 
   async runTask(): Promise<string> {
+    await this.asyncSetup()
+    if (this.recentDepth > 0 && this.process.length > 0) {
+      for (const header of this.process) this.recovery.add(header.header.height, header.header.height)
+      await this.monitor.logEvent('ReorgRecovery', JSON.stringify(this.recovery))
+    }
     let log = ''
 
     for (;;) {
