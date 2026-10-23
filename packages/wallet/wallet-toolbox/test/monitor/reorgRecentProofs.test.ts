@@ -1,9 +1,18 @@
 import { Beef, CachedKeyDeriver, PrivateKey, Script, Transaction, Utils } from '@bsv/sdk'
 import { Knex, knex as makeKnex } from 'knex'
+import { once } from 'node:events'
+import { createServer, ServerResponse } from 'node:http'
+import { AddressInfo } from 'node:net'
 import { Wallet } from '../../src/Wallet'
 import { MockServices } from '../../src/mockchain/MockServices'
 import { Monitor } from '../../src/monitor/Monitor'
 import { TaskReorg } from '../../src/monitor/tasks/TaskReorg'
+import { GoChaintracksServiceClient } from '../../src/services/chaintracker/chaintracks/GoChaintracksServiceClient'
+import {
+  blockHash,
+  validateHeaderProofOfWork
+} from '../../src/services/chaintracker/chaintracks/util/blockHeaderUtilities'
+import { BlockHeader } from '../../src/sdk/WalletServices.interfaces'
 import { StorageKnex } from '../../src/storage/StorageKnex'
 import { WalletStorageManager } from '../../src/storage/WalletStorageManager'
 import { ScriptTemplateBRC29 } from '../../src/utility/ScriptTemplateBRC29'
@@ -22,7 +31,7 @@ import { asArray } from '../../src/utility/utilityHelpers.noBuffer'
  * selected a coin proven by the winning block at the same height carried two BUMPs with
  * different roots at one height, and the merged BEEF failed validation.
  */
-describe('TaskReorg re-proves recent proofs without reorg events', () => {
+describe('TaskReorg proof recovery through wallet storage', () => {
   jest.setTimeout(120_000)
 
   let chainDb: Knex
@@ -105,13 +114,14 @@ describe('TaskReorg re-proves recent proofs without reorg events', () => {
     ).resolves.toMatchObject({ accepted: true })
   }
 
-  async function createWallet(): Promise<{
+  async function createWallet(chaintracks?: GoChaintracksServiceClient): Promise<{
     wallet: Wallet
     monitor: Monitor
     storage: WalletStorageManager
     destroy: () => Promise<void>
   }> {
     const rootKey = PrivateKey.fromHex(randomBytesHex(32))
+    const chain = chaintracks?.chain ?? 'mock'
     const db = makeKnex({
       client: 'better-sqlite3',
       connection: { filename: ':memory:' },
@@ -119,7 +129,7 @@ describe('TaskReorg re-proves recent proofs without reorg events', () => {
       pool: { min: 1, max: 1 }
     })
     const provider = new StorageKnex({
-      chain: 'mock',
+      chain,
       knex: db,
       commissionSatoshis: 0,
       feeModel: { model: 'sat/kb', value: 1 }
@@ -130,10 +140,11 @@ describe('TaskReorg re-proves recent proofs without reorg events', () => {
     await storage.makeAvailable()
     storage.setServices(services)
     const monitor = new Monitor({
-      chain: 'mock',
+      chain,
       storage,
       services,
-      chaintracks: services.tracker as any,
+      chaintracks: chaintracks ?? (services.tracker as any),
+      chaintracksWithEvents: chaintracks,
       msecsWaitPerMerkleProofServiceReq: 0,
       taskRunWaitMsecs: 5_000,
       abandonedMsecs: 300_000,
@@ -142,8 +153,8 @@ describe('TaskReorg re-proves recent proofs without reorg events', () => {
       maxRebroadcastAttempts: 0
     })
     // Only the task under test, driven through the monitor's own scheduler.
-    monitor.addTask(new TaskReorg(monitor))
-    const wallet = new Wallet({ chain: 'mock', keyDeriver: new CachedKeyDeriver(rootKey), storage, services, monitor })
+    monitor.addTask(new TaskReorg(monitor, chaintracks === undefined ? undefined : 0))
+    const wallet = new Wallet({ chain, keyDeriver: new CachedKeyDeriver(rootKey), storage, services, monitor })
     return {
       wallet,
       monitor,
@@ -162,6 +173,20 @@ describe('TaskReorg re-proves recent proofs without reorg events', () => {
     })
     expect(row).toBeDefined()
     return row!
+  }
+
+  async function within(promise: Promise<void>, label: string): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        promise,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), 5000)
+        })
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   test.each(['immediate', 'delayed', 'offline-gap'])(
@@ -263,4 +288,182 @@ describe('TaskReorg re-proves recent proofs without reorg events', () => {
       }
     }
   )
+
+  test('Go-shaped HTTP/SSE reorg repairs real SQLite proofs and validates a two-coin wallet spend', async () => {
+    // The proof/broadcast provider stays synthetic. Mine its actual header fields to the
+    // regtest target so the real HTTP client retains its format/hash/PoW validation.
+    const canonical = new Map<number, BlockHeader>()
+    const byHash = new Map<string, BlockHeader>()
+    const syncHeaders = async (): Promise<void> => {
+      const rows = await services.storage.knex('mockchain_block_headers').orderBy('height', 'asc')
+      let previousHash = '00'.repeat(32)
+      for (const row of rows) {
+        const header: BlockHeader = {
+          height: row.height,
+          version: row.version,
+          previousHash,
+          merkleRoot: row.merkleRoot,
+          time: row.time,
+          bits: row.bits,
+          nonce: 0,
+          hash: ''
+        }
+        let mined = false
+        for (let nonce = 0; nonce < 1000; nonce++) {
+          header.nonce = nonce
+          header.hash = blockHash(header)
+          try {
+            validateHeaderProofOfWork(header, 'regtest')
+            mined = true
+            break
+          } catch {
+            // Regtest's easy target keeps this fixture's mining bounded.
+          }
+        }
+        expect(mined).toBe(true)
+        await services.storage.knex('mockchain_block_headers').where({ height: header.height }).update({
+          previousHash: header.previousHash,
+          hash: header.hash,
+          nonce: header.nonce
+        })
+        canonical.set(header.height, header)
+        byHash.set(header.hash, header)
+        previousHash = header.hash
+      }
+    }
+    const requests: string[] = []
+    const streams = new Set<ServerResponse>()
+    let reorgStream!: ServerResponse
+    let streamReady!: () => void
+    const subscribed = new Promise<void>(resolve => {
+      streamReady = resolve
+    })
+    const server = createServer((request, response) => {
+      const path = request.url ?? ''
+      requests.push(path)
+      if (path.endsWith('/stream')) {
+        response.writeHead(200, { 'Content-Type': 'text/event-stream' })
+        response.flushHeaders()
+        streams.add(response)
+        response.on('close', () => streams.delete(response))
+        if (path === '/v2/reorg/stream') {
+          reorgStream = response
+          streamReady()
+        }
+        return
+      }
+      const tip = canonical.get(Math.max(...canonical.keys()))
+      let value: unknown
+      if (path === '/v2/network') value = 'regtest'
+      else if (path === '/v2/height') value = tip?.height
+      else if (path === '/v2/tip') value = tip
+      else if (path.startsWith('/v2/header/height/')) value = canonical.get(Number(path.split('/').at(-1)))
+      else if (path.startsWith('/v2/header/hash/')) value = byHash.get(path.split('/').at(-1)!)
+      response.writeHead(value === undefined ? 404 : 200, { 'Content-Type': 'application/json' })
+      response.end(JSON.stringify(value)) // Go returns raw headers, not legacy envelopes.
+    })
+    services.chain = 'regtest'
+    await syncHeaders()
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const client = new GoChaintracksServiceClient(
+      'regtest',
+      `http://127.0.0.1:${(server.address() as AddressInfo).port}/v2`
+    )
+    const tracker = jest.spyOn(services, 'getChainTracker').mockResolvedValue(client)
+    const { wallet, monitor, storage, destroy } = await createWallet(client)
+    const reprove = jest.spyOn(storage, 'reproveHeader')
+    const delivered = new Promise<void>(resolve => {
+      const processReorg = monitor.processReorg.bind(monitor)
+      jest.spyOn(monitor, 'processReorg').mockImplementation((...args) => {
+        processReorg(...args)
+        resolve()
+      })
+    })
+    try {
+      await within(monitor.ready, 'Monitor readiness')
+      await within(subscribed, 'Go reorg subscription')
+      const a = await postPayment(wallet, 41)
+      const mined = await services.mineBlock()
+      await syncHeaders()
+      const oldTip = canonical.get(mined.height)!
+      const ancestor = canonical.get(oldTip.height - 1)!
+      await internalize(wallet, a, 41)
+      expect((await storedProof(storage, a.txid)).blockHash).toBe(oldTip.hash)
+
+      const b = await postPayment(wallet, 42)
+      await services.reorg(oldTip.height, 2, { [a.txid]: 0, [b.txid]: 0 })
+      await syncHeaders()
+      const replacement = canonical.get(oldTip.height)!
+      const newTip = canonical.get(oldTip.height + 1)!
+      expect(replacement.hash).not.toBe(oldTip.hash)
+      expect(byHash.get(oldTip.hash)).toEqual(oldTip) // The HTTP lookup retains the orphan.
+      await internalize(wallet, b, 42)
+      expect((await storedProof(storage, a.txid)).merkleRoot).toBe(oldTip.merkleRoot)
+      expect((await storedProof(storage, b.txid)).merkleRoot).toBe(replacement.merkleRoot)
+
+      // go-chaintracks v1.4.5 wire contract: descending orphan hashes, raw embedded headers.
+      reorgStream.write(
+        `data: ${JSON.stringify({ depth: 1, orphanedHashes: [oldTip.hash], commonAncestor: ancestor, newTip })}\n\n`
+      )
+      await within(delivered, 'Go reorg delivery')
+      await monitor.reorgInvalidationPromise
+      expect(monitor.deactivatedHeaders.map(item => item.header.hash)).toEqual([oldTip.hash])
+      expect(monitor.lastNewHeader).toBeUndefined() // Event-specific repair must work before tip polling.
+      const now = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1)
+      try {
+        await monitor.runOnce()
+      } finally {
+        now.mockRestore()
+      }
+      expect(reprove).toHaveBeenCalledTimes(1)
+      expect(reprove).toHaveBeenCalledWith(oldTip.hash)
+      expect((await storedProof(storage, a.txid)).blockHash).toBe(replacement.hash)
+      expect((await storedProof(storage, a.txid)).merkleRoot).toBe(replacement.merkleRoot)
+      expect(client.streamErrorCount).toBe(0)
+      expect(requests).toContain(`/v2/header/hash/${oldTip.hash}`)
+
+      // Finish the default recent/gap review through HTTP after the event repair.
+      const beforeRecentReview = requests.length
+      monitor.processNewBlockHeader(newTip)
+      await monitor.runOnce()
+      expect(requests.slice(beforeRecentReview)).toEqual(
+        Array.from({ length: 12 }, (_, index) => `/v2/header/height/${newTip.height - 11 + index}`)
+      )
+      await storage.runAsStorageProvider(async provider => {
+        const [event] = await provider.findMonitorEvents({
+          partial: { event: 'ReorgRecovery' },
+          orderDescending: true,
+          paged: { limit: 1 }
+        })
+        expect(JSON.parse(event.details!)).toMatchObject({
+          ranges: [],
+          reviewedHash: newTip.hash,
+          reviewedHeight: newTip.height
+        })
+      })
+      const spend = await wallet.createAction({
+        description: 'spend both HTTP reorg coins',
+        outputs: [{ satoshis: 1_500_000, lockingScript: '51', outputDescription: 'both coins' }],
+        options: { randomizeOutputs: false }
+      })
+      const beef = Beef.fromBinary(spend.tx!)
+      expect(beef.findTxid(a.txid)?.bumpIndex).toBeDefined()
+      expect(beef.findTxid(b.txid)?.bumpIndex).toBeDefined()
+      expect(beef.bumps.filter(bump => bump.blockHeight === oldTip.height)).toHaveLength(1)
+      expect(beef.verifyValid().valid).toBe(true)
+      expect(await beef.verify(client)).toBe(true)
+    } finally {
+      reprove.mockRestore()
+      await monitor.destroy()
+      await destroy()
+      tracker.mockRestore()
+      services.chain = 'mock'
+      for (const stream of streams) stream.end()
+      server.closeAllConnections()
+      await new Promise<void>((resolve, reject) =>
+        server.close(error => (error === undefined ? resolve() : reject(error)))
+      )
+    }
+  })
 })
