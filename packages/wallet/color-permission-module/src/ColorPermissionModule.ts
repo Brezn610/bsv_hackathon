@@ -129,6 +129,8 @@ export interface ManagedInput extends SourceOutput {
   role: TokenRole
   amount: bigint
   custody: Custody
+  /** The suffix tag the output carries; the module lists its transaction by it. */
+  suffixTag: string
   /** The source transaction as BEEF, when the module made it (a handoff split). */
   sourceBEEF?: BEEF
 }
@@ -191,9 +193,9 @@ function withSuffixTag(
   return [...new Set([...(tags ?? []), suffixTagOf(custody)])]
 }
 
-/** Whether a listed output carries the suffix tag of its custody. */
-function carriesSuffixTag(tags: readonly string[] | undefined, custody: Custody): boolean {
-  return tags?.includes(suffixTagOf(custody)) === true
+/** The suffix tag among a listed output's tags, by which its transaction is listed. */
+function suffixTagIn(tags: readonly string[] | undefined): string | undefined {
+  return tags?.find(isDerivationSuffixTag)
 }
 
 /** The BEEF a listOutputs result returns, empty when it returns none. */
@@ -1023,6 +1025,7 @@ export class ColorPermissionModule implements PermissionsModule {
     if (deploy?.deploy !== true || remittance === undefined) return
     // The underlying wallet merges the insertion into its own signed transaction: the basket and
     // the custody (encrypted at createAction) are assigned and the transaction's status is kept.
+    // The output's tags, set at createAction, are not part of a merge.
     const customInstructions = action.createArgs?.outputs?.[0]?.customInstructions
     await this.wallet.internalizeAction(
       {
@@ -1034,8 +1037,7 @@ export class ColorPermissionModule implements PermissionsModule {
             protocol: 'basket insertion',
             insertionRemittance: {
               basket: assetBasket(deploy.assetId, deploy.role),
-              ...(customInstructions === undefined ? {} : { customInstructions }),
-              tags: [suffixTagOf(remittance)]
+              ...(customInstructions === undefined ? {} : { customInstructions })
             }
           }
         ]
@@ -1299,13 +1301,15 @@ export class ColorPermissionModule implements PermissionsModule {
   ): Promise<void> {
     if (!output.spendable || this.staged.has(output.outpoint) || this.selected.has(output.outpoint))
       throw new Error('BRC-207: an explicit p color input is reserved by another action')
-    const managed = await this.managedInput(output, originator)
-    if (managed === undefined)
+    const untagged = await this.managedInput(output, originator)
+    if (untagged === undefined)
       throw new Error('BRC-207: an explicit p color input is not a managed token output')
-    if (!carriesSuffixTag(output.tags, managed.custody))
+    const suffixTag = suffixTagIn(output.tags)
+    if (suffixTag === undefined)
       throw new Error(
-        `BRC-207: token output ${managed.outpoint} was filed without its suffix tag and is not spendable through the module`
+        `BRC-207: token output ${untagged.outpoint} was filed without its suffix tag and is not spendable through the module`
       )
+    const managed: ManagedInput = { ...untagged, suffixTag }
     await this.assertSupportedAsset(managed.assetId)
     if (
       !(await this.spendable(managed.assetId, [managed])).has(managed.outpoint) &&
@@ -1443,7 +1447,8 @@ export class ColorPermissionModule implements PermissionsModule {
 
   /**
    * The action's deploy, which BRC-162 requires at output 0. An owned deploy keeps its `ISSUE`
-   * key; its asset basket is assigned once the transaction ID is final.
+   * key and is tagged like every owned output; its asset basket is assigned once the transaction
+   * ID is final.
    */
   protected async deployOutput(
     args: CreateActionArgs,
@@ -1478,7 +1483,8 @@ export class ColorPermissionModule implements PermissionsModule {
         this.wallet,
         custodyInstructions(custodyOf(remittance)),
         originator
-      )
+      ),
+      tags: withSuffixTag(output.tags, remittance)
     }
   }
 
@@ -1794,7 +1800,7 @@ export class ColorPermissionModule implements PermissionsModule {
     const listing = await this.wallet.listOutputs(
       {
         basket,
-        tags: selected.map(input => suffixTagOf(input.custody)),
+        tags: selected.map(input => input.suffixTag),
         tagQueryMode: 'any',
         include: 'entire transactions',
         limit: selected.length
@@ -1860,19 +1866,19 @@ export class ColorPermissionModule implements PermissionsModule {
         customInstructions,
         originator
       )
-      // An output not tagged with its custody's suffix cannot be fetched by it, so it is skipped.
-      if (input === undefined || !carriesSuffixTag(tags, input.custody)) return undefined
-      return input
+      const suffixTag = suffixTagIn(tags)
+      if (input === undefined || suffixTag === undefined) return undefined
+      return { ...input, suffixTag }
     } catch {
       return undefined
     }
   }
 
-  /** A `p color` basket output as a managed token input, or undefined when it is not one. */
+  /** A `p color` basket output as a managed token input, before its tag, or undefined when it is not one. */
   protected async managedInput(
     output: WalletOutput,
     originator: string
-  ): Promise<ManagedInput | undefined> {
+  ): Promise<Omit<ManagedInput, 'suffixTag'> | undefined> {
     const source = this.sourceOutput(output)
     const token = readTokenOutput(source.lockingScript, parseOutpoint(output.outpoint))
     if (token === undefined || output.customInstructions === undefined) return undefined
@@ -1884,7 +1890,7 @@ export class ColorPermissionModule implements PermissionsModule {
     output: SourceOutput & { token: TokenOutput },
     customInstructions: string,
     originator: string
-  ): Promise<ManagedInput | undefined> {
+  ): Promise<Omit<ManagedInput, 'suffixTag'> | undefined> {
     const custody = parseCustody(
       await maybeDecryptMetadata(this.wallet, customInstructions, originator),
       undefined,
@@ -1973,6 +1979,7 @@ export class ColorPermissionModule implements PermissionsModule {
       role: 'value',
       amount,
       custody: exact.custody,
+      suffixTag: suffixTagOf(exact.custody),
       sourceBEEF: signed.tx
     }
   }

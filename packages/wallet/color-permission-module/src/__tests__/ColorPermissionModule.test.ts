@@ -1052,13 +1052,16 @@ describe('ColorPermissionModule', () => {
       )
     })
 
-    it('does not select an output tagged for another suffix than its custody’s', async () => {
-      const [mistagged, other] = await holdTokens(wallet, provider, assetId, [300n, 200n])
-      wallet.outputs.get(outpointOf(mistagged))!.tags = [derivationSuffixTag('another suffix')]
+    it('lists a selected output by the suffix tag it carries, whatever its value', async () => {
+      const [retagged] = await holdTokens(wallet, provider, assetId, [300n, 200n])
+      const tag = derivationSuffixTag('another suffix')
+      wallet.outputs.get(outpointOf(retagged))!.tags = [tag]
       const funded = await fund({
         outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
       })
-      expect(funded.inputs?.map(input => input.outpoint)).toEqual([outpointOf(other)])
+      expect(funded.inputs?.map(input => input.outpoint)).toEqual([outpointOf(retagged)])
+      const listing = wallet.listOutputsCalls.find(call => call.include === 'entire transactions')
+      expect(listing?.tags).toEqual([tag])
     })
 
     it('refuses a listing that returns other outputs than the selected ones', async () => {

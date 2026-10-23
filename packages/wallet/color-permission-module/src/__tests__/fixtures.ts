@@ -224,18 +224,23 @@ export class FakeWallet {
     return { aborted: true }
   }
 
+  /**
+   * As the toolbox: an insertion for an output the wallet already holds is merged (basket and
+   * custody assigned, tags left as they are); one for a new output is stored with its tags.
+   */
   async internalizeAction(args: InternalizeActionArgs): Promise<{ accepted: true }> {
     const tx = Transaction.fromAtomicBEEF(args.tx)
     for (const output of args.outputs) {
       const remittance = output.insertionRemittance
-      if (remittance !== undefined)
-        this.store(
-          tx,
-          output.outputIndex,
-          remittance.basket,
-          remittance.customInstructions,
-          remittance.tags
-        )
+      if (remittance === undefined) continue
+      const held = this.outputs.get(`${tx.id('hex')}.${output.outputIndex}`)
+      this.store(
+        tx,
+        output.outputIndex,
+        remittance.basket,
+        remittance.customInstructions,
+        held === undefined ? remittance.tags : held.tags
+      )
     }
     return { accepted: true }
   }
