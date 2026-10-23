@@ -3,7 +3,7 @@ id: pkg-wallet-toolbox-client
 title: '@bsv/wallet-toolbox-client'
 kind: package
 domain: wallet
-version: '2.14.9'
+version: '2.15.0'
 last_updated: '2026-10-13'
 last_verified: '2026-10-13'
 review_cadence_days: 30
@@ -65,8 +65,8 @@ new account even if other hosts fail or return malformed records.
 
 The browser build includes the fetch-based, credential-free ChainTracks v2
 client and reconnecting SSE adapter without Node-only modules. Public defaults
-cover mainnet, testnet, and TerraTestNet; STN/TSTN use an injected or configured
-endpoint.
+cover mainnet, testnet, and TerraTestNet; STN/TSTN and regtest use an injected
+or configured endpoint.
 
 The portable local controller coalesces stale height refresh and immutable
 object loads, applies failed-load backoff, and validates through the asynchronous
