@@ -9,6 +9,7 @@ import {
   validateRelinquishOutputArgs
 } from '@bsv/sdk/wallet/validationHelpers'
 import { SyncPageBudget } from './sync/SyncPageBudget'
+import { assertLiveSyncChainsMatch, throwIfProcessSyncChunkError } from './sync/liveSyncGuards'
 import { validateSyncCheckpoint } from './sync/syncCheckpoint'
 import {
   AbortActionArgs,
@@ -515,6 +516,7 @@ export class WalletStorageManager implements sdk.WalletStorage {
   }
 
   async relinquishCertificate(args: RelinquishCertificateArgs): Promise<number> {
+    // Validate an existing reference, including historical types; acquisition remains strict.
     validateRelinquishCertificateArgs(args)
     return await this.runAsWriter(async writer => {
       const auth = await this.getAuth(true)
@@ -894,6 +896,7 @@ export class WalletStorageManager implements sdk.WalletStorage {
     log = await this.runAsSync(async sync => {
       const writer = sync
       const writerSettings = this.getSettings()
+      assertLiveSyncChainsMatch(readerSettings, writerSettings)
 
       log += `syncFromReader from ${readerSettings.storageName} to ${writerSettings.storageName}\n`
 
@@ -915,6 +918,7 @@ export class WalletStorageManager implements sdk.WalletStorage {
           chunk.user.activeStorage = ((this._active as ManagedStorage).user as TableUser).activeStorage
         }
         const r = await writer.processSyncChunk(pageArgs, chunk)
+        throwIfProcessSyncChunkError(r)
         budget.committed(chunk, Date.now() - startedAt)
         inserts += r.inserts
         updates += r.updates
@@ -949,6 +953,7 @@ export class WalletStorageManager implements sdk.WalletStorage {
     log = await this.runAsSync(async sync => {
       const reader = sync
       const readerSettings = reader.getSettings()
+      assertLiveSyncChainsMatch(readerSettings, writerSettings)
 
       log += progLog(`syncToWriter from ${readerSettings.storageName} to ${writerSettings.storageName}\n`)
 
@@ -967,6 +972,7 @@ export class WalletStorageManager implements sdk.WalletStorage {
         const chunk = await reader.getSyncChunk(pageArgs)
         log += EntitySyncState.syncChunkSummary(chunk)
         const r = await writer.processSyncChunk(pageArgs, chunk)
+        throwIfProcessSyncChunkError(r)
         budget.committed(chunk, Date.now() - startedAt)
         inserts += r.inserts
         updates += r.updates

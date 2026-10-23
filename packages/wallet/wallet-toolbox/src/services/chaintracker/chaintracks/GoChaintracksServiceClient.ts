@@ -759,7 +759,7 @@ export class GoChaintracksServiceClient implements ChaintracksClientApi {
     }
     try {
       validateHeaderFormat(header)
-      validateHeaderProofOfWork(header)
+      validateHeaderProofOfWork(header, this.chain)
     } catch (error) {
       throw new Error(`ChainTracks upstream returned an invalid ${name}: ${safeDiagnostic(error)}`)
     }
@@ -859,6 +859,8 @@ export class GoChaintracksServiceClient implements ChaintracksClientApi {
       case 'tstn':
       case 'teranodescalingtestnet':
         return 'tstn'
+      case 'regtest':
+        return 'regtest'
       default:
         throw new Error(`Unsupported ChainTracks upstream network '${network}'.`)
     }
