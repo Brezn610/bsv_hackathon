@@ -241,6 +241,13 @@ All notable changes to this project will be documented in this file. The format 
   the paths it merged. Offset 0, including `fromCoinbaseTxidAndHeight`, is
   unchanged. Valid proofs need no migration. Fixes #1083.
 
+- `verifyNonce` returns `false` when the wallet rejects an HMAC mismatch
+  (`ERR_INVALID_HMAC`, or an error whose message is exactly `HMAC is not valid`)
+  instead of propagating that rejection. `Peer` can then raise its own
+  unverifiable-nonce error, and an authentication server can answer 401 so
+  `AuthFetch` drops the stale session and re-handshakes (issue #1086).
+  Other wallet failures still reject. No API, wire, or wallet-data migration.
+
 ### Overlay topic and lookup service names (4.0.0 candidate)
 
 - `TopicBroadcaster` (`SHIPBroadcaster`) topics and `OverlayAdminTokenTemplate`
