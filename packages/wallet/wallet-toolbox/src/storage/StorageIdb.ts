@@ -1691,10 +1691,9 @@ export class StorageIdb extends StorageProvider implements WalletStorageProvider
     this.assertNoUndefinedInPartial(args.partial)
     const dbTrx = this.toDbTrx(['monitor_events'], 'readonly', args.trx)
     const store = dbTrx.objectStore('monitor_events')
-    const cursor =
-      args.partial?.id != null && args.partial.id !== 0
-        ? await store.openCursor(args.partial.id, args.orderDescending ? 'prev' : 'next')
-        : await store.openCursor(null, args.orderDescending ? 'prev' : 'next')
+    const direction = args.orderDescending ? 'prev' : 'next'
+    const query = args.partial?.id != null && args.partial.id !== 0 ? args.partial.id : null
+    const cursor = await store.openCursor(query, direction)
     await scanCursor<TableMonitorEvent>(
       cursor,
       args.since,
