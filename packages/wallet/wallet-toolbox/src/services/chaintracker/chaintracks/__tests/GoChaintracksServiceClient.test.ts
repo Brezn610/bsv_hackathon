@@ -433,7 +433,9 @@ describe('GoChaintracksServiceClient', () => {
       { depth: 2, oldTip, newTip, deactivatedHeaders: [oldTip, oldTip] },
       { depth: 2, oldTip, newTip, deactivatedHeaders: [oldTip, other] }
     ]) {
-      await expect(consume(payload, new AbortController().signal)).rejects.toThrow()
+      const previousErrors = client.streamErrorCount
+      await consume(payload, new AbortController().signal)
+      expect(client.streamErrorCount).toBe(previousErrors + 1)
     }
     expect(listener).not.toHaveBeenCalled()
   })

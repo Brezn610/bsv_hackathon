@@ -632,7 +632,9 @@ and uses `maxReorgHeaders`, one `requestTimeoutMsecs` deadline per event, and
 unsubscribe cancellation to bound the work. Existing reorg listener arguments
 are unchanged. `streamErrorCount` exposes malformed events and stream failures;
 optional `onStreamError(message)` receives single-line diagnostics capped at
-512 characters. Observer exceptions do not stop later events. These events do
+512 characters. Observer exceptions do not stop later events. A rejected event is reported and
+subsequent complete events already received in the same SSE chunk still run in
+order. These events do
 not by themselves prove the server's canonical-chain selection.
 
 The legacy `BHServiceClient` applies the same endpoint, whole-body deadline,

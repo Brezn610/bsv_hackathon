@@ -217,3 +217,101 @@ test('uses one deadline across multiple orphan lookups', async () => {
     jest.useRealTimers()
   }
 })
+
+test.each([
+  ['unknown keys', { ...goEvent, extra: true }],
+  ['invalid depth', { ...goEvent, depth: -1 }],
+  ['JSON syntax', '{broken']
+])('continues after rejected %s and delivers the following event on the same stream', async (_name, invalid) => {
+  await replay([invalid, tsEvent], (client, listener) => {
+    expect(client.streamErrorCount).toBe(1)
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(listener).toHaveBeenCalledWith(2, oldTip, newTip, [oldTip, parent])
+  })
+})
+
+test('accepts an empty Go deactivation list without orphan requests', async () => {
+  await replay([{ depth: 0, commonAncestor: ancestor, newTip, orphanedHashes: [] }], (_client, listener, fetcher) => {
+    expect(listener).toHaveBeenCalledWith(0, ancestor, newTip, [])
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+})
+
+test('rejects a non-function diagnostic observer', () => {
+  expect(() => harness([], { onStreamError: 1 as never })).toThrow('onStreamError must be a function')
+})
+
+test('many comment frames retain bounded work and let timers run before the following event', async () => {
+  let finish!: () => void
+  const delivered = new Promise<void>(resolve => {
+    finish = resolve
+  })
+  const listener = jest.fn(finish)
+  const body = ': comment\r\n\r\n'.repeat(25_000) + `data: ${JSON.stringify(tsEvent)}\n\n`
+  const { client } = harness([], { fetch: (async () => new Response(body)) as typeof fetch })
+  const id = await client.subscribeReorgs(listener)
+  try {
+    await new Promise<void>(resolve => setTimeout(resolve, 0))
+    expect(listener).not.toHaveBeenCalled()
+    await delivered
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(client.streamErrorCount).toBe(0)
+  } finally {
+    await client.unsubscribe(id)
+  }
+})
+
+test('unsubscribe interrupts a chunk containing many empty frames before its last event', async () => {
+  const listener = jest.fn()
+  const body = '\n\n'.repeat(100_000) + `data: ${JSON.stringify(goEvent)}\n\n`
+  const { client, fetcher } = harness([], { fetch: (async () => new Response(body)) as typeof fetch })
+  const id = await client.subscribeReorgs(listener)
+  await new Promise<void>(resolve => setTimeout(resolve, 0))
+  await expect(client.unsubscribe(id)).resolves.toBe(true)
+  expect(listener).not.toHaveBeenCalled()
+  expect(client.streamErrorCount).toBe(0)
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+test.each([
+  ['Go keys', { ...goEvent, extra: true }],
+  ['JSON syntax', '{broken']
+])('rejects malformed %s without losing TS and Go events in one actual response chunk', async (_name, invalid) => {
+  const body = [invalid, tsEvent, goEvent]
+    .map(event => `data: ${typeof event === 'string' ? event : JSON.stringify(event)}\n\n`)
+    .join('')
+  const fetcher = jest.fn(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/reorg/stream')) return new Response(body)
+    const header = headers.find(item => url.endsWith(`/header/hash/${item.hash}`))
+    return new Response(JSON.stringify(header), { status: header == null ? 404 : 200 })
+  })
+  const observer = jest.fn(() => {
+    throw new Error('observer failed')
+  })
+  const { client } = harness([], { fetch: fetcher as typeof fetch, onStreamError: observer })
+  let finish!: () => void
+  const delivered = new Promise<void>(resolve => {
+    finish = resolve
+  })
+  const listener = jest.fn(() => {
+    if (listener.mock.calls.length === 2) finish()
+  })
+  const id = await client.subscribeReorgs(listener)
+  try {
+    await delivered
+    expect(listener.mock.calls).toEqual([
+      [2, oldTip, newTip, [oldTip, parent]],
+      [2, oldTip, newTip, [oldTip, parent]]
+    ])
+    expect(client.streamErrorCount).toBe(1)
+    expect(observer).toHaveBeenCalledTimes(1)
+    expect(fetcher.mock.calls.map(call => String(call[0]).split('/v2')[1])).toEqual([
+      '/reorg/stream',
+      `/header/hash/${oldTip.hash}`,
+      `/header/hash/${parent.hash}`
+    ])
+  } finally {
+    await client.unsubscribe(id)
+  }
+})
