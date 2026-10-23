@@ -50,6 +50,13 @@ Recent rolling scans and these forward cursors do not establish detection of
 an arbitrary historical reorg below both cursors; deeper ancestry reconciliation
 remains separate work.
 
+Coordinate the upgrade of all monitor writers sharing a storage database:
+older versions do not understand compact retry checkpoints and may overwrite
+pending recovery work. The durability evidence covers one active Monitor owner
+with sequential restart; concurrent checkpoint writers are unqualified, and
+this change adds no ownership lock. Public Storage API serving topology is
+independent of the internal monitor worker's ownership.
+
 No SQL schema or manual data rewrite is required. IndexedDB automatically
 upgrades to version 7 to add a nonunique `proven_txs.height` index, avoiding a
 proof-blob scan during audit bootstrap. Close other connections using older
