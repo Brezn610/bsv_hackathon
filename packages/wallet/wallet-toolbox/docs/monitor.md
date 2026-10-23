@@ -970,22 +970,37 @@ Deactivated headers arrive only from chaintracks reorg events, which polling cli
 monitor is not running. So once per new block header processed by TaskNewHeader, this task
 also compares the stored merkleRoots of the most recent `recentDepth` heights with the
 chaintracks header at each height, and reproves the transactions under any stale root.
-A proof that cannot be replaced yet is retried at the next block while its height remains
-within `recentDepth`. Older heights are left to TaskReviewProvenTxs.
+Recovery ranges are persisted before remote work. Unresolved heights survive restart and
+window aging, and are retried once per minute even if the chain tip does not change.
+Older heights that were never observed by this task remain covered by TaskReviewProvenTxs.
 
 ```ts
 export class TaskReorg extends WalletMonitorTask {
     static readonly taskName = "Reorg";
     process: DeactivedHeader[] = [];
-    constructor(monitor: Monitor, public agedMsecs = Monitor.oneMinute * 10, public maxRetries = 3, public recentDepth = 12)
+    override async asyncSetup(): Promise<void> 
+    constructor(monitor: Monitor, public agedMsecs = Monitor.oneMinute * 10, public maxRetries = 3, public recentDepth = 12) 
     trigger(nowMsecsSinceEpoch: number): {
         run: boolean;
-    }
-    async runTask(): Promise<string>
+    } 
+    async runTask(): Promise<string> 
 }
 ```
 
 See also: [DeactivedHeader](./monitor.md#interface-deactivedheader), [Monitor](./monitor.md#class-monitor), [WalletMonitorTask](./monitor.md#class-walletmonitortask)
+
+###### Constructor
+
+```ts
+constructor(monitor: Monitor, public agedMsecs = Monitor.oneMinute * 10, public maxRetries = 3, public recentDepth = 12) 
+```
+See also: [Monitor](./monitor.md#class-monitor)
+
+Argument Details
+
++ **recentDepth**
+  + number of heights, ending at the processed chain tip, whose stored proofs
+are compared with the chaintracks header at that height once per new block. Zero disables.
 
 ###### Method trigger
 
@@ -994,7 +1009,7 @@ Shift aged deactivated headers onto `process` array.
 ```ts
 trigger(nowMsecsSinceEpoch: number): {
     run: boolean;
-}
+} 
 ```
 
 Returns

@@ -20,9 +20,15 @@ function makeMonitor(options: {
       return header === undefined ? undefined : { height, hash: `hash-${height}`, ...header }
     })
   }
+  const events: Array<{ details: string }> = []
   const monitor = {
+    logEvent: jest.fn(async (_event: string, details: string) => {
+      events.unshift({ details })
+    }),
     storage: {
-      runAsStorageProvider: jest.fn(async (fn: any) => await fn({ findStaleMerkleRoots })),
+      runAsStorageProvider: jest.fn(
+        async (fn: any) => await fn({ findStaleMerkleRoots, findMonitorEvents: async () => events.slice(0, 5) })
+      ),
       reproveHeightMerkleRoot,
       reproveHeader
     },
@@ -96,14 +102,15 @@ describe('TaskReorg recent-height review', () => {
     expect(m.chaintracks.findHeaderForHeight).not.toHaveBeenCalled()
   })
 
-  test('4 a failed review waits for the next block instead of retrying every tick', async () => {
+  test('4 a failed review retries after one minute even without a new block', async () => {
     const m = makeMonitor({ headersByHeight: roots(0, 200) })
     m.chaintracks.findHeaderForHeight.mockRejectedValueOnce(new Error('chaintracks unavailable'))
     const task = new TaskReorg(m.monitor as any, 0, 3, 4)
     m.monitor.lastNewHeader = { height: 100, hash: 'tip-100' }
 
-    await expect(task.runTask()).rejects.toThrow('chaintracks unavailable')
+    expect(await task.runTask()).toContain('review unavailable')
     expect(task.trigger(Date.now()).run).toBe(false)
+    expect(task.trigger(Date.now() + 60_000).run).toBe(true)
 
     m.monitor.lastNewHeader = { height: 101, hash: 'tip-101' }
     expect(task.trigger(Date.now()).run).toBe(true)
@@ -120,7 +127,33 @@ describe('TaskReorg recent-height review', () => {
     expect(m.reproveHeightMerkleRoot).not.toHaveBeenCalled()
   })
 
-  test('6 rejects an invalid recentDepth', () => {
+  test('6 persists unresolved heights across task restart and recent-window aging', async () => {
+    const m = makeMonitor({ headersByHeight: roots(0, 200), staleRootsByHeight: { 99: ['old'] } })
+    m.reproveHeightMerkleRoot.mockResolvedValueOnce({ log: '', updated: [], unchanged: [], unavailable: [{}] })
+    m.monitor.lastNewHeader = { height: 100, hash: 'tip-100' }
+    const task = new TaskReorg(m.monitor as any, 0, 3, 4)
+    await task.runTask()
+    expect(m.monitor.logEvent).toHaveBeenLastCalledWith('ReorgRecovery', expect.stringContaining('[[99,99]]'))
+    m.monitor.lastNewHeader = { height: 150, hash: 'tip-150' }
+    const restarted = new TaskReorg(m.monitor as any, 0, 3, 4)
+    await restarted.asyncSetup()
+    await restarted.runTask()
+    expect(m.reproveHeightMerkleRoot).toHaveBeenCalledTimes(2)
+    expect(m.reproveHeightMerkleRoot).toHaveBeenLastCalledWith(99, 'old')
+  })
+
+  test('7 preserves durable intent if checkpoint persistence fails after remote work', async () => {
+    const m = makeMonitor({ headersByHeight: roots(97, 100) })
+    m.monitor.lastNewHeader = { height: 100, hash: 'tip-100' }
+    m.monitor.logEvent.mockImplementationOnce(async () => {}).mockRejectedValueOnce(new Error('disk full'))
+    const task = new TaskReorg(m.monitor as any, 0, 3, 4)
+    await expect(task.runTask()).rejects.toThrow('disk full')
+    expect(task.trigger(Date.now() + 60_000).run).toBe(true)
+    await task.runTask()
+    expect(m.chaintracks.findHeaderForHeight).toHaveBeenCalledTimes(8)
+  })
+
+  test('8 rejects an invalid recentDepth', () => {
     const m = makeMonitor({})
     for (const depth of [-1, 1.5, 1001, Number.NaN]) {
       expect(() => new TaskReorg(m.monitor as any, 0, 3, depth)).toThrow()

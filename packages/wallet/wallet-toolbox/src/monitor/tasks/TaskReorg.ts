@@ -1,6 +1,7 @@
 import { HeightRange } from '../../services/chaintracker/chaintracks/util/HeightRange'
 import { DeactivedHeader, Monitor } from '../Monitor'
 import { MAX_MONITOR_PAGE_SIZE, requireMonitorInteger } from '../monitorValidation'
+import { ReorgRecovery } from '../reorgRecovery'
 import { reviewProvenTxHeights } from '../reviewProvenTxHeights'
 import { WalletMonitorTask } from './WalletMonitorTask'
 
@@ -33,8 +34,9 @@ import { WalletMonitorTask } from './WalletMonitorTask'
  * monitor is not running. So once per new block header processed by TaskNewHeader, this task
  * also compares the stored merkleRoots of the most recent `recentDepth` heights with the
  * chaintracks header at each height, and reproves the transactions under any stale root.
- * A proof that cannot be replaced yet is retried at the next block while its height remains
- * within `recentDepth`. Older heights are left to TaskReviewProvenTxs.
+ * Recovery ranges are persisted before remote work. Unresolved heights survive restart and
+ * window aging, and are retried once per minute even if the chain tip does not change.
+ * Older heights that were never observed by this task remain covered by TaskReviewProvenTxs.
  */
 export class TaskReorg extends WalletMonitorTask {
   static readonly taskName = 'Reorg'
@@ -44,7 +46,29 @@ export class TaskReorg extends WalletMonitorTask {
   /**
    * Hash of the last processed new block header whose recent heights have been reviewed.
    */
-  private recentReviewedHash?: string
+  private recovery = new ReorgRecovery()
+  private recoveryLoaded = false
+  private lastRecentAttempt = 0
+
+  override async asyncSetup(): Promise<void> {
+    if (this.recoveryLoaded || this.recentDepth === 0) return
+    await this.storage.runAsStorageProvider(async sp => {
+      const events = await sp.findMonitorEvents({
+        partial: { event: 'ReorgRecovery' },
+        orderDescending: true,
+        paged: { limit: 5 }
+      })
+      for (const event of events) {
+        if (!event.details) continue
+        const checkpoint = ReorgRecovery.parse(event.details)
+        if (checkpoint) {
+          this.recovery = checkpoint
+          break
+        }
+      }
+    })
+    this.recoveryLoaded = true
+  }
 
   /**
    * @param recentDepth number of heights, ending at the processed chain tip, whose stored proofs
@@ -74,25 +98,58 @@ export class TaskReorg extends WalletMonitorTask {
       if (header != null) this.process.push(header)
     }
     return {
-      run: this.process.length > 0 || this.recentReviewDue()
+      run:
+        this.process.length > 0 ||
+        this.recentReviewDue() ||
+        (this.recentDepth > 0 &&
+          this.recovery.ranges.length > 0 &&
+          nowMsecsSinceEpoch - this.lastRecentAttempt >= Monitor.oneMinute)
     }
   }
 
   private recentReviewDue(): boolean {
     const tip = this.monitor.lastNewHeader
-    return this.recentDepth > 0 && tip != null && tip.hash !== this.recentReviewedHash
+    return this.recentDepth > 0 && tip != null && tip.hash !== this.recovery.reviewedHash
   }
 
   /**
    * Reviews the stored proofs of the `recentDepth` heights ending at the last processed new block header.
    */
   private async reviewRecentHeights(): Promise<string> {
+    await this.asyncSetup()
     const tip = this.monitor.lastNewHeader
-    if (tip == null || !this.recentReviewDue()) return ''
-    // Marked before the review: a failed or unresolved review is retried at the next block, not every tick.
-    this.recentReviewedHash = tip.hash
-    const range = new HeightRange(Math.max(0, tip.height - this.recentDepth + 1), tip.height)
+    if (tip == null || this.recentDepth === 0) return ''
+    this.lastRecentAttempt = Date.now()
+    const retryBatch = this.recovery.next(tip.height, this.recentDepth)
+    const freshBatch: [number, number] | undefined = this.recentReviewDue()
+      ? [Math.max(0, tip.height - this.recentDepth + 1), tip.height]
+      : undefined
+    if (freshBatch) {
+      this.recovery.add(...freshBatch)
+      this.recovery.reviewedHash = tip.hash
+    }
+    if (!freshBatch && !retryBatch) return ''
+    // Write intent before network work: process interruption retains both batches.
+    await this.monitor.logEvent('ReorgRecovery', JSON.stringify(this.recovery))
+    let log = freshBatch ? await this.reviewBatch(freshBatch) : ''
+    // Old unresolved work gets its own bounded budget, so new tips cannot starve it.
+    if (retryBatch && (!freshBatch || retryBatch[0] < freshBatch[0] || retryBatch[1] > freshBatch[1])) {
+      log += await this.reviewBatch(retryBatch)
+    }
+    return log
+  }
+
+  private async reviewBatch(batch: [number, number]): Promise<string> {
+    const range = new HeightRange(...batch)
     const r = await reviewProvenTxHeights(this.monitor, range)
+    const intent = JSON.stringify(this.recovery)
+    this.recovery.complete(batch, r.unresolvedHeights)
+    try {
+      await this.monitor.logEvent('ReorgRecovery', JSON.stringify(this.recovery))
+    } catch (error) {
+      this.recovery = ReorgRecovery.parse(intent)!
+      throw error
+    }
     if (r.log.length === 0) return ''
     return `reviewing recent heights ${range.minHeight}..${range.maxHeight}\n` + r.log
   }

@@ -164,58 +164,83 @@ describe('TaskReorg re-proves recent proofs without reorg events', () => {
     return row!
   }
 
-  test('a proof from an orphaned block is re-proved after the next block, and the spend then validates', async () => {
-    const { wallet, monitor, storage, destroy } = await createWallet()
-    try {
-      // 1. Coin A is mined in block X at height H and the wallet stores its proof.
-      const a = await postPayment(wallet, 31)
-      const blockX = await services.mineBlock()
-      await internalize(wallet, a, 31)
-      expect((await storedProof(storage, a.txid)).blockHash).toBe(blockX.hash)
+  test.each([false, true])(
+    'repairs an orphaned proof and validates the spend (delayed provider/restart=%s)',
+    async delayed => {
+      const { wallet, monitor, storage, destroy } = await createWallet()
+      try {
+        // 1. Coin A is mined in block X at height H and the wallet stores its proof.
+        const a = await postPayment(wallet, 31)
+        const blockX = await services.mineBlock()
+        await internalize(wallet, a, 31)
+        expect((await storedProof(storage, a.txid)).blockHash).toBe(blockX.hash)
 
-      // The monitor processes block X as its new tip. TaskNewHeader makes this call once a tip
-      // has held for a cycle; it is made directly here because TaskNewHeader requires mainnet
-      // proof of work, which the mock chain's headers do not meet.
-      monitor.processNewBlockHeader(blockX)
-      await monitor.runOnce()
-      expect((await storedProof(storage, a.txid)).blockHash).toBe(blockX.hash)
+        // The monitor processes block X as its new tip. TaskNewHeader makes this call once a tip
+        // has held for a cycle; it is made directly here because TaskNewHeader requires mainnet
+        // proof of work, which the mock chain's headers do not meet.
+        monitor.processNewBlockHeader(blockX)
+        await monitor.runOnce()
+        expect((await storedProof(storage, a.txid)).blockHash).toBe(blockX.hash)
 
-      // 2. Coin B waits in the mempool when a competing block X' wins at H, holding A and B.
-      //    The new tip arrives as a height increase (H + 1), as in the field report.
-      const b = await postPayment(wallet, 32)
-      const reorg = await services.reorg(blockX.height, 2, { [a.txid]: 0, [b.txid]: 0 })
-      expect(reorg.newTip.height).toBe(blockX.height + 1)
-      const blockXPrime = (await services.tracker.findHeaderForHeight(blockX.height))!
-      expect(blockXPrime.hash).not.toBe(blockX.hash)
+        // 2. Coin B waits in the mempool when a competing block X' wins at H, holding A and B.
+        //    The new tip arrives as a height increase (H + 1), as in the field report.
+        const b = await postPayment(wallet, 32)
+        const reorg = await services.reorg(blockX.height, 2, { [a.txid]: 0, [b.txid]: 0 })
+        expect(reorg.newTip.height).toBe(blockX.height + 1)
+        const blockXPrime = (await services.tracker.findHeaderForHeight(blockX.height))!
+        expect(blockXPrime.hash).not.toBe(blockX.hash)
 
-      // 3. The wallet receives B with its proof from X'; A still holds X's stale proof.
-      await internalize(wallet, b, 32)
-      expect((await storedProof(storage, b.txid)).merkleRoot).toBe(blockXPrime.merkleRoot)
-      expect((await storedProof(storage, a.txid)).merkleRoot).toBe(blockX.merkleRoot)
+        // 3. The wallet receives B with its proof from X'; A still holds X's stale proof.
+        await internalize(wallet, b, 32)
+        expect((await storedProof(storage, b.txid)).merkleRoot).toBe(blockXPrime.merkleRoot)
+        expect((await storedProof(storage, a.txid)).merkleRoot).toBe(blockX.merkleRoot)
 
-      // 4. The monitor processes the new tip H + 1; the next scheduler tick re-proves A.
-      monitor.processNewBlockHeader(reorg.newTip)
-      await monitor.runOnce()
+        const getMerklePath = services.getMerklePath.bind(services)
+        let unavailable = delayed
+        const proofProvider = jest
+          .spyOn(services, 'getMerklePath')
+          .mockImplementation(async txid => (unavailable && txid === a.txid ? {} : await getMerklePath(txid)))
 
-      const reproved = await storedProof(storage, a.txid)
-      expect(reproved.blockHash).toBe(blockXPrime.hash)
-      expect(reproved.merkleRoot).toBe(blockXPrime.merkleRoot)
+        // 4. The monitor processes the new tip H + 1; the next scheduler tick re-proves A.
+        monitor.processNewBlockHeader(reorg.newTip)
+        await monitor.runOnce()
 
-      // 5. A spend that needs both coins carries one root at height H, and its BEEF verifies.
-      //    With A's stale proof it carried two roots at H: verifyValid() false, as in the report.
-      const spend = await wallet.createAction({
-        description: 'spend both coins',
-        outputs: [{ satoshis: 1_500_000, lockingScript: '51', outputDescription: 'both coins' }],
-        options: { randomizeOutputs: false }
-      })
-      const beef = Beef.fromBinary(spend.tx!)
-      expect(beef.findTxid(a.txid)?.bumpIndex).toBeDefined()
-      expect(beef.findTxid(b.txid)?.bumpIndex).toBeDefined()
-      expect(beef.bumps.filter(bump => bump.blockHeight === blockX.height)).toHaveLength(1)
-      expect(beef.verifyValid().valid).toBe(true)
-      expect(await beef.verify(services.tracker)).toBe(true)
-    } finally {
-      await destroy()
+        if (delayed) {
+          expect((await storedProof(storage, a.txid)).blockHash).toBe(blockX.hash)
+          // Move beyond the 12-height recent window while the replacement proof is unavailable.
+          for (let i = 0; i < 15; i++) await services.mineBlock()
+          const tip = (await services.tracker.findChainTipHeader())!
+          monitor.processNewBlockHeader(tip)
+          await monitor.runOnce()
+          expect((await storedProof(storage, a.txid)).blockHash).toBe(blockX.hash)
+          // Restart the monitor against the same real SQLite wallet. Only durable events carry work over.
+          const restarted = new Monitor(monitor.options)
+          restarted.addTask(new TaskReorg(restarted))
+          restarted.processNewBlockHeader(tip)
+          unavailable = false
+          await restarted.runOnce()
+        }
+        proofProvider.mockRestore()
+        const reproved = await storedProof(storage, a.txid)
+        expect(reproved.blockHash).toBe(blockXPrime.hash)
+        expect(reproved.merkleRoot).toBe(blockXPrime.merkleRoot)
+
+        // 5. A spend that needs both coins carries one root at height H, and its BEEF verifies.
+        //    With A's stale proof it carried two roots at H: verifyValid() false, as in the report.
+        const spend = await wallet.createAction({
+          description: 'spend both coins',
+          outputs: [{ satoshis: 1_500_000, lockingScript: '51', outputDescription: 'both coins' }],
+          options: { randomizeOutputs: false }
+        })
+        const beef = Beef.fromBinary(spend.tx!)
+        expect(beef.findTxid(a.txid)?.bumpIndex).toBeDefined()
+        expect(beef.findTxid(b.txid)?.bumpIndex).toBeDefined()
+        expect(beef.bumps.filter(bump => bump.blockHeight === blockX.height)).toHaveLength(1)
+        expect(beef.verifyValid().valid).toBe(true)
+        expect(await beef.verify(services.tracker)).toBe(true)
+      } finally {
+        await destroy()
+      }
     }
-  })
+  )
 })
