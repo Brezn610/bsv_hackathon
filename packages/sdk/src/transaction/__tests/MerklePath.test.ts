@@ -1,5 +1,5 @@
 import ChainTracker from '../ChainTracker'
-import MerklePath from '../../transaction/MerklePath'
+import MerklePath, { MerklePathLeaf } from '../../transaction/MerklePath'
 import { hash256 } from '../../primitives/Hash'
 import { toHex, toArray } from '../../primitives/utils'
 import invalidBumps from './bump.invalid.vectors'
@@ -620,6 +620,20 @@ describe('MerklePath', () => {
     })
   })
 
+  it('does not infer a missing sibling from empty upper levels', () => {
+    const txid = 'aa'.repeat(32)
+    const path = new MerklePath(1, [[{ offset: 0, hash: txid, txid: true }], []], true, false)
+    const sourceIndex = path.path.map(level => new Map(level.map(leaf => [leaf.offset, leaf])))
+    const hashCache = new Map<string, MerklePathLeaf | undefined>()
+
+    // An incomplete multi-level proof must not gain the one-transaction shortcut
+    // or the implicit odd-node duplication reserved for complete level-zero paths.
+    expect(() => path.computeRoot(txid)).toThrow('Missing hash for index 0 at height 0')
+    expect(path.cachedFindLeaf(1, 0, sourceIndex, hashCache, 0)).toBeUndefined()
+    expect(hashCache.has('1:0')).toBe(true)
+    expect(hashCache.get('1:0')).toBeUndefined()
+  })
+
   it('findOrComputeLeaf duplicates leaf0 when leaf1 carries both a hash and duplicate=true', () => {
     // Covers the leaf1.duplicate === true branch inside findOrComputeLeaf.
     // That branch is reached when leaf1.hash is non-null (bypassing the null-check above it)
@@ -645,5 +659,14 @@ describe('MerklePath', () => {
 
     const result = mp.findOrComputeLeaf(1, 0)
     expect(result?.hash).toBe(merkleHash(tx0 + tx0))
+
+    // Extraction's indexed reconstruction must honor the same duplicate marker,
+    // even when a supplied sibling hash would otherwise produce a different root.
+    const sourceIndex = mp.path.map(level => new Map(level.map(leaf => [leaf.offset, leaf])))
+    const hashCache = new Map<string, MerklePathLeaf | undefined>()
+    const cached = mp.cachedFindLeaf(1, 0, sourceIndex, hashCache, 1)
+    expect(cached?.hash).toBe(merkleHash(tx0 + tx0))
+    expect(cached?.hash).not.toBe(merkleHash(tx1 + tx0))
+    expect(mp.cachedFindLeaf(1, 0, sourceIndex, hashCache, 1)).toBe(cached)
   })
 })
