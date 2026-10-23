@@ -1055,6 +1055,80 @@ describe('ColorPermissionModule', () => {
       )
     })
 
+    it('spends verified receipts with a shared suffix and different payment prefixes', async () => {
+      const sender = new FakeWallet()
+      async function payment(amount: bigint, prefix: string) {
+        const { tx, customInstructions } = await tokenPayment(sender, wallet, assetId, amount)
+        const custody = {
+          ...JSON.parse(customInstructions),
+          derivationPrefix: prefix,
+          derivationSuffix: 'Ag=='
+        }
+        const { publicKey } = await sender.getPublicKey({
+          protocolID: colorProtocolID(assetId, prefix, custody.derivationSuffix),
+          keyID: COLOR_KEY_ID,
+          counterparty: wallet.identityKey
+        })
+        tx.outputs[0].lockingScript = new OneColor().lock(
+          assetId,
+          amount,
+          hash160(toArray(publicKey, 'hex'))
+        )
+        return { tx, custody }
+      }
+      const small = await payment(100n, 'AQ==')
+      let large = await payment(300n, 'Aw==')
+      // Put the unselected receipt before the selected one in the wallet's canonical order.
+      for (let nonce = 0; large.tx.id('hex') < small.tx.id('hex'); nonce++) {
+        large = await payment(300n, `payment${nonce}`)
+      }
+      for (const { tx, custody } of [small, large]) {
+        provider.admit(assetId, tx, 0)
+        const received = await module.onRequest({
+          method: 'internalizeAction',
+          originator: APP,
+          args: {
+            tx: tx.toAtomicBEEF(),
+            outputs: [
+              {
+                outputIndex: 0,
+                protocol: 'basket insertion',
+                insertionRemittance: {
+                  basket: assetBasket(assetId, 'value'),
+                  customInstructions: JSON.stringify(custody)
+                }
+              }
+            ],
+            description: 'Receive tokens'
+          }
+        })
+        await expect(
+          wallet.internalizeAction(received.args as InternalizeActionArgs)
+        ).resolves.toEqual({ accepted: true })
+      }
+      expect(tagOf(small.tx)).toBe(tagOf(large.tx))
+      const funded = await fund({
+        outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 200n)]
+      })
+      expect(funded.inputs?.map(input => input.outpoint)).toEqual([outpointOf(large.tx)])
+      expect(txids(funded.inputBEEF)).toEqual(
+        [large.tx.id('hex'), sourceOf(large.tx).id('hex')].sort()
+      )
+      const created = await wallet.createAction(funded)
+      await module.onResponse(created, { method: 'createAction', originator: APP })
+      const signed = await wallet.signAction(
+        (
+          await module.onRequest({
+            method: 'signAction',
+            args: { reference: created.signableTransaction!.reference, spends: {} },
+            action: signingAction(created),
+            originator: APP
+          })
+        ).args as SignActionArgs
+      )
+      expect(validInput(Transaction.fromAtomicBEEF(signed.tx!), 0)).toBe(true)
+    })
+
     it('does not select an untagged output', async () => {
       await holdTokens(wallet, provider, assetId, [300n], false)
       const output = await recipientOutput(wallet, new FakeWallet(), assetId, 100n)
@@ -1127,8 +1201,9 @@ describe('ColorPermissionModule', () => {
       expect(listing?.tags).toEqual([tag])
     })
 
-    it('refuses a listing that returns other outputs than the selected ones', async () => {
-      // Another output carries the selected output's tag, and storage lists it first.
+    it('pages past nonselected same-tag outputs without merging or crediting them', async () => {
+      // A suffix tag is an index, not an ownership or amount assertion. A matching unselected
+      // output may be legitimate (different payments can share a suffix) or merely retagged.
       let selected: Transaction
       let intruder: Transaction
       do {
@@ -1136,11 +1211,130 @@ describe('ColorPermissionModule', () => {
         ;[selected, intruder] = await holdTokens(wallet, provider, assetId, [300n, 50n])
       } while (outpointOf(intruder) > outpointOf(selected))
       wallet.outputs.get(outpointOf(intruder))!.tags = [tagOf(selected)]
+      const funded = await fund({
+        outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
+      })
+      expect(funded.inputs?.map(input => input.outpoint)).toEqual([outpointOf(selected)])
+      expect(txids(funded.inputBEEF)).toEqual(
+        [selected.id('hex'), sourceOf(selected).id('hex')].sort()
+      )
+      expect(
+        OneColor.decode(LockingScript.fromHex(funded.outputs!.at(-1)!.lockingScript)).amount
+      ).toBe(200n)
+      expect(
+        wallet.listOutputsCalls
+          .filter(call => call.include === 'entire transactions')
+          .map(({ limit, offset }) => ({ limit, offset }))
+      ).toEqual([
+        { limit: 1, offset: undefined },
+        { limit: 1, offset: 1 }
+      ])
+    })
+
+    it.each([NaN, Infinity, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1'])(
+      'refuses an invalid matching source count %s',
+      async count => {
+        await holdTokens(wallet, provider, assetId, [300n])
+        const listOutputs = wallet.listOutputs.bind(wallet)
+        wallet.listOutputs = async args => {
+          const result = await listOutputs(args)
+          return args.include === 'entire transactions'
+            ? { ...result, totalOutputs: count }
+            : result
+        }
+        await expect(
+          fund({ outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)] })
+        ).rejects.toThrow('the matching output count is not a nonnegative safe integer')
+        expect(prompts).toEqual([])
+      }
+    )
+
+    it.each([
+      'changed count',
+      'duplicate',
+      'empty page',
+      'oversized page',
+      'missing selected'
+    ] as const)('refuses contradictory source pagination: %s', async kind => {
+      const [held] = await holdTokens(wallet, provider, assetId, [300n])
+      const listOutputs = wallet.listOutputs.bind(wallet)
+      let sourceCalls = 0
+      wallet.listOutputs = async args => {
+        if (args.include !== 'entire transactions') return await listOutputs(args)
+        sourceCalls++
+        // A coherent first page has one same-tag row, with one more matching row to inspect.
+        const result = await listOutputs({ ...args, offset: 0 })
+        const heldOutput = result.outputs[0]
+        const other = { ...heldOutput, outpoint: `${'a'.repeat(64)}.0` }
+        let outputs = sourceCalls === 1 ? [other] : [heldOutput]
+        if (sourceCalls === 2) {
+          switch (kind) {
+            case 'empty page':
+              outputs = []
+              break
+            case 'duplicate':
+              outputs = [other]
+              break
+            case 'oversized page':
+              outputs = [heldOutput, { ...other, outpoint: `${'b'.repeat(64)}.0` }]
+              break
+            case 'missing selected':
+              outputs = [{ ...other, outpoint: `${'b'.repeat(64)}.0` }]
+              break
+          }
+        }
+        return {
+          ...result,
+          totalOutputs: sourceCalls === 2 && kind === 'changed count' ? 3 : 2,
+          outputs
+        }
+      }
       await expect(
         fund({ outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)] })
-      ).rejects.toThrow(
-        `BRC-207: the wallet returned other outputs than the selected token inputs: missing ${outpointOf(selected)}; extra ${outpointOf(intruder)}`
-      )
+      ).rejects.toThrow('BRC-207: the wallet returned other outputs than the selected token inputs')
+      expect(sourceCalls).toBe(2)
+      expect(prompts).toEqual([])
+      wallet.listOutputs = listOutputs
+      // Pagination failure returns the selection to the module's available pool.
+      expect(
+        (
+          await fund({
+            outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
+          })
+        ).inputs?.map(input => input.outpoint)
+      ).toEqual([outpointOf(held)])
+    })
+
+    it('bounds source pages by the wallet limit and the initial matching count', async () => {
+      const [held] = await holdTokens(wallet, provider, assetId, [300n])
+      const listOutputs = wallet.listOutputs.bind(wallet)
+      const pages: Array<{ limit?: number; offset?: number }> = []
+      wallet.listOutputs = async args => {
+        if (args.include !== 'entire transactions') return await listOutputs(args)
+        pages.push({ limit: args.limit, offset: args.offset })
+        const result = await listOutputs({ ...args, offset: 0 })
+        return {
+          ...result,
+          totalOutputs: 10_002,
+          outputs:
+            pages.length === 3
+              ? result.outputs
+              : Array.from({ length: args.limit! }, (_, index) => ({
+                  ...result.outputs[0],
+                  outpoint: `${(index + (args.offset ?? 0)).toString(16).padStart(64, '0')}.0`
+                }))
+        }
+      }
+      const funded = await fund({
+        outputs: [await recipientOutput(wallet, new FakeWallet(), assetId, 100n)]
+      })
+      expect(pages).toEqual([
+        { limit: 1, offset: undefined },
+        { limit: 10_000, offset: 1 },
+        { limit: 1, offset: 10_001 }
+      ])
+      expect(funded.inputs?.map(input => input.outpoint)).toEqual([outpointOf(held)])
+      expect(txids(funded.inputBEEF)).toEqual([held.id('hex'), sourceOf(held).id('hex')].sort())
     })
 
     it.each(['missing', 'duplicate'] as const)(

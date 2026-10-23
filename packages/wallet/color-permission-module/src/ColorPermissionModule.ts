@@ -1789,35 +1789,63 @@ export class ColorPermissionModule implements PermissionsModule {
   }
 
   /**
-   * The selected inputs of one basket with their entire transactions, in one listing by their
-   * suffix tags. The listing must return exactly the selected outputs.
+   * The selected inputs' source transactions, listed by suffix tag. Distinct payments may reuse a
+   * suffix, so matching rows are paged within the first result's count and only selected sources
+   * are retained. Counts must be stable and rows unique throughout this bounded traversal.
    */
   protected async sourceTransactions(
     basket: string,
     selected: readonly ManagedInput[],
     originator: string
   ): Promise<Beef> {
-    const listing = await this.wallet.listOutputs(
-      {
-        basket,
-        tags: selected.map(input => input.suffixTag),
-        tagQueryMode: 'any',
-        include: 'entire transactions',
-        limit: selected.length
-      },
-      originator
-    )
     const wanted = new Set(selected.map(input => input.outpoint))
-    const returned = new Set(listing.outputs.map(output => output.outpoint))
-    const missing = [...wanted].filter(outpoint => !returned.has(outpoint))
-    const extra = [...returned].filter(outpoint => !wanted.has(outpoint))
-    if (missing.length > 0 || extra.length > 0 || listing.outputs.length !== wanted.size)
+    const seen = new Set<string>()
+    const refuse = (reason: string): never => {
+      const missing = [...wanted].filter(outpoint => !seen.has(outpoint))
+      const extra = [...seen].filter(outpoint => !wanted.has(outpoint))
       throw new Error(
         `BRC-207: the wallet returned other outputs than the selected token inputs: missing ${
           missing.join(', ') || 'none'
-        }; extra ${extra.join(', ') || 'none'}`
+        }; extra ${extra.join(', ') || 'none'}; ${reason}`
       )
-    return listingBeef(listing)
+    }
+    const query: ListOutputsArgs = {
+      basket,
+      tags: selected.map(input => input.suffixTag),
+      tagQueryMode: 'any',
+      include: 'entire transactions'
+    }
+    let limit = Math.min(selected.length, LIST_PAGE_LIMIT)
+    let page = await this.wallet.listOutputs({ ...query, limit }, originator)
+    const total = typeof page.totalOutputs === 'number' ? page.totalOutputs : NaN
+    if (!Number.isSafeInteger(total) || total < 0)
+      refuse('the matching output count is not a nonnegative safe integer')
+    const sources = new Beef()
+    let offset = 0
+    for (;;) {
+      if (page.totalOutputs !== total) refuse('the matching output count changed during listing')
+      for (const output of page.outputs) {
+        if (seen.has(output.outpoint)) refuse('the listing repeated an output')
+        seen.add(output.outpoint)
+      }
+      if (
+        page.outputs.length > limit ||
+        page.outputs.length > total - offset ||
+        (page.outputs.length === 0 && offset < total)
+      )
+        refuse('the listing exceeded its bounds or made no progress')
+      const selectedPage = page.outputs.filter(output => wanted.has(output.outpoint))
+      if (selectedPage.length > 0) {
+        const beef = listingBeef(page)
+        for (const output of selectedPage) mergeSource(sources, beef, output.outpoint)
+      }
+      offset += page.outputs.length
+      if (offset === total) break
+      limit = Math.min(LIST_PAGE_LIMIT, total - offset)
+      page = await this.wallet.listOutputs({ ...query, limit, offset }, originator)
+    }
+    if ([...wanted].some(outpoint => !seen.has(outpoint))) refuse('a selected input is missing')
+    return sources
   }
 
   /** One basket's token outputs of the asset, read from their locking scripts, excluding selected ones. */
