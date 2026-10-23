@@ -29,12 +29,12 @@ function assertSingleTransactionOffset(path: Array<Array<{ offset: number }>>): 
 // a power of two is exact over the supported safe-integer offset domain.
 const offsetAtHeight = (offset: number, height: number): number => Math.floor(offset / 2 ** height)
 
-const siblingOf = (offset: number): number => offset % 2 === 0 ? offset + 1 : offset - 1
+const siblingOf = (offset: number): number => (offset % 2 === 0 ? offset + 1 : offset - 1)
 
 const sameNodeAtHeight = (index: number, maxOffset: number, height: number): boolean =>
   offsetAtHeight(index, height) === offsetAtHeight(maxOffset, height)
 
-const offsetTreeHeight = (offset: number): number => offset === 0 ? 0 : offset.toString(2).length
+const offsetTreeHeight = (offset: number): number => (offset === 0 ? 0 : offset.toString(2).length)
 
 function hashPair(left: string | undefined, right: string | undefined): string {
   return toHex(hash256(toArray((left ?? '') + (right ?? ''), 'hex').reverse()).reverse())
@@ -642,7 +642,6 @@ export default class MerklePath {
     const key = `${height}:${offset}`
     if (hashCache.has(key)) return hashCache.get(key)
 
-
     let leaf: MerklePathLeaf | undefined =
       height < sourceIndex.length ? sourceIndex[height].get(offset) : undefined
 
@@ -667,7 +666,10 @@ export default class MerklePath {
 
     const leaf1 = this.cachedFindLeaf(h, l + 1, sourceIndex, hashCache, maxOffset)
     if (leaf1?.hash == null) {
-      if (leaf1?.duplicate === true || (this.path.length === 1 && l === offsetAtHeight(maxOffset, h))) {
+      if (
+        leaf1?.duplicate === true ||
+        (this.path.length === 1 && l === offsetAtHeight(maxOffset, h))
+      ) {
         leaf = { offset, hash: hashPair(leaf0.hash, leaf0.hash) }
         hashCache.set(key, leaf)
         return leaf
@@ -677,9 +679,7 @@ export default class MerklePath {
     }
 
     const workinghash =
-      leaf1.duplicate === true
-        ? hashPair(leaf0.hash, leaf0.hash)
-        : hashPair(leaf1.hash, leaf0.hash)
+      leaf1.duplicate === true ? hashPair(leaf0.hash, leaf0.hash) : hashPair(leaf1.hash, leaf0.hash)
     leaf = { offset, hash: workinghash }
     hashCache.set(key, leaf)
     return leaf

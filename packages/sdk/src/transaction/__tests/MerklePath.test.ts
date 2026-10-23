@@ -142,14 +142,11 @@ describe('MerklePath combination compatibility', () => {
     )
     expect(wide.path[0][1].offset).toBe(0x100000000)
     // Truncating 2^32 to 32 bits would yield offset 0 and accept this as a coinbase.
+    expect(() => new MerklePath(100, [[{ offset: 0x100000000, hash: txid, txid: true }]])).toThrow(
+      'Missing hash for index 4294967296 at height 0'
+    )
     expect(
-      () => new MerklePath(100, [[{ offset: 0x100000000, hash: txid, txid: true }]])
-    ).toThrow('Missing hash for index 4294967296 at height 0')
-    expect(
-      () =>
-        new MerklePath(100, [
-          [{ offset: Number.MAX_SAFE_INTEGER + 1, hash: txid, txid: true }]
-        ])
+      () => new MerklePath(100, [[{ offset: Number.MAX_SAFE_INTEGER + 1, hash: txid, txid: true }]])
     ).toThrow('Invalid offset')
   })
 
