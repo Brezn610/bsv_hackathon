@@ -6,6 +6,20 @@ attention to changes that materially alter behavior or extend functionality.
 
 ## wallet-toolbox 2.15.0
 
+- `TaskReorg` rechecks the latest 12 heights after each processed tip without
+  requiring reorg events. It persists unresolved recovery ranges before remote
+  work and retries them once per minute, including after restart and after
+  a height leaves the recent window. `recentDepth = 0` disables this recovery.
+  No schema or consumer migration is required.
+
+- With the compatibility SDK, existing certificate references accept bounded
+  historical types through the normal BRC-100 APIs. Storage listing and proof
+  retain their existing queries; relinquishment inherits the updated SDK
+  reference validator on both manager and provider. Upgrade the remote storage
+  SDK for legacy relinquishment. No records, signatures or schemas are rewritten,
+  and new signing/acquisition remain strict at 32 bytes.
+
+
 - Adds a `regtest` `Chain` for Teranode regression-network deployments
   (go-chaincfg `RegressionNetParams`). `genesisHeader('regtest')` returns the
   canonical regtest genesis header; `ChaintracksServiceClient` and
@@ -29,15 +43,59 @@ attention to changes that materially alter behavior or extend functionality.
   sending it to a relative URL, which a browser resolves against the page's
   origin. `Services.hashToHeader` no longer falls back to WhatsOnChain on those
   networks, so their headers come only from ChainTracks.
-- `TaskReorg` re-checks recent proofs without reorg events. Once per new block
-  header processed by `TaskNewHeader`, it compares the stored `proven_txs`
-  merkleRoots of the last `recentDepth` heights (default 12, `0` disables) with
-  the ChainTracks header at each height and reproves the transactions under a
-  stale root. Previously only a pushed reorg event could re-prove a recent
-  proof, so with a polling client such as `ChaintracksServiceClient` a proof
-  taken from an orphaned block stayed in storage, and a later spend that also
-  carried a proof from the winning block at that height produced a BEEF with
-  two roots at one height. No consumer migration is required.
+- BRC-177 `p nosend expiry never` is supported. The anchor funds the protected
+  action without a reclaim allowance, no reclaim transaction is built or
+  armed, and the action has no deadline, so the monitor never reclaims it. An
+  unreleased `never` action can still be aborted; aborting a released one, in
+  any later state, fails because its payment is permanently sent. Released
+  `never` actions are left out of the expiry lifecycle scan, and storage
+  `createAction` refuses caller-supplied BRC-177 metadata. `Brc177NoSendExpiryMode` gains
+  `never`, `Brc177NoSendExpiry.value` is `null` for it, and the activation
+  result's `deadline` is `null`.
+- `WalletPermissionsManager` passes `signAction` through the permission modules
+  that handled the action's `createAction`, both for a caller's `signAction`
+  and for the signing step of a one-call `createAction`. Modules receive it via
+  `onRequest` and `onResponse` with method `signAction` and may add `spends`
+  for inputs they supplied. Both calls carry `action` (`reference`, the
+  signable `transaction`, `noSend` and `createArgs`, the `createAction`
+  arguments as the modules returned them), so a module keeps no state between
+  `createAction` and `signAction`. A module request failure aborts the action; a
+  module response failure is thrown without aborting the signed action. A
+  module that rejects unknown methods must accept `signAction`.
+- `encryptMetadata(wallet, plaintext, originator?)` and
+  `maybeDecryptMetadata(wallet, value, originator?)` are exported. They encrypt
+  and decrypt metadata as a permissions manager with `encryptWalletMetadata`
+  does, so a permission module can store and read its own baskets' custom
+  instructions through the underlying wallet. The manager uses the same
+  functions.
+- `createAction` encrypts P-basket output custom instructions after the
+  permission modules run, as `internalizeAction` already does, so instructions a
+  module adds or replaces are stored encrypted.
+- New `listOutputs` special operation `specOpBasketPrefixOutputs`: with a
+  basket namespace such as `p color` in tag 0, it lists outputs from every
+  basket in that namespace that are unspent or reserved as an input of a
+  pending action (`spendable` false), ordered by txid and vout. Spent outputs
+  are excluded. The permissions manager reserves it for the admin originator.
+- `listOutputs` rejects a `balance p <module> <basket>` query with
+  `WERR_INVALID_PARAMETER`, as BRC-112 requires: the satoshi sum of a BRC-99
+  module basket is never reported past its module. `balance <basket>` on other
+  baskets is unchanged, and a module may offer `p <module> balance <basket>`.
+- `WalletPermissionsManager.getVersion` advertises the BRC-205 capability
+  attributes of the configured permission modules: a `PermissionsModule` may
+  declare `capabilities` (attribute key to value), appended to the underlying
+  version string as `base; key=value;` in scheme-id and key order, merged with
+  attributes the wallet already reports and never repeating a key. The built-in
+  BRC-177 module advertises `brc177-nosend=2`. `withBrc205Capabilities` is
+  exported.
+- `createAction` locks the known inputs it marks spent on MySQL and Postgres,
+  so of two concurrent actions spending the same input, the second sees it spent
+  and fails with the existing double-spend or unspendable-input error instead of
+  overwriting `spentBy`. SQLite and IndexedDB already serialize these writes.
+- Callers that count `listOutputs` results narrow `totalOutputs` to a number
+  with the exported `numericTotalOutputs`, following the `@bsv/sdk` change that
+  lets BRC-112 module balance queries return decimal text.
+- `@bsv/sdk` 4.0.0 is accepted as a peer alongside the existing 2.x and 3.x
+  ranges.
 
 ## wallet-toolbox 2.14.10
 
