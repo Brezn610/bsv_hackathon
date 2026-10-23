@@ -3,7 +3,7 @@ import { ReorgRecovery } from '../../reorgRecovery'
 describe('bounded durable reorg recovery ranges', () => {
   test('round trips maximum-height fragmentation under the monitor event bound without losing work', () => {
     const queue = new ReorgRecovery()
-    const heights = Array.from({ length: 1000 }, (_, i) => 2_000_000_000 + i * 2)
+    const heights = Array.from({ length: 1000 }, (_, i) => (i === 0 ? 0 : 2_000_000_000 + i * 2))
     for (const height of heights) queue.add(height, height)
     expect(queue.ranges.length).toBeLessThanOrEqual(128)
     const details = JSON.stringify(queue)
@@ -25,6 +25,14 @@ describe('bounded durable reorg recovery ranges', () => {
     expect(restored.next(11, 2)).toBeUndefined()
     expect(restored.next(20, 0)).toBeUndefined()
     expect(restored.next(20, 2)).toEqual([12, 13])
+  })
+
+  test('maximum height wraps the fairness cursor safely', () => {
+    const queue = new ReorgRecovery()
+    queue.add(2_147_483_647, 2_147_483_647)
+    queue.complete([2_147_483_647, 2_147_483_647], [2_147_483_647])
+    expect(queue.cursor).toBe(0)
+    expect(queue.next(2_147_483_647, 1)).toEqual([2_147_483_647, 2_147_483_647])
   })
 
   test.each([

@@ -3,6 +3,17 @@ import { MAX_MONITOR_HEIGHT, optionalMonitorInteger } from './monitorValidation'
 const MAX_RECOVERY_RANGES = 128
 export type RecoveryRange = [number, number]
 
+function parseRange(value: unknown): RecoveryRange | undefined {
+  if (!Array.isArray(value) || value.length !== 2) return undefined
+  const min = optionalMonitorInteger(value[0], 0, MAX_MONITOR_HEIGHT)
+  const max = optionalMonitorInteger(value[1], 0, MAX_MONITOR_HEIGHT)
+  return min !== undefined && max !== undefined && min <= max ? [min, max] : undefined
+}
+
+function validReviewedHash(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === 'string' && value.length <= 128)
+}
+
 /** A bounded, lossless superset of pending heights, persisted in monitor_events. */
 export class ReorgRecovery {
   ranges: RecoveryRange[] = []
@@ -18,25 +29,27 @@ export class ReorgRecovery {
       if (!Array.isArray(record.ranges) || record.ranges.length > MAX_RECOVERY_RANGES) return undefined
       const cursor = optionalMonitorInteger(record.cursor, 0, MAX_MONITOR_HEIGHT)
       if (cursor === undefined) return undefined
-      if (
-        record.reviewedHash !== undefined &&
-        (typeof record.reviewedHash !== 'string' || record.reviewedHash.length > 128)
-      )
-        return undefined
+      if (!validReviewedHash(record.reviewedHash)) return undefined
       const recovery = new ReorgRecovery()
       recovery.cursor = cursor
-      recovery.reviewedHash = record.reviewedHash as string | undefined
-      for (const range of record.ranges) {
-        if (!Array.isArray(range) || range.length !== 2) return undefined
-        const min = optionalMonitorInteger(range[0], 0, MAX_MONITOR_HEIGHT)
-        const max = optionalMonitorInteger(range[1], 0, MAX_MONITOR_HEIGHT)
-        if (min === undefined || max === undefined || min > max) return undefined
-        recovery.add(min, max)
+      recovery.reviewedHash = record.reviewedHash
+      for (const value of record.ranges) {
+        const range = parseRange(value)
+        if (!range) return undefined
+        recovery.add(...range)
       }
       return recovery
     } catch {
       return undefined
     }
+  }
+
+  clone(): ReorgRecovery {
+    const copy = new ReorgRecovery()
+    copy.ranges = this.ranges.map(([min, max]) => [min, max])
+    copy.cursor = this.cursor
+    copy.reviewedHash = this.reviewedHash
+    return copy
   }
 
   add(min: number, max: number): void {

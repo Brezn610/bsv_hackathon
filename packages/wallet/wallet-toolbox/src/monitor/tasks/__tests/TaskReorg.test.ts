@@ -21,6 +21,7 @@ function makeMonitor(options: {
     })
   }
   const events: Array<{ details: string }> = []
+  const deactivatedHeaders: any[] = []
   const monitor = {
     logEvent: jest.fn(async (_event: string, details: string) => {
       events.unshift({ details })
@@ -34,7 +35,9 @@ function makeMonitor(options: {
     },
     chaintracks,
     chaintracksWithEvents: undefined,
-    deactivatedHeaders: [],
+    deactivatedHeaders,
+    shiftDeactivatedHeader: jest.fn(() => deactivatedHeaders.shift()),
+    enqueueDeactivatedHeader: jest.fn(header => deactivatedHeaders.push(header)),
     lastNewHeader: undefined as { height: number; hash: string } | undefined
   }
   return { monitor, chaintracks, findStaleMerkleRoots, reproveHeightMerkleRoot, reproveHeader }
@@ -151,6 +154,19 @@ describe('TaskReorg recent-height review', () => {
     expect(task.trigger(Date.now() + 60_000).run).toBe(true)
     await task.runTask()
     expect(m.chaintracks.findHeaderForHeight).toHaveBeenCalledTimes(8)
+  })
+
+  test.each([0, 2])('journals old event heights before bounded notification retries (tries=%s)', async tries => {
+    const m = makeMonitor({ headersByHeight: roots(0, 100), staleRootsByHeight: { 10: ['old'] } })
+    m.monitor.lastNewHeader = { height: 100, hash: 'tip-100' }
+    m.monitor.deactivatedHeaders.push({ header: { height: 10, hash: 'old-hash' }, tries, whenMsecs: 0 })
+    m.reproveHeader.mockResolvedValue({ log: 'event proof unavailable', updated: [], unchanged: [], unavailable: [{}] })
+    const task = new TaskReorg(m.monitor as any, 0, 3, 4)
+    expect(task.trigger(Date.now()).run).toBe(true)
+    const log = await task.runTask()
+    expect(m.monitor.logEvent.mock.calls[0][1]).toContain('[[10,10]]')
+    expect(m.reproveHeightMerkleRoot).toHaveBeenCalledWith(10, 'old')
+    expect(log).toContain(tries === 2 ? 'maximum retries' : 'retrying...')
   })
 
   test('8 rejects an invalid recentDepth', () => {

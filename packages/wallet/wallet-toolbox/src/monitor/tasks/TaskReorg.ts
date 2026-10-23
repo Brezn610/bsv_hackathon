@@ -142,12 +142,12 @@ export class TaskReorg extends WalletMonitorTask {
   private async reviewBatch(batch: [number, number]): Promise<string> {
     const range = new HeightRange(...batch)
     const r = await reviewProvenTxHeights(this.monitor, range)
-    const intent = JSON.stringify(this.recovery)
+    const intent = this.recovery.clone()
     this.recovery.complete(batch, r.unresolvedHeights)
     try {
       await this.monitor.logEvent('ReorgRecovery', JSON.stringify(this.recovery))
     } catch (error) {
-      this.recovery = ReorgRecovery.parse(intent)!
+      this.recovery = intent
       throw error
     }
     if (r.log.length === 0) return ''
