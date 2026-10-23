@@ -281,7 +281,7 @@ describe('ColorPermissionModule', () => {
           throw new Error('not forwarded')
         }
       )) as ListOutputsResult
-      expect(balance).toEqual({ totalOutputs: '260', outputs: [] })
+      expect(balance).toEqual({ totalOutputs: 260, outputs: [] })
     })
 
     it('asks for approval of the funded action and signs nothing when declined', async () => {
@@ -422,7 +422,7 @@ describe('ColorPermissionModule', () => {
         }
       )) as ListOutputsResult
       expect(inventory.outputs).toEqual([
-        expect.objectContaining({ outpoint: `${txid}.1`, tags: ['color_state_available'] })
+        expect.objectContaining({ outpoint: `${txid}.1`, tags: [] })
       ])
     })
 
@@ -1239,7 +1239,7 @@ describe('ColorPermissionModule', () => {
         wallet.listOutputs = async args => {
           const result = await listOutputs(args)
           return args.include === 'entire transactions'
-            ? { ...result, totalOutputs: count }
+            ? { ...result, totalOutputs: count as number }
             : result
         }
         await expect(
@@ -1686,7 +1686,7 @@ describe('ColorPermissionModule', () => {
             throw new Error('not forwarded')
           }
         )
-      ).resolves.toEqual({ totalOutputs: '200', outputs: [] })
+      ).resolves.toEqual({ totalOutputs: 200, outputs: [] })
     })
   })
 
@@ -1695,7 +1695,7 @@ describe('ColorPermissionModule', () => {
       throw new Error('not forwarded')
     }
 
-    it('lists inventory with one computed state tag per record', async () => {
+    it('lists only spendable inventory, leaving out outputs reserved by a pending action', async () => {
       const [available, unreported, reserved] = await holdTokens(wallet, provider, assetId, [
         5n,
         6n,
@@ -1712,35 +1712,13 @@ describe('ColorPermissionModule', () => {
         },
         notForwarded
       )) as ListOutputsResult
-      const byOutpoint = Object.fromEntries(
-        inventory.outputs.map(output => [output.outpoint, output])
+      expect(inventory.totalOutputs).toBe(2)
+      expect(inventory.outputs.map(output => output.outpoint).sort()).toEqual(
+        [`${available.id('hex')}.0`, `${unreported.id('hex')}.0`].sort()
       )
-      expect(inventory.totalOutputs).toBe(3)
-      expect(byOutpoint[`${available.id('hex')}.0`]).toMatchObject({
-        spendable: true,
-        tags: ['color_state_available']
-      })
-      expect(byOutpoint[`${unreported.id('hex')}.0`]).toMatchObject({
-        spendable: true,
-        tags: ['color_state_available']
-      })
-      expect(byOutpoint[`${reserved.id('hex')}.0`]).toMatchObject({
-        spendable: false,
-        tags: ['color_state_reserved']
-      })
+      expect(inventory.outputs.every(output => output.spendable)).toBe(true)
       expect(inventory.outputs.every(output => output.lockingScript !== undefined)).toBe(true)
-
-      const filtered = (await module.handleRequest(
-        {
-          method: 'listOutputs',
-          args: { basket: 'p color assets', tags: ['color_state_reserved'] },
-          originator: APP
-        },
-        notForwarded
-      )) as ListOutputsResult
-      expect(filtered.outputs.map(output => output.outpoint)).toEqual([`${reserved.id('hex')}.0`])
       expect(prompts.map(prompt => prompt.request)).toEqual([
-        { type: 'color_access', basket: 'p color assets', seekPermission: true },
         { type: 'color_access', basket: 'p color assets', seekPermission: true }
       ])
     })
@@ -1774,7 +1752,27 @@ describe('ColorPermissionModule', () => {
           },
           notForwarded
         )
-      ).resolves.toEqual({ totalOutputs: '11', outputs: [] })
+      ).resolves.toEqual({ totalOutputs: 11, outputs: [] })
+    })
+
+    it('answers a balance as a number, above 2^32 - 1 and rounded above 2^53', async () => {
+      const balanceOf = async (): Promise<ListOutputsResult> =>
+        (await module.handleRequest(
+          {
+            method: 'listOutputs',
+            args: { basket: `p color balance ${assetTag(assetId)}` },
+            originator: APP
+          },
+          notForwarded
+        )) as ListOutputsResult
+      await holdTokens(wallet, provider, assetId, [2n ** 32n, 5n])
+      await expect(balanceOf()).resolves.toEqual({ totalOutputs: 2 ** 32 + 5, outputs: [] })
+      // 2^32 + 5 + 2 * (2^63 - 1) is summed exactly as a bigint and rounded once to a number.
+      await holdTokens(wallet, provider, assetId, [2n ** 63n - 1n, 2n ** 63n - 1n])
+      const exact = 2n ** 32n + 5n + 2n * (2n ** 63n - 1n)
+      const balance = await balanceOf()
+      expect(typeof balance.totalOutputs).toBe('number')
+      expect(balance).toEqual({ totalOutputs: Number(exact), outputs: [] })
     })
 
     it('decrypts custody only for the inventory page it returns', async () => {
@@ -1824,7 +1822,7 @@ describe('ColorPermissionModule', () => {
           },
           notForwarded
         )
-      ).resolves.toEqual({ totalOutputs: '1', outputs: [] })
+      ).resolves.toEqual({ totalOutputs: 1, outputs: [] })
       await expect(
         module.handleRequest(
           { method: 'listOutputs', args: { basket: 'p color balance assets' }, originator: APP },
