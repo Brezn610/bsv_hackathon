@@ -50,6 +50,7 @@ test('every publisher requires complete exact-source qualification before publis
             prepare: { outputs: { count: '1' } },
             discover: { result: 'success', outputs: { count: '1' } },
             source: { result: 'success' },
+            'build-image': { result: 'success' },
             [gate]: { result, outputs: { 'qualified-sha': qualified } }
           }
         }
@@ -172,8 +173,8 @@ test('partition jobs cannot replace each original canonical global gate or the f
   )
   const ci = parse(readFileSync(CI_PATH, 'utf8'))
   assert.equal(ci.jobs['mutation-tests'].strategy['max-parallel'], 6)
-  // Release qualification runs every target at once; one target bounds wall time.
-  assert.equal(full.jobs['mutation-tests'].strategy['max-parallel'], 20)
+  // Release qualification runs every part at once; one part bounds wall time.
+  assert.equal(full.jobs['mutation-tests'].strategy['max-parallel'], 100)
   for (const workflow of [ci, full]) {
     assert.match(workflow.jobs['mutation-tests'].strategy.matrix, /mutation-matrix/)
     assert.match(
@@ -212,14 +213,18 @@ test('partition jobs cannot replace each original canonical global gate or the f
   )
   assert.deepEqual(full.jobs['partition-aggregate'].needs, ['prepare', 'mutation-tests'])
   assert.match(full.jobs['partition-aggregate'].strategy.matrix.target, /partition-targets/)
-  for (const id of ['sdk-auth-http', 'wallet-retained-snapshot']) {
-    const download = ci.jobs['mutation-quality'].steps.find(
-      step => step.with?.pattern === `mutation-${id}-*`
-    )
-    assert.ok(download)
-    assert.match(download.if, /partition-targets/)
-    assert.equal(download.with.path, `.mutation-parts/${id}`)
-  }
+  const download = ci.jobs['mutation-quality'].steps.find(
+    step => step.with?.pattern === 'mutation-*'
+  )
+  assert.ok(download)
+  assert.match(download.if, /partition-targets/)
+  assert.equal(download.with.path, '.mutation-parts-raw')
+  const staging = ci.jobs['mutation-quality'].steps.find(
+    step => step.name === 'Require every selected canonical partition target gate'
+  )
+  assert.match(staging.env.MUTATION_MATRIX, /mutation-matrix/)
+  assert.match(staging.run, /\.mutation-parts-raw\/mutation-\$target-\$partition/)
+  assert.match(staging.run, /Missing mutation partition evidence/)
   for (const targets of ['[]', '', 'null']) {
     const run = spawnSync('/bin/bash', ['-e', '-c', script], {
       env: {
