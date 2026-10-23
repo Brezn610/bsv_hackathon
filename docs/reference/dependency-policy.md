@@ -3,8 +3,8 @@ id: dependency-release-policy
 title: 'Dependency and Release Policy'
 kind: reference
 version: '1.5.0'
-last_updated: '2026-10-15'
-last_verified: '2026-10-15'
+last_updated: '2026-10-23'
+last_verified: '2026-10-23'
 review_cadence_days: 30
 status: stable
 tags: [reference, dependencies, security, releases]
@@ -146,6 +146,31 @@ and requires the pull request's dependency-evidence section to record release
 notes and necessity, runtime/build/peer compatibility, lockfile deduplication,
 audit and CodeQL results, package and consumer tests, bundle/performance
 impact, and affected public versions.
+
+## Temporary CDP browser tooling repair
+
+VeriFast's private browser qualification uses Chrome DevTools Protocol (CDP).
+Puppeteer 25.11.0 dynamically loads its Chromium-BiDi adapter only for WebDriver
+BiDi, which this harness does not exercise. Its unused adapter retains Zod 3,
+affected by [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
+The available Puppeteer upgrade selects an adapter without the provenance
+required by the existing no-downgrade policy.
+
+An exact-parent removal excludes only `puppeteer-core@25.11.0>chromium-bidi`;
+the harness explicitly selects CDP and retains its full browser, WASM, worker,
+CSP and streaming-fallback assertions. Public package APIs, application-wallet
+transports, audit thresholds and provenance protections are unchanged. The
+remaining Zod 4 mutation-tooling path has a narrow patched-version floor
+(`zod@>=4.0.0 <4.6.6` to 4.6.7), within its upstream API range. This avoids
+refreshing unrelated Babel, Inquirer and Node-type dependencies. Its separate
+owned exception is `zod4-mutation-protocol-security-floor`. body-parser's compatible patch closes
+[GHSA-27r3-jxmh-p828](https://github.com/advisories/GHSA-27r3-jxmh-p828).
+
+The owned exception `verifast-cdp-only-browser-tooling` records the evidence,
+review deadline and retirement checks. Restore an explicitly supported,
+provenance-verified adapter before adding BiDi tests. This removal makes no
+claim to qualify BiDi. Retire it once the compatible official dependency graph
+passes provenance, the full audit and the unchanged browser contract.
 
 ## Temporary Metro watcher repair
 

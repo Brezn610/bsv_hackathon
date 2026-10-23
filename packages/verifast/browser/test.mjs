@@ -190,6 +190,7 @@ try {
   browser = await puppeteer.launch({
     executablePath: await executablePath(),
     headless: true,
+    protocol: 'cdp',
     args: ['--no-sandbox']
   })
 
