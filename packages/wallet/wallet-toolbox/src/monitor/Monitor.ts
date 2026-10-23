@@ -213,9 +213,10 @@ export class Monitor {
       // subscribeReorgs are unsupported stubs that must not be called, e.g.
       // ChaintracksServiceClient, an HTTP-polling client. TaskNewHeader polls
       // the tip. TaskReorg checks recent proofs and journals unresolved heights
-      // and observed tip gaps for bounded retries independent of push events.
-      // TaskReviewProvenTxs bootstraps its separate lagged audit from a safe
-      // proof-height lower bound. Skip push registration without touching the network.
+      // and observed tip gaps for retries in bounded batches, independent of
+      // push events. TaskReviewProvenTxs bootstraps its separate lagged audit
+      // from a safe proof-height lower bound. Skip push registration without
+      // touching the network.
       if (eventSource.supportsReorgEvents === false) return
       const actualChain = await eventSource.getChain()
       if (actualChain !== this.chain) {
