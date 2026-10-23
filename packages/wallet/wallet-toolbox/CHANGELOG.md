@@ -9,8 +9,16 @@ attention to changes that materially alter behavior or extend functionality.
 - `TaskReorg` rechecks the latest 12 heights after each processed tip without
   requiring reorg events. It persists unresolved recovery ranges before remote
   work and retries them once per minute, including after restart and after
-  a height leaves the recent window. `recentDepth = 0` disables this recovery.
-  No schema or consumer migration is required.
+  a height leaves the recent window. It also journals the gap observed after
+  monitor downtime. `recentDepth = 0` disables this recovery.
+- The lagged proof audit leaves an empty wallet uncheckpointed, starts at the
+  minimum stored proof height, repairs legacy empty-prefix checkpoints, and
+  retains bounded fair retries even if the tip retreats. Its compact recovery
+  state fits the monitor-event limit, independently of diagnostic size.
+- IndexedDB monitor history honors descending reads. IndexedDB automatically
+  upgrades to version 7 with a nonunique `proven_txs.height` index so bootstrap
+  does not deserialize proof blobs. Close older database connections before
+  upgrading and retain a backup; there is no SQL schema or manual data rewrite.
 
 - With the compatibility SDK, existing certificate references accept bounded
   historical types through the normal BRC-100 APIs. Storage listing and proof

@@ -14,7 +14,7 @@ import { WalletMonitorTask } from './WalletMonitorTask'
  * They must be shifted out as they are processed.
  *
  * The current implementation ages deactivation notifications by 10 minutes with each retry.
- * If a successful proof update confirms original proof data after 3 retries, the original is retained.
+ * Event-specific attempts stop after 3 retries; durable height recovery continues until resolved.
  *
  * In normal operation there should rarely be any work for this task to perform.
  * The most common result is that there are no matching proven_txs records because
@@ -36,6 +36,7 @@ import { WalletMonitorTask } from './WalletMonitorTask'
  * chaintracks header at each height, and reproves the transactions under any stale root.
  * Recovery ranges are persisted before remote work. Unresolved heights survive restart and
  * window aging, and are retried once per minute even if the chain tip does not change.
+ * The durable last processed height also queues the gap observed after monitor downtime.
  * Older heights that were never observed by this task remain covered by TaskReviewProvenTxs.
  */
 export class TaskReorg extends WalletMonitorTask {
@@ -88,7 +89,8 @@ export class TaskReorg extends WalletMonitorTask {
    * Shift aged deactivated headers onto `process` array.
    * @param nowMsecsSinceEpoch current time in milliseconds since epoch.
    * @returns `run` true iff there are aged deactivated headers to process,
-   * or a new block header has been processed since the last recent-height review.
+   * a new block header has been processed since the last recent-height review,
+   * or unresolved durable work is due for its one-minute retry.
    */
   trigger(nowMsecsSinceEpoch: number): { run: boolean } {
     const cutoff = nowMsecsSinceEpoch - this.agedMsecs
@@ -125,8 +127,15 @@ export class TaskReorg extends WalletMonitorTask {
       ? [Math.max(0, tip.height - this.recentDepth + 1), tip.height]
       : undefined
     if (freshBatch) {
-      this.recovery.add(...freshBatch)
+      const priorHeight = this.recovery.reviewedHeight
+      // Recover the gap observed while the monitor was stopped, in bounded later batches.
+      const gapStart =
+        priorHeight === undefined
+          ? freshBatch[0]
+          : Math.min(freshBatch[0], Math.max(0, priorHeight - this.recentDepth + 1))
+      this.recovery.add(gapStart, tip.height)
       this.recovery.reviewedHash = tip.hash
+      this.recovery.reviewedHeight = tip.height
     }
     if (!freshBatch && !retryBatch) return ''
     // Write intent before network work: process interruption retains both batches.

@@ -19,6 +19,7 @@ export class ReorgRecovery {
   ranges: RecoveryRange[] = []
   cursor = 0
   reviewedHash?: string
+  reviewedHeight?: number
 
   static parse(details: string): ReorgRecovery | undefined {
     if (details.length > 8192) return undefined
@@ -30,9 +31,15 @@ export class ReorgRecovery {
       const cursor = optionalMonitorInteger(record.cursor, 0, MAX_MONITOR_HEIGHT)
       if (cursor === undefined) return undefined
       if (!validReviewedHash(record.reviewedHash)) return undefined
+      const reviewedHeight =
+        record.reviewedHeight === undefined
+          ? undefined
+          : optionalMonitorInteger(record.reviewedHeight, 0, MAX_MONITOR_HEIGHT)
+      if (record.reviewedHeight !== undefined && reviewedHeight === undefined) return undefined
       const recovery = new ReorgRecovery()
       recovery.cursor = cursor
       recovery.reviewedHash = record.reviewedHash
+      recovery.reviewedHeight = reviewedHeight
       for (const value of record.ranges) {
         const range = parseRange(value)
         if (!range) return undefined
@@ -49,6 +56,7 @@ export class ReorgRecovery {
     copy.ranges = this.ranges.map(([min, max]) => [min, max])
     copy.cursor = this.cursor
     copy.reviewedHash = this.reviewedHash
+    copy.reviewedHeight = this.reviewedHeight
     return copy
   }
 
@@ -60,6 +68,10 @@ export class ReorgRecovery {
       if (last && range[0] <= last[1] + 1) last[1] = Math.max(last[1], range[1])
       else this.ranges.push([...range])
     }
+    this.boundRanges()
+  }
+
+  private boundRanges(): void {
     // Coalescing can add harmless intervening reviews, never remove pending work.
     // 128 pairs of bounded heights keep the checkpoint well below 8192 bytes.
     while (this.ranges.length > MAX_RECOVERY_RANGES) {
@@ -90,6 +102,7 @@ export class ReorgRecovery {
       return remainder
     })
     for (const height of unresolved) this.add(height, height)
+    this.boundRanges()
     this.cursor = max === MAX_MONITOR_HEIGHT ? 0 : max + 1
   }
 }

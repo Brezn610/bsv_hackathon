@@ -33,6 +33,7 @@ interface ReviewProvenTxsCheckpoint {
   retryHeights?: number[]
   retryRecovery?: ReorgRecovery
   reviewLog?: string
+  bootstrapComplete?: boolean
 }
 
 /**
@@ -92,8 +93,8 @@ export class TaskReviewProvenTxs extends WalletMonitorTask {
     )
     const maxEligibleHeight = tipHeight - this.minBlockAge
     const checkpoint = await this.getLastCheckpoint()
+    const firstHeight = checkpoint?.bootstrapComplete === true ? 0 : await this.getFirstProvenHeight()
     const lastReviewedHeight = checkpoint?.reviewedThroughHeight ?? (await this.getLastReviewedHeight())
-    const firstHeight = await this.getFirstProvenHeight()
     // Empty wallets must not checkpoint empty history. Existing checkpoints below
     // the first proof can skip only that empty prefix; pending retries survive.
     const startHeight = Math.max(firstHeight ?? 0, (lastReviewedHeight ?? -1) + 1)
@@ -166,7 +167,8 @@ export class TaskReviewProvenTxs extends WalletMonitorTask {
       updatedTransactions: review.updatedTransactions,
       retryHeights,
       retryRecovery,
-      reviewLog: log.slice(0, 256)
+      reviewLog: log.slice(0, 256),
+      bootstrapComplete: firstHeight !== undefined
     } satisfies ReviewProvenTxsCheckpoint)
   }
 
@@ -221,8 +223,9 @@ export class TaskReviewProvenTxs extends WalletMonitorTask {
       if (reviewedThroughHeight === undefined) return undefined
       const parsedRecovery =
         record.retryRecovery === undefined ? undefined : ReorgRecovery.parse(JSON.stringify(record.retryRecovery))
+      if (record.retryRecovery !== undefined && parsedRecovery === undefined) return undefined
       const retryRecovery = parsedRecovery ?? this.legacyRetryRecovery(record.retryHeights)
-      return { reviewedThroughHeight, retryRecovery }
+      return { reviewedThroughHeight, retryRecovery, bootstrapComplete: record.bootstrapComplete === true }
     } catch {
       return undefined
     }

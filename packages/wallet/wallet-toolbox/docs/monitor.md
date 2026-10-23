@@ -950,7 +950,7 @@ New deactivated headers are pushed onto the `deactivatedHeaders` array.
 They must be shifted out as they are processed.
 
 The current implementation ages deactivation notifications by 10 minutes with each retry.
-If a successful proof update confirms original proof data after 3 retries, the original is retained.
+Event-specific attempts stop after 3 retries; durable height recovery continues until resolved.
 
 In normal operation there should rarely be any work for this task to perform.
 The most common result is that there are no matching proven_txs records because
@@ -972,6 +972,7 @@ also compares the stored merkleRoots of the most recent `recentDepth` heights wi
 chaintracks header at each height, and reproves the transactions under any stale root.
 Recovery ranges are persisted before remote work. Unresolved heights survive restart and
 window aging, and are retried once per minute even if the chain tip does not change.
+The durable last processed height also queues the gap observed after monitor downtime.
 Older heights that were never observed by this task remain covered by TaskReviewProvenTxs.
 
 ```ts
@@ -1015,7 +1016,8 @@ trigger(nowMsecsSinceEpoch: number): {
 Returns
 
 `run` true iff there are aged deactivated headers to process,
-or a new block header has been processed since the last recent-height review.
+a new block header has been processed since the last recent-height review,
+or unresolved durable work is due for its one-minute retry.
 
 Argument Details
 

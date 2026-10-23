@@ -145,6 +145,18 @@ describe('TaskReorg recent-height review', () => {
     expect(m.reproveHeightMerkleRoot).toHaveBeenLastCalledWith(99, 'old')
   })
 
+  test('queues the missed middle of a long offline gap and recovers it in bounded batches', async () => {
+    const m = makeMonitor({ headersByHeight: roots(0, 200), staleRootsByHeight: { 110: ['orphaned-middle'] } })
+    m.monitor.lastNewHeader = { height: 100, hash: 'tip-100' }
+    await new TaskReorg(m.monitor as any, 0, 3, 4).runTask()
+    m.monitor.lastNewHeader = { height: 150, hash: 'tip-150' }
+    const restarted = new TaskReorg(m.monitor as any, 0, 3, 4)
+    await restarted.runTask()
+    expect(m.reproveHeightMerkleRoot).not.toHaveBeenCalled()
+    for (let attempt = 0; attempt < 4; attempt++) await restarted.runTask()
+    expect(m.reproveHeightMerkleRoot).toHaveBeenCalledWith(110, 'orphaned-middle')
+  })
+
   test('7 preserves durable intent if checkpoint persistence fails after remote work', async () => {
     const m = makeMonitor({ headersByHeight: roots(97, 100) })
     m.monitor.lastNewHeader = { height: 100, hash: 'tip-100' }

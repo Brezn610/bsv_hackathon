@@ -164,9 +164,11 @@ describe('TaskReorg re-proves recent proofs without reorg events', () => {
     return row!
   }
 
-  test.each([false, true])(
-    'repairs an orphaned proof and validates the spend (delayed provider/restart=%s)',
-    async delayed => {
+  test.each(['immediate', 'delayed', 'offline-gap'])(
+    'repairs an orphaned proof and validates the spend (%s)',
+    async mode => {
+      const delayed = mode === 'delayed'
+      const offline = mode === 'offline-gap'
       const { wallet, monitor, storage, destroy } = await createWallet()
       try {
         // 1. Coin A is mined in block X at height H and the wallet stores its proof.
@@ -178,7 +180,8 @@ describe('TaskReorg re-proves recent proofs without reorg events', () => {
         // The monitor processes block X as its new tip. TaskNewHeader makes this call once a tip
         // has held for a cycle; it is made directly here because TaskNewHeader requires mainnet
         // proof of work, which the mock chain's headers do not meet.
-        monitor.processNewBlockHeader(blockX)
+        const initialTip = offline ? (await services.tracker.findHeaderForHeight(blockX.height - 15))! : blockX
+        monitor.processNewBlockHeader(initialTip)
         await monitor.runOnce()
         expect((await storedProof(storage, a.txid)).blockHash).toBe(blockX.hash)
 
@@ -202,8 +205,25 @@ describe('TaskReorg re-proves recent proofs without reorg events', () => {
           .mockImplementation(async txid => (unavailable && txid === a.txid ? {} : await getMerklePath(txid)))
 
         // 4. The monitor processes the new tip H + 1; the next scheduler tick re-proves A.
-        monitor.processNewBlockHeader(reorg.newTip)
-        await monitor.runOnce()
+        const resumed = offline ? new Monitor(monitor.options) : monitor
+        if (offline) resumed.addTask(new TaskReorg(resumed))
+        if (offline) for (let i = 0; i < 15; i++) await services.mineBlock()
+        const resumedTip = offline ? (await services.tracker.findChainTipHeader())! : reorg.newTip
+        resumed.processNewBlockHeader(resumedTip)
+        await resumed.runOnce()
+        if (offline) {
+          expect((await storedProof(storage, a.txid)).blockHash).toBe(blockX.hash)
+          const now = Date.now()
+          const clock = jest.spyOn(Date, 'now')
+          try {
+            for (let i = 0; i < 4; i++) {
+              clock.mockReturnValue(now + (i + 1) * 60_001)
+              await resumed.runOnce()
+            }
+          } finally {
+            clock.mockRestore()
+          }
+        }
 
         if (delayed) {
           expect((await storedProof(storage, a.txid)).blockHash).toBe(blockX.hash)

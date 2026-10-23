@@ -27,6 +27,16 @@ describe('bounded durable reorg recovery ranges', () => {
     expect(restored.next(20, 2)).toEqual([12, 13])
   })
 
+  test('splitting a full range queue remains bounded even with no failures', () => {
+    const queue = new ReorgRecovery()
+    for (let i = 0; i < 128; i++) queue.add(i * 100, i * 100 + 20)
+    queue.complete([5, 10], [])
+    expect(queue.ranges.length).toBeLessThanOrEqual(128)
+    expect(ReorgRecovery.parse(JSON.stringify(queue))).toBeDefined()
+    expect(queue.ranges.some(([min, max]) => min <= 0 && max >= 0)).toBe(true)
+    expect(queue.ranges.some(([min, max]) => min <= 20 && max >= 20)).toBe(true)
+  })
+
   test('maximum height wraps the fairness cursor safely', () => {
     const queue = new ReorgRecovery()
     queue.add(2_147_483_647, 2_147_483_647)

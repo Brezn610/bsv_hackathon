@@ -514,4 +514,49 @@ describe('TaskReviewProvenTxs tests', () => {
     const restored = await new TaskReviewProvenTxs(m.monitor as any).getLastCheckpoint()
     expect(restored?.retryRecovery?.ranges).toEqual(checkpoint.retryRecovery.ranges)
   })
+  test('a malformed explicit recovery queue falls back to a previous valid durable checkpoint', async () => {
+    const m = makeMonitor({
+      tipHeight: 500,
+      monitorEvents: [
+        {
+          details: JSON.stringify({
+            reviewedThroughHeight: 400,
+            retryRecovery: { ranges: 'corrupt', cursor: 0 },
+            retryHeights: []
+          })
+        },
+        { details: JSON.stringify({ reviewedThroughHeight: 300, retryHeights: [17] }) }
+      ]
+    })
+    const checkpoint = await new TaskReviewProvenTxs(m.monitor as any).getLastCheckpoint()
+    expect(checkpoint?.reviewedThroughHeight).toBe(300)
+    expect(checkpoint?.retryRecovery?.ranges).toEqual([[17, 17]])
+  })
+  test('a completed bootstrap resumes the bounded audit without rescanning the proof table', async () => {
+    const m = makeMonitor({
+      tipHeight: 500,
+      monitorEvents: [{ details: JSON.stringify({ reviewedThroughHeight: 200, bootstrapComplete: true }) }]
+    })
+    const task = new TaskReviewProvenTxs(m.monitor as any)
+    const minimum = jest.spyOn(task as any, 'getFirstProvenHeight')
+    jest.spyOn(task, 'reviewHeightRange').mockResolvedValue(m.reviewHeightRange())
+    const result = JSON.parse(await task.runTask())
+    expect(result.startHeight).toBe(201)
+    expect(result.bootstrapComplete).toBe(true)
+    expect(minimum).not.toHaveBeenCalled()
+  })
+  test('retry-only work in an empty legacy wallet does not finish bootstrap before its first proof', async () => {
+    const provenTxs: Array<{ height: number }> = []
+    const monitorEvents = [{ details: JSON.stringify({ reviewedThroughHeight: 99, retryHeights: [17] }) }]
+    const m = makeMonitor({ tipHeight: 971500, provenTxs, monitorEvents })
+    const empty = new TaskReviewProvenTxs(m.monitor as any)
+    jest.spyOn(empty, 'reviewHeightRange').mockResolvedValue(m.reviewHeightRange())
+    const details = await empty.runTask()
+    expect(JSON.parse(details).bootstrapComplete).toBe(false)
+    monitorEvents.unshift({ details })
+    provenTxs.push({ height: 971225 })
+    const funded = new TaskReviewProvenTxs(m.monitor as any)
+    jest.spyOn(funded, 'reviewHeightRange').mockResolvedValue(m.reviewHeightRange())
+    expect(JSON.parse(await funded.runTask()).startHeight).toBe(971225)
+  })
 })
