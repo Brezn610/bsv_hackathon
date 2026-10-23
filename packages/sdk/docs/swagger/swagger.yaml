@@ -1515,11 +1515,8 @@ components:
           BEEF: [2, 0, 190, 239]
       properties:
         totalOutputs:
-          oneOf:
-            - type: number
-            - type: string
-              pattern: "^(0|[1-9][0-9]*)$"
-          description: The number of matching outputs; for a BRC-112 module balance query (p <module> balance <basket>), the exact balance as decimal text with no outputs and no BEEF.
+          type: number
+          description: The number of matching outputs; for a BRC-112 balance query (balance <basket> or p <module> balance <basket>), the balance as a nonnegative integer with no outputs and no BEEF, exact to 2^53.
           examples:
             - 1
         BEEF:

@@ -106,12 +106,6 @@ export type PubKeyHex = HexString // NOSONAR
 export type Base64String = string // NOSONAR
 
 /**
- * @typedef {string} DecimalString
- * A canonical nonnegative decimal integer, matching `0|[1-9][0-9]*`, with no upper bound.
- */
-export type DecimalString = string // NOSONAR
-
-/**
  * @typedef {string} OriginatorDomainNameStringUnder250Bytes
  * Represents the fully qualified domain name (FQDN) of the application that originates the request.
  * An optional numeric port is accepted at wallet boundaries for compatibility,
@@ -649,11 +643,13 @@ export interface ListOutputsArgs {
 }
 
 /**
- * @param totalOutputs - The number of matching outputs. For a BRC-112 module balance query
- * (`p <module> balance <basket>`) it is instead the exact balance as a `DecimalString`, with no outputs and no BEEF.
+ * @param totalOutputs - The number of matching outputs, at most 2^32 - 1. For a BRC-112 balance
+ * query (`balance <basket>` or `p <module> balance <basket>`) it is instead the balance, a
+ * nonnegative integer that may exceed 2^32 - 1, with no outputs and no BEEF. As a JavaScript
+ * number it is exact up to 2^53 and rounded above.
  */
 export interface ListOutputsResult {
-  totalOutputs: PositiveIntegerOrZero | DecimalString
+  totalOutputs: number
   BEEF?: BEEF
   outputs: WalletOutput[]
 }

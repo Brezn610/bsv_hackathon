@@ -260,7 +260,7 @@ Returns:
 
 | Field | Type |
 |-------|------|
-| `totalOutputs` | `number`; total matching outputs before pagination, independent of `limit` and `offset`. For a BRC-112 module balance query (`p <module> balance <basket>`), the exact balance as canonical decimal text, with no outputs and no `BEEF` |
+| `totalOutputs` | `number`; total matching outputs before pagination, independent of `limit` and `offset`. For a BRC-112 balance query (`balance <basket>` or `p <module> balance <basket>`), the balance, a nonnegative integer that may exceed 2^32 - 1 (exact to 2^53 as a JavaScript number), with no outputs and no `BEEF` |
 | `BEEF` | `BEEF`, when `include: 'entire transactions'` |
 | `outputs` | `WalletOutput[]` |
 
