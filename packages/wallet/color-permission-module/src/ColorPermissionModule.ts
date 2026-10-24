@@ -2327,7 +2327,7 @@ export class ColorPermissionModule implements PermissionsModule {
     return { totalOutputs: Number(total), outputs: [] }
   }
 
-  /** `p color assets`: every held token output across all per-asset baskets, with its state. */
+  /** `p color assets`: every spendable held token output across all per-asset baskets, with its state tag. */
   protected async inventory(args: ListOutputsArgs, originator: string): Promise<ListOutputsResult> {
     const entireTransactions = args.include === 'entire transactions'
     const listed = await this.wallet.listOutputs(
@@ -2343,7 +2343,12 @@ export class ColorPermissionModule implements PermissionsModule {
     )
     const beef =
       entireTransactions && listed.BEEF !== undefined ? Beef.fromBinary(listed.BEEF) : undefined
-    const views = inventoryRecords(listed.outputs, beef)
+    // As with any listOutputs call, only spendable outputs are listed: an output reserved by a
+    // pending action is left out.
+    const views = inventoryRecords(
+      listed.outputs.filter(output => output.spendable),
+      beef
+    )
       .map(inventoryView)
       .filter(view => matchesTags(view.tags, args.tags ?? [], args.tagQueryMode))
     const limit = args.limit ?? 10

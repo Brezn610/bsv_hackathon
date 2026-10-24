@@ -937,7 +937,7 @@ describe('ColorPermissionModule boundaries', () => {
     ).rejects.toThrow('does not match its source output')
   })
 
-  it('filters inventory on all tags and ignores stored state tags', async () => {
+  it('filters inventory on all tags and replaces stored state tags with the computed one', async () => {
     const [held] = await holdTokens(wallet, provider, assetId, [5n])
     const spoofingWallet = Object.create(wallet) as FakeWallet
     spoofingWallet.listOutputs = async args => {
@@ -946,7 +946,7 @@ describe('ColorPermissionModule boundaries', () => {
         ...result,
         outputs: result.outputs.map(output => ({
           ...output,
-          tags: ['color_state_reserved', 'mine']
+          tags: ['color_state_reserved', 'color_state_available', 'mine']
         }))
       }
     }
