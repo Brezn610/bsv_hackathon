@@ -35,6 +35,15 @@ export type Byte = number // NOSONAR
 export type PositiveIntegerOrZero = number // NOSONAR
 
 /**
+ * @typedef {number} PositiveInteger64OrZero
+ * A non-negative integer with an upper bound of `2^64 - 1`. As a JavaScript number it is exact
+ * up to `2^53` and rounded above.
+ * @minimum 0
+ * @maximum 18446744073709551615
+ */
+export type PositiveInteger64OrZero = number // NOSONAR
+
+/**
  * @typedef {number} PositiveInteger
  * A positive integer that excludes zero, and has an upper bound of `2^32 - 1`.
  * @minimum 1
@@ -649,7 +658,7 @@ export interface ListOutputsArgs {
  * number it is exact up to 2^53 and rounded above.
  */
 export interface ListOutputsResult {
-  totalOutputs: number
+  totalOutputs: PositiveInteger64OrZero
   BEEF?: BEEF
   outputs: WalletOutput[]
 }

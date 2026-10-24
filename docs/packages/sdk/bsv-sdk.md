@@ -16,7 +16,7 @@ repo: 'https://github.com/bsv-blockchain/ts-stack/tree/main/packages/sdk'
 # @bsv/sdk
 
 The 4.0.1 source candidate types `ListOutputsResult.totalOutputs` as a number
-again. A BRC-112 balance query (`balance <basket>` or
+again, `PositiveInteger64OrZero` (up to 2^64 - 1). A BRC-112 balance query (`balance <basket>` or
 `p <module> balance <basket>`) returns the balance as a nonnegative integer
 with no outputs and no BEEF; it may exceed the 2^32 - 1 bound of a count, and a
 JavaScript number is exact to 2^53 and rounded above. The binary `listOutputs`

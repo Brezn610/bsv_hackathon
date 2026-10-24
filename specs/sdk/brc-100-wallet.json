@@ -54,6 +54,12 @@
       "minimum": 0,
       "maximum": 4294967295
     },
+    "PositiveInteger64OrZero": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615,
+      "description": "A non-negative integer with an upper bound of 2^64 - 1. As a JavaScript number it is exact up to 2^53 and rounded above."
+    },
     "PositiveIntegerDefault10Max10000": {
       "type": "integer",
       "minimum": 1,
@@ -566,8 +572,7 @@
         "required": ["totalOutputs", "outputs"],
         "properties": {
           "totalOutputs": {
-            "type": "integer",
-            "minimum": 0,
+            "$ref": "#/$defs/PositiveInteger64OrZero",
             "description": "The number of matching outputs, at most 2^32 - 1; for a BRC-112 balance query (balance <basket> or p <module> balance <basket>), the balance, a nonnegative integer with no outputs and no BEEF."
           },
           "BEEF":         { "$ref": "#/$defs/ByteArray" },

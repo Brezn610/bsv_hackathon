@@ -844,13 +844,13 @@ Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes), [Functions](
 
 ```ts
 export interface ListOutputsResult {
-    totalOutputs: number;
+    totalOutputs: PositiveInteger64OrZero;
     BEEF?: BEEF;
     outputs: WalletOutput[];
 }
 ```
 
-See also: [BEEF](./wallet.md#type-beef), [WalletOutput](./wallet.md#interface-walletoutput)
+See also: [BEEF](./wallet.md#type-beef), [PositiveInteger64OrZero](./wallet.md#type-positiveinteger64orzero), [WalletOutput](./wallet.md#interface-walletoutput)
 
 Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes), [Functions](#functions), [Types](#types), [Enums](#enums), [Variables](#variables)
 
@@ -4201,7 +4201,7 @@ export default class WindowCWISubstrate implements WalletInterface {
         limit?: PositiveIntegerDefault10Max10000;
         offset?: PositiveIntegerOrZero;
     }, originator?: OriginatorDomainNameStringUnder250Bytes): Promise<{
-        totalOutputs: number;
+        totalOutputs: PositiveInteger64OrZero;
         outputs: Array<{
             outpoint: OutpointString;
             satoshis: SatoshiValue;
@@ -5734,21 +5734,22 @@ Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes), [Functions](
 
 | | | |
 | --- | --- | --- |
-| [AcquireCertificateResult](#type-acquirecertificateresult) | [EntityIconURLStringMax500Bytes](#type-entityiconurlstringmax500bytes) | [PositiveIntegerMax10](#type-positiveintegermax10) |
-| [AcquisitionProtocol](#type-acquisitionprotocol) | [EntityNameStringMax100Bytes](#type-entitynamestringmax100bytes) | [PositiveIntegerOrZero](#type-positiveintegerorzero) |
-| [ActionStatus](#type-actionstatus) | [ErrorCodeString10To40Bytes](#type-errorcodestring10to40bytes) | [ProtocolString5To400Bytes](#type-protocolstring5to400bytes) |
-| [AtomicBEEF](#type-atomicbeef) | [ErrorDescriptionString20To200Bytes](#type-errordescriptionstring20to200bytes) | [PubKeyHex](#type-pubkeyhex) |
-| [BEEF](#type-beef) | [HexString](#type-hexstring) | [ReviewActionResultStatus](#type-reviewactionresultstatus) |
-| [Base64String](#type-base64string) | [ISOTimestampString](#type-isotimestampstring) | [SatoshiValue](#type-satoshivalue) |
-| [BasketStringUnder300Bytes](#type-basketstringunder300bytes) | [KeyIDStringUnder800Bytes](#type-keyidstringunder800bytes) | [SecurityLevel](#type-securitylevel) |
-| [BooleanDefaultFalse](#type-booleandefaultfalse) | [KeyringRevealer](#type-keyringrevealer) | [SendWithResultStatus](#type-sendwithresultstatus) |
-| [BooleanDefaultTrue](#type-booleandefaulttrue) | [LabelStringUnder300Bytes](#type-labelstringunder300bytes) | [TXIDHexString](#type-txidhexstring) |
-| [Byte](#type-byte) | [MakeWalletLogger](#type-makewalletlogger) | [TrustSelf](#type-trustself) |
-| [CallType](#type-calltype) | [OriginatorDomainNameStringUnder250Bytes](#type-originatordomainnamestringunder250bytes) | [VersionString7To30Bytes](#type-versionstring7to30bytes) |
-| [CertificateFieldNameUnder50Bytes](#type-certificatefieldnameunder50bytes) | [OutpointString](#type-outpointstring) | [WalletCounterparty](#type-walletcounterparty) |
-| [Counterparty](#type-counterparty) | [OutputTagStringUnder300Bytes](#type-outputtagstringunder300bytes) | [WalletErrorCode](#type-walleterrorcode) |
-| [DescriptionString5to2000Bytes](#type-descriptionstring5to2000bytes) | [PositiveInteger](#type-positiveinteger) | [WalletNetwork](#type-walletnetwork) |
-| [DescriptionString5to50Bytes](#type-descriptionstring5to50bytes) | [PositiveIntegerDefault10Max10000](#type-positiveintegerdefault10max10000) | [WalletProtocol](#type-walletprotocol) |
+| [AcquireCertificateResult](#type-acquirecertificateresult) | [EntityNameStringMax100Bytes](#type-entitynamestringmax100bytes) | [PositiveIntegerOrZero](#type-positiveintegerorzero) |
+| [AcquisitionProtocol](#type-acquisitionprotocol) | [ErrorCodeString10To40Bytes](#type-errorcodestring10to40bytes) | [ProtocolString5To400Bytes](#type-protocolstring5to400bytes) |
+| [ActionStatus](#type-actionstatus) | [ErrorDescriptionString20To200Bytes](#type-errordescriptionstring20to200bytes) | [PubKeyHex](#type-pubkeyhex) |
+| [AtomicBEEF](#type-atomicbeef) | [HexString](#type-hexstring) | [ReviewActionResultStatus](#type-reviewactionresultstatus) |
+| [BEEF](#type-beef) | [ISOTimestampString](#type-isotimestampstring) | [SatoshiValue](#type-satoshivalue) |
+| [Base64String](#type-base64string) | [KeyIDStringUnder800Bytes](#type-keyidstringunder800bytes) | [SecurityLevel](#type-securitylevel) |
+| [BasketStringUnder300Bytes](#type-basketstringunder300bytes) | [KeyringRevealer](#type-keyringrevealer) | [SendWithResultStatus](#type-sendwithresultstatus) |
+| [BooleanDefaultFalse](#type-booleandefaultfalse) | [LabelStringUnder300Bytes](#type-labelstringunder300bytes) | [TXIDHexString](#type-txidhexstring) |
+| [BooleanDefaultTrue](#type-booleandefaulttrue) | [MakeWalletLogger](#type-makewalletlogger) | [TrustSelf](#type-trustself) |
+| [Byte](#type-byte) | [OriginatorDomainNameStringUnder250Bytes](#type-originatordomainnamestringunder250bytes) | [VersionString7To30Bytes](#type-versionstring7to30bytes) |
+| [CallType](#type-calltype) | [OutpointString](#type-outpointstring) | [WalletCounterparty](#type-walletcounterparty) |
+| [CertificateFieldNameUnder50Bytes](#type-certificatefieldnameunder50bytes) | [OutputTagStringUnder300Bytes](#type-outputtagstringunder300bytes) | [WalletErrorCode](#type-walleterrorcode) |
+| [Counterparty](#type-counterparty) | [PositiveInteger](#type-positiveinteger) | [WalletNetwork](#type-walletnetwork) |
+| [DescriptionString5to2000Bytes](#type-descriptionstring5to2000bytes) | [PositiveInteger64OrZero](#type-positiveinteger64orzero) | [WalletProtocol](#type-walletprotocol) |
+| [DescriptionString5to50Bytes](#type-descriptionstring5to50bytes) | [PositiveIntegerDefault10Max10000](#type-positiveintegerdefault10max10000) |  |
+| [EntityIconURLStringMax500Bytes](#type-entityiconurlstringmax500bytes) | [PositiveIntegerMax10](#type-positiveintegermax10) |  |
 
 Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes), [Functions](#functions), [Types](#types), [Enums](#enums), [Variables](#variables)
 
@@ -6062,6 +6063,15 @@ Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes), [Functions](
 
 ```ts
 export type PositiveInteger = number
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes), [Functions](#functions), [Types](#types), [Enums](#enums), [Variables](#variables)
+
+---
+### Type: PositiveInteger64OrZero
+
+```ts
+export type PositiveInteger64OrZero = number
 ```
 
 Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes), [Functions](#functions), [Types](#types), [Enums](#enums), [Variables](#variables)

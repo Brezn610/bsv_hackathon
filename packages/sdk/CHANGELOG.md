@@ -232,7 +232,9 @@ All notable changes to this project will be documented in this file. The format 
 
 ### BRC-112 balances as numbers; listOutputs encoding restored (4.0.1 candidate)
 
-- `ListOutputsResult.totalOutputs` is a number again; `DecimalString` is
+- `ListOutputsResult.totalOutputs` is a number again, typed
+  `PositiveInteger64OrZero` (new alias: a non-negative integer up to
+  2^64 - 1, exact to 2^53 as a JavaScript number); `DecimalString` is
   removed. A BRC-112 balance query (`balance <basket>` or
   `p <module> balance <basket>`) returns the balance as a nonnegative integer,
   which may exceed the 2^32 - 1 output-count bound. A JavaScript number is exact

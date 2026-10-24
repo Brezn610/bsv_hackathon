@@ -1515,8 +1515,10 @@ components:
           BEEF: [2, 0, 190, 239]
       properties:
         totalOutputs:
-          type: number
-          description: The number of matching outputs; for a BRC-112 balance query (balance <basket> or p <module> balance <basket>), the balance as a nonnegative integer with no outputs and no BEEF, exact to 2^53.
+          type: integer
+          minimum: 0
+          maximum: 18446744073709551615
+          description: PositiveInteger64OrZero, a non-negative integer with an upper bound of 2^64 - 1. The number of matching outputs, at most 2^32 - 1; for a BRC-112 balance query (balance <basket> or p <module> balance <basket>), the balance with no outputs and no BEEF. As a JavaScript number it is exact up to 2^53 and rounded above.
           examples:
             - 1
         BEEF:
