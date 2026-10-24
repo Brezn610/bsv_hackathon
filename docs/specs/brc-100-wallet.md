@@ -33,7 +33,7 @@ This MD is a human-readable summary. Implement against the TS interfaces and JSO
 | `AtomicBEEF` | BRC-95 bytes used for action transactions. |
 | `OutpointString` | `<64 hex txid>.<output index>`. |
 | `PubKeyHex` | Compressed secp256k1 public key, 66 hex chars. |
-| `PositiveInteger64OrZero` | A non-negative integer with an upper bound of 2^64 - 1. As a JavaScript number it is exact up to 2^53 and rounded above. |
+| `PositiveInteger64OrZero` | A non-negative integer. As a JavaScript number it is exact up to 2^53 and rounded above. JSON carries the Number at any magnitude; the binary wire carries it as an unsigned 64-bit varint and cannot carry 2^64 or more. |
 | `WalletProtocol` | Tuple `[securityLevel, protocolString]`, where security level is `0`, `1`, or `2`. |
 | `WalletCounterparty` | A `PubKeyHex`, `'self'`, or `'anyone'`. |
 

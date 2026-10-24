@@ -1517,8 +1517,7 @@ components:
         totalOutputs:
           type: integer
           minimum: 0
-          maximum: 18446744073709551615
-          description: PositiveInteger64OrZero, a non-negative integer with an upper bound of 2^64 - 1. The number of matching outputs, at most 2^32 - 1; for a BRC-112 balance query (balance <basket> or p <module> balance <basket>), the balance with no outputs and no BEEF. As a JavaScript number it is exact up to 2^53 and rounded above.
+          description: PositiveInteger64OrZero, a non-negative integer (JSON carries any magnitude; the binary wire cannot carry 2^64 or more). The number of matching outputs, at most 2^32 - 1; for a BRC-112 balance query (balance <basket> or p <module> balance <basket>), the balance with no outputs and no BEEF. As a JavaScript number it is exact up to 2^53 and rounded above.
           examples:
             - 1
         BEEF:

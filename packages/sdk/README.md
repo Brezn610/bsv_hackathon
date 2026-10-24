@@ -30,8 +30,8 @@ This is a source candidate; publication and deployment are separate actions.
 
 ## Balance queries (4.0.1 candidate)
 
-`ListOutputsResult.totalOutputs` is a `PositiveInteger64OrZero` (a number up
-to 2^64 - 1). For a BRC-112 balance query
+`ListOutputsResult.totalOutputs` is a `PositiveInteger64OrZero` (a number; JSON
+carries any magnitude, the binary wire at most 2^64 - 1). For a BRC-112 balance query
 (`balance <basket>` or `p <module> balance <basket>`) it is the balance, a
 nonnegative integer with no outputs and no BEEF; it may exceed the 2^32 - 1
 bound of an output count. A JavaScript number is exact to 2^53 and rounded

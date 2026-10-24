@@ -420,12 +420,15 @@ describe('WalletWire strict binary framing', () => {
       totalOutputs: 2 ** 40,
       outputs: []
     })
-    // The largest double below 2^64 is exact; 2^64 - 1 rounds to 2^64, outside the bound.
+    // The largest double below 2^64 is exact; 2^64 - 1 is read in full and rounds to 2^64.
     await expect(read(frame(2n ** 64n - 2048n))).resolves.toEqual({
       totalOutputs: 2 ** 64 - 2048,
       outputs: []
     })
-    await expect(read(frame(2n ** 64n - 1n))).rejects.toThrow('unsigned 64-bit wire representation')
+    await expect(read(frame(2n ** 64n - 1n))).resolves.toEqual({
+      totalOutputs: 2 ** 64,
+      outputs: []
+    })
     // A count frame keeps its 2^32 - 1 bound.
     await expect(read(frame(2n ** 40n), 'savings')).rejects.toThrow('listOutputs totalOutputs')
   })

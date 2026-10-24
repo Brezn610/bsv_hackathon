@@ -2319,12 +2319,28 @@ describe('BRC-112 balance results', () => {
     }
   })
 
-  it('reject balances at or above 2^64, the unsigned 64-bit wire bound', () => {
+  it('accept balances at or above 2^64: JSON carries the Number, only the binary wire is bounded', () => {
     for (const basket of ['balance default', 'p color balance aa']) {
-      for (const totalOutputs of [2 ** 64, 2 ** 70, Number.MAX_VALUE]) {
+      for (const totalOutputs of [2 ** 64, 2 ** 65, 2 ** 70, Number.MAX_VALUE]) {
+        expect(
+          validateWalletResult('listOutputs', { totalOutputs, outputs: [] }, { basket })
+        ).toEqual({ totalOutputs, outputs: [] })
+      }
+      const output = { outpoint: `${'ab'.repeat(32)}.0`, satoshis: 1, spendable: true }
+      expect(() =>
+        validateWalletResult('listOutputs', { totalOutputs: 2 ** 64, outputs: [output] }, { basket })
+      ).toThrow('outputs')
+      expect(() =>
+        validateWalletResult(
+          'listOutputs',
+          { totalOutputs: 2 ** 64, outputs: [], BEEF: [1] },
+          { basket }
+        )
+      ).toThrow('BEEF')
+      for (const totalOutputs of [-1, 1.5, -0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
         expect(() =>
           validateWalletResult('listOutputs', { totalOutputs, outputs: [] }, { basket })
-        ).toThrow('unsigned 64-bit wire representation')
+        ).toThrow('totalOutputs')
       }
     }
   })

@@ -5892,6 +5892,20 @@ See also: [PubKeyHex](./wallet.md#type-pubkeyhex), [PublicKey](./primitives.md#c
 Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes), [Functions](#functions), [Types](#types), [Enums](#enums), [Variables](#variables)
 
 ---
+### Type: DecimalString
+
+Deprecated: 4.0.0 typed a module balance as DecimalString; since 4.0.1 totalOutputs is
+PositiveInteger64OrZero. Kept for source compatibility.
+
+```ts
+export type DecimalString = string
+```
+
+See also: [string](./remittance.md#function-string)
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes), [Functions](#functions), [Types](#types), [Enums](#enums), [Variables](#variables)
+
+---
 ### Type: DescriptionString5to2000Bytes
 
 DescriptionString5to2000Bytes alias type (documented).

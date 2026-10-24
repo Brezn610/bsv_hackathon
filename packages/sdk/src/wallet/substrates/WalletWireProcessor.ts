@@ -1287,25 +1287,32 @@ export default class WalletWireProcessor implements WalletWire {
               args,
               async () => await this.wallet.listOutputs(args, originator)
             )
-            // A BRC-112 balance (validated above) is not an output count: no 2^32 - 1 bound.
-            const outputsPage = isBalanceQuery(args.basket)
-              ? { total: listOutputsResult.totalOutputs, records: listOutputsResult.outputs }
-              : this.#requirePageTotal(
-                  listOutputsResult.totalOutputs,
-                  listOutputsResult.outputs,
-                  'listOutputs result'
+            let outputsPage: { total: number; records: any[] }
+            if (isBalanceQuery(args.basket)) {
+              // A BRC-112 balance (validated above) is not an output count: no 2^32 - 1 bound.
+              // JSON carries any magnitude; the varint cannot carry 2^64 or more.
+              if (listOutputsResult.totalOutputs >= 2 ** 64) {
+                throw new Error(
+                  'listOutputs balance totalOutputs must be below 2^64 (unsigned 64-bit wire representation)'
                 )
+              }
+              outputsPage = {
+                total: listOutputsResult.totalOutputs,
+                records: listOutputsResult.outputs
+              }
+            } else {
+              outputsPage = this.#requirePageTotal(
+                listOutputsResult.totalOutputs,
+                listOutputsResult.outputs,
+                'listOutputs result'
+              )
+            }
 
             // Serialize the result
             const resultWriter = new WriterUint8Array()
             resultWriter.writeUInt8(0) // errorByte = 0
 
             // totalOutputs
-            if (outputsPage.total >= 2 ** 64) {
-              throw new Error(
-                'listOutputs balance totalOutputs must be below 2^64 (unsigned 64-bit wire representation)'
-              )
-            }
             resultWriter.writeVarIntNum(outputsPage.total)
 
             // BEEF length and BEEF or -1
