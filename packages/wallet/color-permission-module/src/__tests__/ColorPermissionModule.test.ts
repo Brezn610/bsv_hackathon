@@ -422,7 +422,7 @@ describe('ColorPermissionModule', () => {
         }
       )) as ListOutputsResult
       expect(inventory.outputs).toEqual([
-        expect.objectContaining({ outpoint: `${txid}.1`, tags: [] })
+        expect.objectContaining({ outpoint: `${txid}.1`, tags: ['color_state_available'] })
       ])
     })
 
@@ -1695,7 +1695,7 @@ describe('ColorPermissionModule', () => {
       throw new Error('not forwarded')
     }
 
-    it('lists only spendable inventory, leaving out outputs reserved by a pending action', async () => {
+    it('lists inventory with one computed state tag per record', async () => {
       const [available, unreported, reserved] = await holdTokens(wallet, provider, assetId, [
         5n,
         6n,
@@ -1712,13 +1712,35 @@ describe('ColorPermissionModule', () => {
         },
         notForwarded
       )) as ListOutputsResult
-      expect(inventory.totalOutputs).toBe(2)
-      expect(inventory.outputs.map(output => output.outpoint).sort()).toEqual(
-        [`${available.id('hex')}.0`, `${unreported.id('hex')}.0`].sort()
+      const byOutpoint = Object.fromEntries(
+        inventory.outputs.map(output => [output.outpoint, output])
       )
-      expect(inventory.outputs.every(output => output.spendable)).toBe(true)
+      expect(inventory.totalOutputs).toBe(3)
+      expect(byOutpoint[`${available.id('hex')}.0`]).toMatchObject({
+        spendable: true,
+        tags: ['color_state_available']
+      })
+      expect(byOutpoint[`${unreported.id('hex')}.0`]).toMatchObject({
+        spendable: true,
+        tags: ['color_state_available']
+      })
+      expect(byOutpoint[`${reserved.id('hex')}.0`]).toMatchObject({
+        spendable: false,
+        tags: ['color_state_reserved']
+      })
       expect(inventory.outputs.every(output => output.lockingScript !== undefined)).toBe(true)
+
+      const filtered = (await module.handleRequest(
+        {
+          method: 'listOutputs',
+          args: { basket: 'p color assets', tags: ['color_state_reserved'] },
+          originator: APP
+        },
+        notForwarded
+      )) as ListOutputsResult
+      expect(filtered.outputs.map(output => output.outpoint)).toEqual([`${reserved.id('hex')}.0`])
       expect(prompts.map(prompt => prompt.request)).toEqual([
+        { type: 'color_access', basket: 'p color assets', seekPermission: true },
         { type: 'color_access', basket: 'p color assets', seekPermission: true }
       ])
     })

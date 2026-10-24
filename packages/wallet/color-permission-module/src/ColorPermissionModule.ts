@@ -98,6 +98,7 @@ const MAX_RECEIPT_INSTRUCTION_BYTES = 1000
 const LIST_PAGE_LIMIT = 10_000
 const SUBMIT_ATTEMPTS = 3
 const NOSEND_EXPIRY_LABEL_PREFIX = 'p nosend expiry '
+const STATE_TAG_PREFIX = 'color_state_'
 const UTF8_ENCODER = new TextEncoder()
 
 /** The derivation tuple a managed output's key was created with; `assetId` is `ISSUE` for a deploy. */
@@ -133,6 +134,8 @@ export interface ManagedInput extends SourceOutput {
   /** The source transaction as BEEF, when the module made it (a handoff split). */
   sourceBEEF?: BEEF
 }
+
+type InventoryState = 'available' | 'reserved'
 
 /** Runs an SDK parser on untrusted input, prefixing its failure as a BRC-207 error. */
 function parsed<T>(label: string, parse: () => T): T {
@@ -804,6 +807,7 @@ interface InventoryRecord {
 
 interface InventoryView {
   record: InventoryRecord
+  state: InventoryState
   tags: string[]
 }
 
@@ -833,6 +837,11 @@ function inventoryRecords(outputs: WalletOutput[], beef: Beef | undefined): Inve
   return records
 }
 
+/** Reserved by a pending action, else available. Wallet state only; the overlay is not consulted. */
+function inventoryState(record: InventoryRecord): InventoryState {
+  return record.output.spendable ? 'available' : 'reserved'
+}
+
 /**
  * A BRC-162 token output, or undefined for a script that is not one. A token-shaped script that
  * does not decode is an ordinary satoshi output; a valid output of an asset that requires
@@ -850,11 +859,17 @@ export function tryReadTokenOutput(
   }
 }
 
-/** A record with its stored tags, less suffix tags. */
+/** A record with its stored tags, less suffix tags, and the computed state tag in place of any stored one. */
 function inventoryView(record: InventoryRecord): InventoryView {
-  // The suffix tag is the module's own index into the basket; apps see the stored tags without it.
-  const tags = (record.output.tags ?? []).filter(tag => !isDerivationSuffixTag(tag))
-  return { record, tags }
+  const state = inventoryState(record)
+  const tags = [
+    // The suffix tag is the module's own index into the basket; apps see the stored tags without it.
+    ...(record.output.tags ?? []).filter(
+      tag => !tag.startsWith(STATE_TAG_PREFIX) && !isDerivationSuffixTag(tag)
+    ),
+    `${STATE_TAG_PREFIX}${state}`
+  ]
+  return { record, state, tags }
 }
 
 /** A BEEF holding only the transactions of the returned page. */
@@ -2312,10 +2327,7 @@ export class ColorPermissionModule implements PermissionsModule {
     return { totalOutputs: Number(total), outputs: [] }
   }
 
-  /**
-   * `p color assets`: every spendable held token output across all per-asset baskets. As in the
-   * wallet's own listings, outputs reserved by a pending action are left out.
-   */
+  /** `p color assets`: every held token output across all per-asset baskets, with its state. */
   protected async inventory(args: ListOutputsArgs, originator: string): Promise<ListOutputsResult> {
     const entireTransactions = args.include === 'entire transactions'
     const listed = await this.wallet.listOutputs(
@@ -2331,10 +2343,7 @@ export class ColorPermissionModule implements PermissionsModule {
     )
     const beef =
       entireTransactions && listed.BEEF !== undefined ? Beef.fromBinary(listed.BEEF) : undefined
-    const views = inventoryRecords(
-      listed.outputs.filter(output => output.spendable),
-      beef
-    )
+    const views = inventoryRecords(listed.outputs, beef)
       .map(inventoryView)
       .filter(view => matchesTags(view.tags, args.tags ?? [], args.tagQueryMode))
     const limit = args.limit ?? 10
@@ -2359,10 +2368,10 @@ export class ColorPermissionModule implements PermissionsModule {
     args: ListOutputsArgs,
     originator: string
   ): Promise<WalletOutput> {
-    const { record, tags } = view
+    const { record, state, tags } = view
     const output: WalletOutput = {
       satoshis: record.output.satoshis,
-      spendable: true,
+      spendable: state === 'available',
       outpoint: record.output.outpoint
     }
     if (args.include === 'locking scripts')

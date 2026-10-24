@@ -634,7 +634,7 @@ describe('ColorPermissionModule token operations', () => {
         }
       )) as ListOutputsResult
       expect(inventory.outputs).toEqual([
-        expect.objectContaining({ outpoint, spendable: true, tags: [] })
+        expect.objectContaining({ outpoint, spendable: true, tags: ['color_state_available'] })
       ])
     })
 

@@ -4,7 +4,7 @@ title: '@bsv/color-permission-module'
 kind: package
 domain: wallet
 npm: '@bsv/color-permission-module'
-version: '0.2.0'
+version: '0.1.1'
 last_updated: '2026-10-23'
 last_verified: '2026-10-23'
 review_cadence_days: 30

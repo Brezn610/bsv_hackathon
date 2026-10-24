@@ -937,7 +937,7 @@ describe('ColorPermissionModule boundaries', () => {
     ).rejects.toThrow('does not match its source output')
   })
 
-  it('filters inventory on all tags', async () => {
+  it('filters inventory on all tags and ignores stored state tags', async () => {
     const [held] = await holdTokens(wallet, provider, assetId, [5n])
     const spoofingWallet = Object.create(wallet) as FakeWallet
     spoofingWallet.listOutputs = async args => {
@@ -946,7 +946,7 @@ describe('ColorPermissionModule boundaries', () => {
         ...result,
         outputs: result.outputs.map(output => ({
           ...output,
-          tags: ['other', 'mine']
+          tags: ['color_state_reserved', 'mine']
         }))
       }
     }
@@ -957,7 +957,7 @@ describe('ColorPermissionModule boundaries', () => {
         args: {
           basket: 'p color assets',
           includeTags: true,
-          tags: ['mine', 'other'],
+          tags: ['mine', 'color_state_available'],
           tagQueryMode: 'all'
         },
         originator: APP
@@ -969,7 +969,7 @@ describe('ColorPermissionModule boundaries', () => {
         outpoint: `${held.id('hex')}.0`,
         satoshis: 1000,
         spendable: true,
-        tags: ['other', 'mine']
+        tags: ['mine', 'color_state_available']
       }
     ])
   })

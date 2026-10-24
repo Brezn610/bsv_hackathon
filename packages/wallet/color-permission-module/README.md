@@ -129,10 +129,10 @@ the manager's `getVersion` string.
   the signature released) before the module signs.
 - **Reads**: `listOutputs` with `p color assets`, `p color balance <assetTag>`
   or `p color balance <assetTag> authority`. A balance is summed exactly and
-  answered as a number in `totalOutputs`: exact to 2^53, rounded above. As in
-  BTMS, reads report wallet state alone and never query the overlay. As in the
-  wallet's own listings, the inventory lists only spendable outputs: an input of
-  a pending action is left out. Overlay spendability is checked only when
+  answered as a number in `totalOutputs`: exact to 2^53, rounded above.
+  As in BTMS, reads report wallet state alone and never query the overlay: the
+  inventory tags each output `color_state_available` or `color_state_reserved`
+  (an input of a pending action). Overlay spendability is checked only when
   spending.
 
 ## Limits of this version
