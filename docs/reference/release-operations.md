@@ -312,6 +312,12 @@ it must not compare a scheduled digest with target-order rows or accept a
 digest mismatch. Scheduling changes start order only, never the required union
 of canonical targets, partitions, source ranges or mutation gates.
 
+Declaration/import-only execution companions run with related nonempty parts.
+Their complete original source ranges remain in the plan and the pinned-engine
+inventory must match the original whole target exactly. A standalone empty
+report remains invalid; neither a perfect percentage over zero sites nor a
+passing initial test run can qualify a canonical target.
+
 No mutation target is permanently removed by PR deferral. A failure at this final
 gate blocks publication and requires a source fix and newly qualified candidate;
 there is no label or manual input that converts failure into permission to publish.
