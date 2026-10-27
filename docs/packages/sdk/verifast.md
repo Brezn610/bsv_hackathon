@@ -3,7 +3,7 @@ id: pkg-verifast
 title: '@bsv/verifast'
 kind: package
 domain: sdk
-version: '0.3.8'
+version: '0.3.9'
 last_updated: '2026-08-26'
 last_verified: '2026-08-26'
 review_cadence_days: 30
@@ -62,3 +62,7 @@ for routing, network, batch, resource, and UMD details.
 
 Open BSV License Version 6. See the
 [package license](https://github.com/bsv-blockchain/ts-stack/blob/main/packages/verifast/LICENSE.txt).
+
+The SDK4 peer alternative now requires `@bsv/sdk ^4.0.1` for the numeric wallet
+result and legacy wire hotfix. Existing SDK2/3 alternatives and lower bounds
+remain unchanged. No wire or data migration is required.

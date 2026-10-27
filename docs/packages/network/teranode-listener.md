@@ -4,7 +4,7 @@ title: '@bsv/teranode-listener'
 kind: package
 domain: network
 npm: '@bsv/teranode-listener'
-version: '1.1.8'
+version: '1.1.9'
 last_updated: '2026-08-26'
 last_verified: '2026-08-26'
 review_cadence_days: 30
@@ -193,3 +193,7 @@ await listener.stop()
 - [Source on GitHub](https://github.com/bsv-blockchain/ts-stack/tree/main/packages/network/ts-p2p)
 - [npm](https://www.npmjs.com/package/@bsv/teranode-listener)
 - [libp2p documentation](https://docs.libp2p.io/)
+
+The SDK4 peer alternative now requires `@bsv/sdk ^4.0.1` for the numeric wallet
+result and legacy wire hotfix. Existing SDK2/3 alternatives and lower bounds
+remain unchanged. No wire or data migration is required.

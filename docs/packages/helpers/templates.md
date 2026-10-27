@@ -3,7 +3,7 @@ id: pkg-templates
 title: '@bsv/templates'
 kind: package
 domain: helpers
-version: '2.1.0'
+version: '2.1.1'
 source_repo: 'bsv-blockchain/ts-stack'
 last_updated: '2026-10-01'
 last_verified: '2026-10-01'
@@ -263,3 +263,7 @@ on a trusted host before approving it.
 - [API reference (TypeDoc)](https://bsv-blockchain.github.io/ts-stack/api/templates/)
 - [Source on GitHub](https://github.com/bsv-blockchain/ts-stack/tree/main/packages/helpers/ts-templates)
 - [npm](https://www.npmjs.com/package/@bsv/templates)
+
+The SDK4 peer alternative now requires `@bsv/sdk ^4.0.1` for the numeric wallet
+result and legacy wire hotfix. Existing SDK2/3 alternatives and lower bounds
+remain unchanged. No wire or data migration is required.

@@ -4,7 +4,7 @@ title: '@bsv/overlay-discovery-services'
 kind: package
 domain: overlays
 npm: '@bsv/overlay-discovery-services'
-version: '2.2.8'
+version: '2.2.9'
 last_updated: '2026-09-29'
 last_verified: '2026-09-29'
 review_cadence_days: 30
@@ -225,3 +225,7 @@ const serviceDiscovery = await engine.lookup({
 - [API reference (TypeDoc)](https://bsv-blockchain.github.io/ts-stack/api/overlay-discovery-services/)
 - [Source on GitHub](https://github.com/bsv-blockchain/ts-stack/tree/main/packages/overlays/overlay-discovery-services)
 - [npm](https://www.npmjs.com/package/@bsv/overlay-discovery-services)
+
+The SDK4 peer alternative now requires `@bsv/sdk ^4.0.1` for the numeric wallet
+result and legacy wire hotfix. Existing SDK2/3 alternatives and lower bounds
+remain unchanged. No wire or data migration is required.

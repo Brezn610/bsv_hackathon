@@ -3,7 +3,7 @@ id: pkg-gasp
 title: '@bsv/gasp'
 kind: package
 domain: overlays
-version: '1.3.9'
+version: '1.3.10'
 source_repo: 'bsv-blockchain/ts-stack'
 last_updated: '2026-08-27'
 last_verified: '2026-08-27'
@@ -254,3 +254,7 @@ Never infer or accept an unknown parent edge from the pushed child alone.
 - [API reference (TypeDoc)](https://bsv-blockchain.github.io/ts-stack/api/gasp/)
 - [Source on GitHub](https://github.com/bsv-blockchain/ts-stack/tree/main/packages/overlays/gasp-core)
 - [npm](https://www.npmjs.com/package/@bsv/gasp)
+
+The SDK4 peer alternative now requires `@bsv/sdk ^4.0.1` for the numeric wallet
+result and legacy wire hotfix. Existing SDK2/3 alternatives and lower bounds
+remain unchanged. No wire or data migration is required.

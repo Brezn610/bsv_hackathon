@@ -4,7 +4,7 @@ title: '@bsv/ecpm-permission-module'
 kind: package
 domain: wallet
 npm: '@bsv/ecpm-permission-module'
-version: '0.1.3'
+version: '0.1.4'
 last_updated: '2026-08-30'
 last_verified: '2026-08-30'
 review_cadence_days: 30
@@ -108,3 +108,7 @@ Wallet Toolbox exposes the optional
 return the standard BRC-100 result directly, as ECPM does, or call `next` at
 most once. Existing `onRequest`/`onResponse` transformation modules remain
 compatible.
+
+The SDK4 peer alternative now requires `@bsv/sdk ^4.0.1` for the numeric wallet
+result and legacy wire hotfix. Existing SDK2/3 alternatives and lower bounds
+remain unchanged. No wire or data migration is required.

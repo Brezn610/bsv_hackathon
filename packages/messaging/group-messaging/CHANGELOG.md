@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Prepare `0.1.0` with an SDK4 peer floor of `^4.0.1`; preserve all existing SDK2/3 alternatives and lower bounds. No wire or data migration.
+
 ### Added
 
 - Initial migration of `@bsv/group-messaging` into ts-stack. End-to-end

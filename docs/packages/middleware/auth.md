@@ -3,7 +3,7 @@ id: pkg-auth
 title: '@bsv/auth'
 kind: package
 domain: middleware
-version: '0.1.7'
+version: '0.1.8'
 last_updated: '2026-08-27'
 last_verified: '2026-08-27'
 review_cadence_days: 30
@@ -71,3 +71,7 @@ for a complete client/server example and store guidance.
 
 Open BSV License Version 6. See the
 [package license](https://github.com/bsv-blockchain/ts-stack/blob/main/packages/middleware/auth/LICENSE.txt).
+
+The SDK4 peer alternative now requires `@bsv/sdk ^4.0.1` for the numeric wallet
+result and legacy wire hotfix. Existing SDK2/3 alternatives and lower bounds
+remain unchanged. No wire or data migration is required.
