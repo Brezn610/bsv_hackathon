@@ -109,7 +109,7 @@ export default function SearchBox() {
         aria-label="Search documentation"
       />
       <kbd className={styles.kbd}>⌘K</kbd>
-      {open && searchError && <p role="status">Search is unavailable. Please try again.</p>}
+      {open && searchError && <output>Search is unavailable. Please try again.</output>}
       {open && results.length > 0 && (
         <ul className={styles.dropdown}>
           {results.map(r => (

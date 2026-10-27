@@ -383,7 +383,10 @@ export class BulkFileDataManager {
   private async deleteBulkFilesNoLock(): Promise<void> {
     this.setBulkFilesState([])
     // Each insert and its in-memory continuity validation must finish in order.
-    for await (const file of this.knownSourceFiles()) await this.add(file)
+    await this.knownSourceFiles().reduce(async (previous, file) => {
+      await previous
+      await this.add(file)
+    }, Promise.resolve())
   }
 
   private knownSourceFiles(): BulkFileData[] {
