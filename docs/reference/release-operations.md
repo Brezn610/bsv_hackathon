@@ -304,6 +304,14 @@ all existing target gates. A partial manual target is diagnostic only. Earlier
 weekly passes, previous attempts and reports from another source cannot satisfy
 the gate; rerun the complete workflow when a full attempt needs replacement.
 
+Preparation and execution verification use the same duration-scheduled complete
+matrix. Every batch binds the digest of that full ordered matrix and its exact
+ordered slice, alongside source, run, attempt and build archive identity. The
+verifier reconstructs the scheduling order from the checked-out measurements;
+it must not compare a scheduled digest with target-order rows or accept a
+digest mismatch. Scheduling changes start order only, never the required union
+of canonical targets, partitions, source ranges or mutation gates.
+
 No mutation target is permanently removed by PR deferral. A failure at this final
 gate blocks publication and requires a source fix and newly qualified candidate;
 there is no label or manual input that converts failure into permission to publish.

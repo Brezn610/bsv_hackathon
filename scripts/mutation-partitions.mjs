@@ -1510,3 +1510,8 @@ export function longestFirst(matrix, seconds) {
       .map(({ row }) => row)
   }
 }
+
+/** One complete ordered inventory for both scheduling and immutable verification. */
+export function scheduledMutationExecutionMatrix(selected, targets, seconds) {
+  return longestFirst(mutationExecutionMatrix(selected, targets), seconds)
+}
