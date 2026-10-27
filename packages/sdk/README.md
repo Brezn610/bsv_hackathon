@@ -8,6 +8,42 @@ BSV BLOCKCHAIN | Software Development Kit for JavaScript and TypeScript
 
 Welcome to the BSV Blockchain Libraries Project, the comprehensive TypeScript SDK designed to provide an updated and unified layer for developing scalable applications on the BSV Blockchain. This SDK addresses the limitations of previous tools by offering a fresh, peer-to-peer approach, adhering to SPV, and ensuring privacy and scalability.
 
+## Optional client timeouts (4.1.0 source candidate)
+
+`LookupResolverConfig.trackerTimeoutMs` controls each SLAP discovery request;
+its default remains 5,000 ms. The per-host query timeout and whole-query
+`deadlineMs` remain independent. Increase the whole-query deadline as well when
+discovery may exceed its existing 10,000 ms default:
+
+```ts
+import { AuthFetch, LookupResolver, type WalletInterface } from '@bsv/sdk'
+
+declare const wallet: WalletInterface
+
+const resolver = new LookupResolver({ trackerTimeoutMs: 20_000 })
+await resolver.query({ service: 'ls_example', query: {} }, 20_000, { deadlineMs: 25_000 })
+
+const auth = new AuthFetch(wallet, undefined, undefined, undefined, {
+  requestTimeoutMs: 60_000,
+  responseTimeoutMs: 60_000
+})
+```
+
+`AuthFetchOptions.responseTimeoutMs` uses the existing fifth constructor
+argument and defaults to 30,000 ms. It controls the authenticated response
+waiter independently of the existing transport `requestTimeoutMs` (also
+30,000 ms by default), which bounds fetch and response-body reads. Set both
+when extending a request. Existing calls and other certificate, session and
+operation deadlines retain their behavior.
+
+Both new options require positive integer milliseconds: `trackerTimeoutMs`
+accepts 1–60,000, matching the existing lookup timeout bound, and
+`responseTimeoutMs` accepts 1–2,147,483,647, the portable timer bound. Invalid
+explicit values throw `RangeError` at construction. Omission preserves all
+previous defaults; no API, wire or wallet-data migration is required.
+A timeout does not undo a request already dispatched to a server. Reconcile
+an ambiguous financial operation before submitting it again.
+
 ## DID serial-token API retirement (3.0 candidate)
 
 The proposed SDK 3.0 release removes `CanonicalDIDToken`, `DID_TOKEN_PROTOCOL`,

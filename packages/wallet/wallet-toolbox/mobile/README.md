@@ -5,6 +5,13 @@
 
 Mobile build of [`@bsv/wallet-toolbox`](https://www.npmjs.com/package/@bsv/wallet-toolbox) — the reference [BRC-100](https://github.com/bitcoin-sv/BRCs/blob/master/wallet/0100.md) wallet implementation. It provides mobile-safe wallet, signer, services, monitor, and remote storage APIs without Knex, SQLite/MySQL native bindings, IndexedDB, or Node-only IO.
 
+Remote `StorageClient` calls accept `authFetchOptions` in the existing third
+constructor argument. For a longer authenticated request, configure both
+`requestTimeoutMs` and `responseTimeoutMs` with an SDK that supports the latter.
+Omission preserves the installed SDK defaults; existing SDK peer ranges and
+consumer calls are unchanged. See the
+[remote storage timeout guide](https://github.com/bsv-blockchain/ts-stack/tree/main/packages/wallet/wallet-toolbox#remote-storage-timeouts).
+
 Use this package in:
 
 - React Native apps
