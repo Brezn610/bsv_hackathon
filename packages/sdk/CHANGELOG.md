@@ -277,6 +277,17 @@ replay, payment authorization, wire change or consumer migration is introduced.
 
 ## [Unreleased]
 
+### Optional client timeout configuration (4.0.1 patch candidate)
+
+- Add `LookupResolverConfig.trackerTimeoutMs` for SLAP discovery, retaining the
+  5,000 ms default and independent host and whole-query deadlines.
+- Add exported `AuthFetchOptions.responseTimeoutMs` in the existing fifth
+  constructor argument, retaining the 30,000 ms default independently of
+  transport `requestTimeoutMs`.
+- Validate explicit settings at construction and retain listener/timer cleanup
+  and the existing guard against dispatch after expiry. No API, wire or
+  wallet-data migration is required; callers opt in to different timing.
+
 ### BRC-112 balances as numbers; listOutputs encoding restored (4.0.1 hotfix)
 
 - `ListOutputsResult.totalOutputs` is a number again, typed
