@@ -1270,8 +1270,7 @@ export default class LookupResolver {
 
   constructor(config: LookupResolverConfig = {}) {
     this.limits = lookupLimits(config.limits)
-    const trackerTimeoutMs =
-      config.trackerTimeoutMs === undefined ? MAX_TRACKER_WAIT_TIME : config.trackerTimeoutMs
+    const { trackerTimeoutMs = MAX_TRACKER_WAIT_TIME } = config
     if (
       !Number.isSafeInteger(trackerTimeoutMs) ||
       trackerTimeoutMs <= 0 ||

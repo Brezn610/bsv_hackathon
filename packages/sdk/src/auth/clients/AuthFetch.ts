@@ -235,10 +235,7 @@ export class AuthFetch {
     this.sessionManager = (sessionManager ?? new SessionManager()) as SessionManager
     this.originator = originator
     this.#transportOptions = { ...transportOptions }
-    const responseTimeoutMs =
-      transportOptions.responseTimeoutMs === undefined
-        ? AUTH_RESPONSE_TIMEOUT_MS
-        : transportOptions.responseTimeoutMs
+    const { responseTimeoutMs = AUTH_RESPONSE_TIMEOUT_MS } = transportOptions
     if (
       !Number.isSafeInteger(responseTimeoutMs) ||
       responseTimeoutMs <= 0 ||
