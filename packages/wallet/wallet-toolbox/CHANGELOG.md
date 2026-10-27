@@ -14,6 +14,13 @@ attention to changes that materially alter behavior or extend functionality.
   or keeps the transaction queued for retry, and the history note says whether the
   configured key was refused or the endpoint requires one. No configuration or consumer
   migration is required.
+- `createAction` sizes a caller-provided `unlockingScript` by its byte length
+  when it hands the input to storage. It used the hex string's length, twice
+  the bytes, so storage funded and priced the transaction as if that script
+  appeared twice: a 78,369 byte transaction with a 36,401 byte provided unlock
+  paid for 114,780 bytes. Inputs given only an `unlockingScriptLength` are
+  unchanged. No API, wire, or schema migration; `unlockingScriptLength` already
+  meant bytes. Upgrade the signer package; storage is unchanged.
 
 ## wallet-toolbox 2.15.0 (source candidate)
 

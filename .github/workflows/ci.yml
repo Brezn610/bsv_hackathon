@@ -216,10 +216,19 @@ jobs:
             --projects-json .ci-dependent-packages.json \
             --mode test)
           echo "dependent-test-packages=$DEPENDENT_TEST_PACKAGES" >> "$GITHUB_OUTPUT"
+          # The application package's serial suite outlasts one shard's
+          # timeout, so it runs as four Jest shards beside the planned ones.
+          DEPENDENT_TEST_ORDINARY=$(jq -c 'map(select(. != "@bsv/output-knowledge"))' <<<"$DEPENDENT_TEST_PACKAGES")
           DEPENDENT_TEST_MATRIX=$(node scripts/ci-shard-plan.mjs \
-            --packages-json "$DEPENDENT_TEST_PACKAGES" \
+            --packages-json "$DEPENDENT_TEST_ORDINARY" \
             --durations governance/ci-lane-durations.json \
             --lane dependent-tests)
+          DEPENDENT_TEST_MATRIX=$(jq -c --argjson all "$DEPENDENT_TEST_PACKAGES" '
+            {include: ((if ($all | map(select(. != "@bsv/output-knowledge")) | length) > 0 then
+              [.include[] | . + {application:0}]
+              else [] end) + (if $all | index("@bsv/output-knowledge") then
+              [range(1;5) as $shard | {shard:$shard,total:4,application:$shard,packages:["@bsv/output-knowledge"]}]
+              else [] end))}' <<<"$DEPENDENT_TEST_MATRIX")
           echo "dependent-test-matrix=$DEPENDENT_TEST_MATRIX" >> "$GITHUB_OUTPUT"
 
           STANDARD_PACKAGES=$(node scripts/run-ci-tests.mjs \
@@ -872,7 +881,7 @@ jobs:
           pnpm -r "${filters[@]}" run test
 
   dependent-tests:
-    name: Tests / affected dependents (${{ matrix.shard }}/${{ matrix.total }})
+    name: Tests / affected ${{ matrix.application && 'application' || 'dependents' }} (${{ matrix.shard }}/${{ matrix.total }})
     if: always() && !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.dependent-test-packages != '[]'
     needs: prepare
     # Preserve the pinned MongoDB on a compatible kernel (SERVER-121912/131779).
@@ -902,6 +911,7 @@ jobs:
           path: .ci-artifacts
       - run: tar --extract --gzip --file .ci-artifacts/build-outputs.tar.gz
       - name: Run affected dependent regressions without regenerating coverage
+        if: matrix.application == 0
         env:
           SHARD_PACKAGES: ${{ toJSON(matrix.packages) }}
           MONGOMS_DOWNLOAD_DIR: ${{ runner.temp }}/mongodb-binaries
@@ -933,6 +943,14 @@ jobs:
               --script test
             echo "dependent-test-duration $package $((SECONDS - started))s"
           done
+      - name: Run one affected application regression shard
+        if: matrix.application != 0
+        env:
+          PREBUILT_PACKAGE_OUTPUTS: '1'
+        run: >-
+          pnpm --filter @bsv/output-knowledge exec node
+          "$GITHUB_WORKSPACE/scripts/run-prebuilt-package-script.mjs"
+          --script test --jest-shard "${{ matrix.application }}/${{ matrix.total }}"
 
   browser-packages:
     name: Platform / browser packages (${{ matrix.shard }}/${{ matrix.total }})
