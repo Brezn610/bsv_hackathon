@@ -8,7 +8,7 @@ BSV BLOCKCHAIN | Software Development Kit for JavaScript and TypeScript
 
 Welcome to the BSV Blockchain Libraries Project, the comprehensive TypeScript SDK designed to provide an updated and unified layer for developing scalable applications on the BSV Blockchain. This SDK addresses the limitations of previous tools by offering a fresh, peer-to-peer approach, adhering to SPV, and ensuring privacy and scalability.
 
-## Optional client timeouts (4.1.0 source candidate)
+## Optional client timeouts (4.0.1 patch candidate)
 
 `LookupResolverConfig.trackerTimeoutMs` controls each SLAP discovery request;
 its default remains 5,000 ms. The per-host query timeout and whole-query
@@ -1136,3 +1136,14 @@ signing and acquisition still require exactly 32 type bytes. Legacy binary
 operations require upgraded adapters at both endpoints, including registration
 of the internal HTTP transport endpoint when using `HTTPWalletWire`; ordinary
 encodings are unchanged. See [the protocol and rollout contract](../../specs/wallet/legacy-certificate-wire.md).
+
+### HMAC key encoding
+
+`createHmac` and `verifyHmac` use the ECDH shared point's X coordinate as a
+minimal-length unsigned big-endian byte array, matching published SDK2/3.
+Leading zero octets are omitted; zero is encoded as one zero octet. No
+additional hash is applied. HMAC-SHA256's own block padding is unchanged.
+There is one encoding for generation and verification. Existing tags and
+persisted HMAC-derived identifiers remain reproducible. The fixed-width
+encoding change from #1370 is backed out; no alternate mode or relaxed verifier
+is provided. BRC-2 AES-GCM encryption retains its existing 32-byte key encoding.

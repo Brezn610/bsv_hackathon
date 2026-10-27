@@ -277,7 +277,7 @@ replay, payment authorization, wire change or consumer migration is introduced.
 
 ## [Unreleased]
 
-### Optional client timeout configuration (4.1.0 source candidate)
+### Optional client timeout configuration (4.0.1 patch candidate)
 
 - Add `LookupResolverConfig.trackerTimeoutMs` for SLAP discovery, retaining the
   5,000 ms default and independent host and whole-query deadlines.
@@ -312,6 +312,16 @@ replay, payment authorization, wire change or consumer migration is introduced.
 - Migration: `typeof totalOutputs === 'number'` checks added for 4.0.0 are
   always true and may be removed. A module balance read as text is now a
   number.
+
+### Established HMAC key encoding (4.0.1 hotfix)
+
+- Restore the published SDK2/3 minimal-length unsigned big-endian encoding of
+  the ECDH shared point's X coordinate in both `createHmac` and `verifyHmac`.
+  Existing tags and persisted HMAC-derived identifiers remain reproducible.
+- Back out #1370's unshipped fixed-width encoding and the proposed relaxed
+  verifier. There is one HMAC convention, with no second encoding, selection
+  option or fallback. The BRC-56/BRC-100 amendment makes this convention explicit.
+- No caller, stored-data or application-wallet migration is required.
 
 ### Performance (4.0.0 candidate)
 

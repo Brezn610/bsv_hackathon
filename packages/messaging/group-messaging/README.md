@@ -358,3 +358,10 @@ npm run doc
 ## License
 
 Licensed under the Open BSV License Version 6; see [LICENSE.txt](./LICENSE.txt).
+
+## SDK4 hotfix peer requirement
+
+The SDK4 peer alternative starts at `@bsv/sdk ^4.0.1`, which restores numeric
+wallet results and legacy wire compatibility. Existing SDK2/3 alternatives and
+lower bounds remain unchanged. SDK4 users should install the 4.0.1 hotfix; no
+application-wallet wire or data migration is required.
