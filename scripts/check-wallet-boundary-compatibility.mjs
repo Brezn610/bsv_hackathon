@@ -82,40 +82,43 @@ try {
     [hmacCounterparty, 'k29510']
   ]
   const hmacObservations = []
-  for (const [counterparty, keyID] of hmacCases) {
-    const args = {
-      data: Array.from(Buffer.from('4252432d353620484d41432074657374', 'hex')),
-      protocolID: [2, 'hmac key vectors'],
-      keyID,
-      counterparty
-    }
-    const tags = await Promise.all(
-      hmacWallets.map(async ({ version, wallet }) => ({
-        version,
-        hmac: (await wallet.createHmac(args)).hmac
-      }))
-    )
-    assert.ok(
-      tags.every(tag => Buffer.from(tag.hmac).equals(Buffer.from(tags[0].hmac))),
-      'Default HMAC output and persisted HMAC-derived identifiers must remain unchanged'
-    )
-    await Promise.all(
-      tags.flatMap(sender =>
-        hmacWallets.map(async receiver => {
-          assert.equal(
-            (await receiver.wallet.verifyHmac({ ...args, hmac: sender.hmac })).valid,
-            true
-          )
-          hmacObservations.push({
-            sender: sender.version,
-            receiver: receiver.version,
-            keyID,
-            counterparty
-          })
-        })
+  await Promise.all(
+    hmacCases.map(async ([counterparty, keyID]) => {
+      const args = {
+        data: Array.from(Buffer.from('4252432d353620484d41432074657374', 'hex')),
+        protocolID: [2, 'hmac key vectors'],
+        keyID,
+        counterparty
+      }
+      const tags = await Promise.all(
+        hmacWallets.map(async ({ version, wallet }) => ({
+          version,
+          hmac: (await wallet.createHmac(args)).hmac
+        }))
       )
-    )
-  }
+      assert.ok(
+        tags.every(tag => Buffer.from(tag.hmac).equals(Buffer.from(tags[0].hmac))),
+        'Default HMAC output and persisted HMAC-derived identifiers must remain unchanged'
+      )
+      await Promise.all(
+        tags.flatMap(sender =>
+          hmacWallets.map(async receiver => {
+            assert.equal(
+              (await receiver.wallet.verifyHmac({ ...args, hmac: sender.hmac })).valid,
+              true
+            )
+            hmacObservations.push({
+              sender: sender.version,
+              receiver: receiver.version,
+              keyID,
+              counterparty
+            })
+          })
+        )
+      )
+    })
+  )
+  hmacObservations.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
   assert.equal(hmacObservations.length, 54)
   const output = {
     outpoint: '11'.repeat(32) + '.0',
