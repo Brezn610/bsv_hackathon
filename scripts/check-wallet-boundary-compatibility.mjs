@@ -61,6 +61,65 @@ try {
     '3.2.1': require('sdk-v3'),
     candidate: require('sdk-candidate')
   }
+  // Public BRC-56 test root and keys exercise leading-zero derivations. These
+  // immutable SDK2/3 implementations are the oracle for established defaults.
+  const hmacRoot = 'f0efba88c117ca2614554bb676d743f413822a31e3c8d70cfcc5fff119d20a07'
+  const hmacCounterparty = '03458d551018414b8fe1adbcef2d0afc17e1074bfab3fdde3e1b0750bdde58a9a7'
+  const hmacWallets = Object.entries(versions).map(([version, sdk]) => ({
+    version,
+    wallet: new sdk.WalletClient(
+      new sdk.WalletWireTransceiver(
+        new sdk.WalletWireProcessor(new sdk.ProtoWallet(sdk.PrivateKey.fromHex(hmacRoot)))
+      )
+    )
+  }))
+  const hmacCases = [
+    ['self', 'k0'],
+    ['self', 'k95'],
+    ['self', 'k91538'],
+    [hmacCounterparty, 'k0'],
+    [hmacCounterparty, 'k497'],
+    [hmacCounterparty, 'k29510']
+  ]
+  const hmacObservations = []
+  await Promise.all(
+    hmacCases.map(async ([counterparty, keyID]) => {
+      const args = {
+        data: Array.from(Buffer.from('4252432d353620484d41432074657374', 'hex')),
+        protocolID: [2, 'hmac key vectors'],
+        keyID,
+        counterparty
+      }
+      const tags = await Promise.all(
+        hmacWallets.map(async ({ version, wallet }) => ({
+          version,
+          hmac: (await wallet.createHmac(args)).hmac
+        }))
+      )
+      assert.ok(
+        tags.every(tag => Buffer.from(tag.hmac).equals(Buffer.from(tags[0].hmac))),
+        'Default HMAC output and persisted HMAC-derived identifiers must remain unchanged'
+      )
+      await Promise.all(
+        tags.flatMap(sender =>
+          hmacWallets.map(async receiver => {
+            assert.equal(
+              (await receiver.wallet.verifyHmac({ ...args, hmac: sender.hmac })).valid,
+              true
+            )
+            hmacObservations.push({
+              sender: sender.version,
+              receiver: receiver.version,
+              keyID,
+              counterparty
+            })
+          })
+        )
+      )
+    })
+  )
+  hmacObservations.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+  assert.equal(hmacObservations.length, 54)
   const output = {
     outpoint: '11'.repeat(32) + '.0',
     satoshis: 1,
@@ -217,7 +276,9 @@ void retainedAlias
     JSON.stringify({
       passed: observations.length,
       observations,
-      numericConsumers: ['ESM', 'CommonJS']
+      numericConsumers: ['ESM', 'CommonJS'],
+      hmacPassed: hmacObservations.length,
+      hmacObservations
     })
   )
 } finally {

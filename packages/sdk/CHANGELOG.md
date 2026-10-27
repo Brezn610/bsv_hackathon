@@ -302,6 +302,16 @@ replay, payment authorization, wire change or consumer migration is introduced.
   always true and may be removed. A module balance read as text is now a
   number.
 
+### Established HMAC key encoding (4.0.1 hotfix)
+
+- Restore the published SDK2/3 minimal-length unsigned big-endian encoding of
+  the ECDH shared point's X coordinate in both `createHmac` and `verifyHmac`.
+  Existing tags and persisted HMAC-derived identifiers remain reproducible.
+- Back out #1370's unshipped fixed-width encoding and the proposed relaxed
+  verifier. There is one HMAC convention, with no second encoding, selection
+  option or fallback. The BRC-56/BRC-100 amendment makes this convention explicit.
+- No caller, stored-data or application-wallet migration is required.
+
 ### Performance (4.0.0 candidate)
 
 - Bound the windowed point-multiplication table cache. Every distinct public
