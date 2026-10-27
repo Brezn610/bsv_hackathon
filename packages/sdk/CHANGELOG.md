@@ -302,6 +302,19 @@ replay, payment authorization, wire change or consumer migration is introduced.
   always true and may be removed. A module balance read as text is now a
   number.
 
+### BRC-56 HMAC key encoding (4.0.1 hotfix)
+
+- `ProtoWallet.createHmac` issues tags with the SDK 2/3 minimal-length key
+  again. The unreleased #1370 change to the 32-byte key altered tags for keys
+  with leading zero bytes (about 1 in 256), which published SDK 2.8.11 and
+  3.2.1 verifiers refuse, and changed stored HMAC-derived values.
+- `ProtoWallet.verifyHmac` accepts a tag computed with either the
+  minimal-length key or the BRC-56 32-byte key. Both are always computed and
+  compared in constant time. Tags issued by SDK 2/3, and by go-sdk, py-sdk and
+  rs-sdk on leading-zero keys, now verify. No other tag is accepted. Issuance
+  with the 32-byte key is left for separately coordinated work.
+- No migration: tags and HMAC-derived values match SDK 2/3.
+
 ### Performance (4.0.0 candidate)
 
 - Bound the windowed point-multiplication table cache. Every distinct public

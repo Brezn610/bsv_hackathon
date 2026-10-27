@@ -292,7 +292,8 @@ export class ProtoWallet {
       keyID,
       counterparty
     )
-    return { hmac: sha256hmac(key.toArray('be', 32), data) }
+    // Issued tags keep the SDK 2/3 minimal-length key encoding (no leading zero bytes).
+    return { hmac: sha256hmac(key.toArray(), data) }
   }
 
   async verifyHmac(args: VerifyHmacArgs): Promise<VerifyHmacResult> {
@@ -308,9 +309,16 @@ export class ProtoWallet {
       keyID,
       counterparty
     )
-    const computed = sha256hmac(key.toArray('be', 32), data)
+    // Accept the issued minimal-length key encoding and the BRC-56 32-byte encoding
+    // used by other SDKs. Both are always computed and compared; they differ only
+    // when the key has leading zero bytes.
+    const minimal = constantTimeEquals(toArray(sha256hmac(key.toArray(), data)), toArray(provided))
+    const canonical = constantTimeEquals(
+      toArray(sha256hmac(key.toArray('be', 32), data)),
+      toArray(provided)
+    )
 
-    const valid = constantTimeEquals(toArray(computed), toArray(provided))
+    const valid = minimal || canonical
     if (!valid) {
       const e = new Error('HMAC is not valid') as Error & { code: string }
       e.code = 'ERR_INVALID_HMAC'
