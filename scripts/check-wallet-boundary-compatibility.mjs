@@ -79,7 +79,7 @@ try {
     limit: 10
   }
   const observations = []
-  for (const [serverVersion, serverSDK] of Object.entries(versions)) {
+  const exerciseServer = async ([serverVersion, serverSDK]) => {
     const backend = {
       getVersion: async () => ({ version: 'wallet-brc100-1.0.0' }),
       listOutputs: async args => {
@@ -113,71 +113,86 @@ try {
       server.listen(0, '127.0.0.1', resolve)
     })
     try {
-      for (const [clientVersion, clientSDK] of Object.entries(versions)) {
-        if (clientVersion !== 'candidate' && serverVersion !== 'candidate') continue
-        const clients = {
-          wire: new clientSDK.WalletClient(
-            new clientSDK.WalletWireTransceiver(new serverSDK.WalletWireProcessor(backend))
-          ),
-          json: new clientSDK.WalletClient(
-            new clientSDK.HTTPWalletJSON(
-              'compatibility.example',
-              `http://127.0.0.1:${server.address().port}`
+      await Promise.all(
+        Object.entries(versions).map(async ([clientVersion, clientSDK]) => {
+          if (clientVersion !== 'candidate' && serverVersion !== 'candidate') return
+          const clients = {
+            wire: new clientSDK.WalletClient(
+              new clientSDK.WalletWireTransceiver(new serverSDK.WalletWireProcessor(backend))
+            ),
+            json: new clientSDK.WalletClient(
+              new clientSDK.HTTPWalletJSON(
+                'compatibility.example',
+                `http://127.0.0.1:${server.address().port}`
+              )
+            )
+          }
+          const scenarios = [
+            { name: 'ordinary', args: listing, total: 1, outputs: [output] },
+            { name: 'empty', args: { basket: 'empty' }, total: 0, outputs: [] },
+            { name: 'balance', args: { basket: 'balance savings' }, total: 180, outputs: [] },
+            {
+              name: 'module-balance',
+              args: { basket: 'p historical balance savings' },
+              total: 180,
+              outputs: []
+            },
+            { name: 'version' }
+          ]
+          await Promise.all(
+            Object.entries(clients).flatMap(([transport, client]) =>
+              scenarios.map(async scenario => {
+                if (scenario.name === 'version') {
+                  assert.deepEqual(await client.getVersion({}), { version: 'wallet-brc100-1.0.0' })
+                } else {
+                  const result = await client.listOutputs(scenario.args)
+                  assert.equal(typeof result.totalOutputs, 'number')
+                  assert.equal(result.totalOutputs, scenario.total)
+                  assert.deepEqual(result.outputs, scenario.outputs)
+                }
+                observations.push({
+                  client: clientVersion,
+                  wallet: serverVersion,
+                  transport,
+                  scenario: scenario.name
+                })
+              })
             )
           )
-        }
-        for (const [transport, client] of Object.entries(clients)) {
-          for (const scenario of ['ordinary', 'empty', 'balance', 'module-balance', 'version']) {
-            if (scenario === 'version') {
-              assert.deepEqual(await client.getVersion({}), { version: 'wallet-brc100-1.0.0' })
-            } else {
-              const args =
-                scenario === 'balance'
-                  ? { basket: 'balance savings' }
-                  : scenario === 'module-balance'
-                    ? { basket: 'p historical balance savings' }
-                    : scenario === 'empty'
-                      ? { basket: 'empty' }
-                      : listing
-              const result = await client.listOutputs(args)
-              assert.equal(typeof result.totalOutputs, 'number')
-              assert.equal(
-                result.totalOutputs,
-                scenario.includes('balance') ? 180 : scenario === 'empty' ? 0 : 1
-              )
-              assert.deepEqual(result.outputs, scenario === 'ordinary' ? [output] : [])
-            }
-            observations.push({ client: clientVersion, wallet: serverVersion, transport, scenario })
-          }
-        }
-      }
+        })
+      )
     } finally {
       await new Promise((resolve, reject) =>
         server.close(error => (error ? reject(error) : resolve()))
       )
     }
   }
+  const servers = await Promise.allSettled(Object.entries(versions).map(exerciseServer))
+  for (const server of servers) if (server.status === 'rejected') throw server.reason
+  observations.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
   // Both ESM and CommonJS declarations must still allow established arithmetic.
-  for (const extension of ['mts', 'cts']) {
-    await writeFile(
-      join(temp, 'numeric.' + extension),
-      ['sdk-v2', 'sdk-v3', 'sdk-candidate']
-        .map(
-          (name, index) => `
+  await Promise.all(
+    ['mts', 'cts'].map(extension =>
+      writeFile(
+        join(temp, 'numeric.' + extension),
+        ['sdk-v2', 'sdk-v3', 'sdk-candidate']
+          .map(
+            (name, index) => `
 import type { ListOutputsResult as Result${index} } from '${name}'
 declare const result${index}: Result${index}
 const total${index}: number = result${index}.totalOutputs + 1
 void total${index}
 `
-        )
-        .join('\n') +
-        `
+          )
+          .join('\n') +
+          `
 import type { DecimalString } from 'sdk-candidate'
 const retainedAlias: DecimalString = '180'
 void retainedAlias
 `
+      )
     )
-  }
+  )
   await writeFile(
     join(temp, 'tsconfig.json'),
     JSON.stringify({
