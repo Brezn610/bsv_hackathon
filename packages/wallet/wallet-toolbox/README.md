@@ -1343,3 +1343,10 @@ historical certificates without rewriting them. Listing and proof use unchanged
 storage RPCs. For relinquishment, upgrade the storage server SDK as well: its
 existing reference validator must accept the historical type. New signing and
 acquisition remain strictly 32 bytes. See [the compatibility contract](../../../specs/wallet/legacy-certificate-wire.md).
+
+## SDK4 hotfix peer requirement
+
+The SDK4 peer alternative starts at `@bsv/sdk ^4.0.1`, which restores numeric
+wallet results and legacy wire compatibility. Existing SDK2/3 alternatives and
+lower bounds remain unchanged. SDK4 users should install the 4.0.1 hotfix; no
+application-wallet wire or data migration is required.
