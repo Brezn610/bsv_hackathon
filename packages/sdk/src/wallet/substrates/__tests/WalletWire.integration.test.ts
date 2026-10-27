@@ -1757,6 +1757,28 @@ describe('WalletWire Integration Tests', () => {
       expect(listOutputsMock).toHaveBeenCalledWith(args, '')
     })
 
+    it('carries a module inventory record that is not spendable', async () => {
+      const outpoint = 'deadbeef20248806deadbeef20248806deadbeef20248806deadbeef20248806.0'
+      const wallet = new WalletWireTransceiver(
+        new WalletWireProcessor(
+          mockUnsupportedMethods({
+            listOutputs: jest.fn().mockResolvedValue({
+              totalOutputs: 2,
+              outputs: [
+                { outpoint, satoshis: 1, spendable: false },
+                { outpoint: outpoint.replace(/\.0$/, '.1'), satoshis: 1, spendable: true }
+              ]
+            })
+          })
+        ),
+        { listOutputsEncoding: 'spendable' }
+      )
+
+      const result = await wallet.listOutputs({ basket: 'p color assets' })
+
+      expect(result.outputs.map(output => output.spendable)).toEqual([false, true])
+    })
+
     it('carries a BRC-112 balance above 2^32 - 1 as a number', async () => {
       for (const [basket, balance] of [
         ['balance default', 2_100_000_000_000_000],
@@ -1798,9 +1820,13 @@ describe('WalletWire Integration Tests', () => {
     it('rejects a module balance that is not a nonnegative integer', async () => {
       for (const totalOutputs of ['5', -1, 1.5]) {
         const wallet = createTestWalletWire(
-          mockUnsupportedMethods({ listOutputs: jest.fn().mockResolvedValue({ totalOutputs, outputs: [] }) })
+          mockUnsupportedMethods({
+            listOutputs: jest.fn().mockResolvedValue({ totalOutputs, outputs: [] })
+          })
         )
-        await expect(wallet.listOutputs({ basket: 'p color balance aa' })).rejects.toThrow('totalOutputs')
+        await expect(wallet.listOutputs({ basket: 'p color balance aa' })).rejects.toThrow(
+          'totalOutputs'
+        )
       }
     })
 

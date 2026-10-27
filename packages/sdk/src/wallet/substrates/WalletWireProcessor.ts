@@ -1279,7 +1279,12 @@ export default class WalletWireProcessor implements WalletWire {
               args.seekPermission = this.#readOptionalBooleanFlag(paramsReader, 'seekPermission')
             })()
 
-            // Call the method
+            // The optional request extension selects the spendability layout.
+            // Unextended requests retain the deployed SDK 2/3 response bytes.
+            const includeSpendable = !paramsReader.eof()
+            if (includeSpendable && paramsReader.readUInt8() !== 1) {
+              throw new Error('Invalid listOutputs encoding extension: expected 1')
+            }
             this.#assertRequestConsumed(paramsReader, callName)
             validateWalletArgs(callName, args)
             const listOutputsResult = await this.#invokeValidatedWallet(
@@ -1287,7 +1292,7 @@ export default class WalletWireProcessor implements WalletWire {
               args,
               async () => await this.wallet.listOutputs(args, originator)
             )
-            let outputsPage: { total: number; records: any[] }
+            let outputsPage: { total: number; records: typeof listOutputsResult.outputs }
             if (isBalanceQuery(args.basket)) {
               // A BRC-112 balance (validated above) is not an output count: no 2^32 - 1 bound.
               // JSON carries any magnitude; the varint cannot carry 2^64 or more.
@@ -1308,11 +1313,19 @@ export default class WalletWireProcessor implements WalletWire {
               )
             }
 
+            if (!includeSpendable && listOutputsResult.outputs.some(output => !output.spendable)) {
+              throw new Error(
+                'Non-spendable listOutputs records require the spendable encoding extension or JSON'
+              )
+            }
+
             // Serialize the result
             const resultWriter = new WriterUint8Array()
             resultWriter.writeUInt8(0) // errorByte = 0
 
             // totalOutputs
+            // A negative marker cannot be mistaken for a legacy output count.
+            if (includeSpendable) resultWriter.writeVarIntNum(-1)
             resultWriter.writeVarIntNum(outputsPage.total)
 
             // BEEF length and BEEF or -1
@@ -1341,6 +1354,9 @@ export default class WalletWireProcessor implements WalletWire {
                   resultWriter.writeVarIntNum(lockingScriptBytes.length)
                   resultWriter.write(lockingScriptBytes)
                 }
+
+                // Spendability is explicit only on negotiated connections.
+                if (includeSpendable) resultWriter.writeInt8(output.spendable ? 1 : 0)
 
                 // customInstructions
                 if (output.customInstructions === undefined) {
