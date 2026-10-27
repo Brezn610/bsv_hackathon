@@ -61,9 +61,9 @@ describe('color module registered on a WalletPermissionsManager', () => {
         const result = await validated.listOutputs(JSON.parse(Buffer.concat(chunks).toString()))
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify(result))
-      } catch (error) {
+      } catch {
         res.writeHead(400, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ isError: true, message: String(error), code: 1 }))
+        res.end(JSON.stringify({ isError: true, message: 'Invalid wallet request', code: 1 }))
       }
     })
     await new Promise<void>((resolve, reject) => {
