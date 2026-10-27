@@ -10,7 +10,7 @@ Patch candidate `0.3.5` updates packed first-party runtime or development depend
 npm install @bsv/402-pay
 ```
 
-Peer dependency: `@bsv/sdk ^2.1.6 || ^3.0.0 || ^4.0.0`. The package supports Node.js 22+ and browser
+Peer dependency: `@bsv/sdk ^2.1.6 || ^3.0.0 || ^4.0.1`. The package supports Node.js 22+ and browser
 consumers, with matching ESM and CommonJS entry points and declarations for the
 package root, `/server`, and `/client`.
 

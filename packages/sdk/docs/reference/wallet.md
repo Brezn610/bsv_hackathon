@@ -7107,5 +7107,5 @@ export type PositiveInteger64OrZero = number
 A finite nonnegative count or BRC-112 balance summary. JSON summaries may exceed
 uint64; numeric binary serialization requires a value below 2^64. JavaScript
 numbers are exact through 2^53 and may round above. DecimalString remains an
-exported compatibility alias. See the SDK README for the explicitly configured
-SDK4.0.0 compatibility bindings and #674 spendability extension.
+exported compatibility alias. The default binary layout retains legacy clients.
+See the SDK README for #674’s explicitly acknowledged spendability extension.
