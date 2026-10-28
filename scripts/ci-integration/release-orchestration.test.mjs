@@ -25,7 +25,7 @@ test('one up-front approval gates npm and image publication without a late human
   assert.equal(infra.uses, './.github/workflows/infra-release.yaml')
   assert.ok(infra.needs.includes('approve'))
   assert.match(infra.if, /needs\.approve\.result == 'success'/)
-  assert.match(infra.if, /needs\.full-mutation\.outputs\.qualified-sha == github\.sha/)
+  assert.match(infra.if, /needs\.admission\.outputs\.admitted-sha == github\.sha/)
   assert.match(infra.if, /needs\.prepare\.outputs\.mode == 'cascade'/)
   assert.equal(infra.with['qualified-sha'], '${{ needs.full-mutation.outputs.qualified-sha }}')
 
@@ -38,7 +38,9 @@ test('one up-front approval gates npm and image publication without a late human
   const infraRelease = await workflow('infra-release.yaml')
   assert.deepEqual(Object.keys(infraRelease.on.workflow_call.inputs).sort(), [
     'qualified-sha',
-    'source-sha'
+    'release-exception-id',
+    'source-sha',
+    'waived-sha'
   ])
   assert.match(infraRelease.jobs['post-release-verification'].if, /called == 'false'/)
 })

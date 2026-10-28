@@ -341,3 +341,25 @@ execution. Renewed inventory dates record source/disposition review; they do not
 qualify a runtime campaign. Target receipts also bind the fresh successful runner
 record, report digest, property run count, deterministic seed and empty replay
 path. An overridden partial replay cannot qualify publication.
+
+## One-time experimental674 release admission
+
+The operator explicitly authorized exception`2026-10-27-674-experimental` for
+the37-package/eight-image release containing SDK4.0.1 and Toolbox2.15.1. Its
+application tree must remain byte-identical to a6b6e352ab98b1fe5d7dce9fa834959ab260c71f;
+only the enumerated exception implementation, tests and this documentation may
+differ. An explicit manual main dispatch by ty-everett selects the exception.
+It expires2026-10-29T00:00:00Z and cannot cover changed packages, dependencies,
+application source, infrastructure source or a later published baseline.
+
+This is an operator waiver of full mutation qualification for additive,
+experimental674 code. Failed campaigns remain failed; the admission is recorded
+as`operator-waiver`, never as successful qualification. Normal release approval,
+old/new WalletClient compatibility and all immutable-artifact, advisory, SBOM,
+provenance and signature gates remain required. The image publisher independently
+verifies the same exception and retains the single generated-sync-child rule.
+
+Use the otherwise unchanged protected release workflow with the explicit
+qualification-exception input set to that ID. Empty input retains full mutation
+qualification. Remove this temporary admission after the authorized release and
+its published-baseline reconciliation; every future release uses normal gates.
