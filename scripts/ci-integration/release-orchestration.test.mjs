@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { REPOSITORY_ROOT } from '../repository-health.mjs'
@@ -43,6 +43,94 @@ test('one up-front approval gates npm and image publication without a late human
     'waived-sha'
   ])
   assert.match(infraRelease.jobs['post-release-verification'].if, /called == 'false'/)
+})
+
+test('a waived campaign still reaches every successful cascade continuation', async () => {
+  const release = await workflow('release.yaml')
+  for (const name of [
+    'admission',
+    'publish',
+    'sync-versions',
+    'infra',
+    'post-release-verification'
+  ]) {
+    assert.match(release.jobs[name].if, /always\(\)/, `${name} must opt out of implicit success()`)
+  }
+  const sync = release.jobs['sync-versions']
+  assert.match(sync.if, /!cancelled\(\)/)
+  assert.match(sync.if, /needs\.prepare\.result == 'success'/)
+  assert.match(sync.if, /needs\.publish\.result == 'success'/)
+  const stage = release.jobs.prepare.steps.find(
+    step => step.name === 'Stage exact npm release artifacts'
+  )
+  assert.equal(stage.env.RELEASE_EXCEPTION, '${{ steps.exception.outputs.exception-id }}')
+  assert.match(stage.run, /--include-published/)
+  assert.match(stage.run, /select\(\.releaseType != "none"\)/)
+  assert.match(stage.run, /\$\{#released\[@\]\}.*!= 37/)
+  assert.match(stage.run, /--package "\$name"/)
+})
+
+test('continuation stages exactly the approved release entries and rejects a changed set', async () => {
+  const release = await workflow('release.yaml')
+  const stage = release.jobs.prepare.steps.find(
+    step => step.name === 'Stage exact npm release artifacts'
+  )
+  const root = mkdtempSync(join(tmpdir(), 'release-continuation-'))
+  const notes = JSON.parse(
+    readFileSync(join(REPOSITORY_ROOT, 'governance/package-release-notes.json'), 'utf8')
+  )
+  const expected = notes.entries
+    .filter(entry => entry.releaseType !== 'none')
+    .map(entry => entry.name)
+  const bin = join(root, 'bin')
+  const output = join(root, 'stage-arguments')
+  mkdirSync(bin)
+  mkdirSync(join(root, 'governance'))
+  writeFileSync(join(bin, 'node'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$STAGE_ARGUMENTS"\n')
+  chmodSync(join(bin, 'node'), 0o700)
+  const run = (exception, filter = '') =>
+    spawnSync('/bin/bash', ['-e', '-c', stage.run], {
+      cwd: root,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        PNPM_FILTER: filter,
+        RELEASE_EXCEPTION: exception,
+        GITHUB_OUTPUT: join(root, 'github-output'),
+        STAGE_ARGUMENTS: output
+      }
+    })
+  try {
+    const file = join(root, 'governance/package-release-notes.json')
+    writeFileSync(file, JSON.stringify(notes))
+    assert.equal(expected.length, 37)
+    const resumed = run('2026-10-27-674-experimental')
+    assert.equal(resumed.status, 0, resumed.stderr)
+    assert.deepEqual(readFileSync(output, 'utf8').trim().split('\n'), [
+      'scripts/package-release-artifacts.mjs',
+      'stage',
+      '--output',
+      'release-artifacts',
+      '--include-published',
+      ...expected.flatMap(name => ['--package', name])
+    ])
+    assert.notEqual(run('2026-10-27-674-experimental', './packages/sdk').status, 0)
+    notes.entries.find(entry => entry.name === expected[0]).releaseType = 'none'
+    writeFileSync(file, JSON.stringify(notes))
+    assert.notEqual(run('2026-10-27-674-experimental').status, 0)
+    assert.equal(run('', './packages/sdk').status, 0)
+    assert.deepEqual(readFileSync(output, 'utf8').trim().split('\n'), [
+      'scripts/package-release-artifacts.mjs',
+      'stage',
+      '--output',
+      'release-artifacts',
+      '--filter',
+      './packages/sdk'
+    ])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('jobs downstream of a deliberately skipped campaign opt out of implicit success()', async () => {

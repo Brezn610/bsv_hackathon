@@ -180,8 +180,24 @@ jobs:
         id: artifacts
         env:
           PNPM_FILTER: ${{ steps.plan.outputs.filter }}
+          RELEASE_EXCEPTION: ${{ steps.exception.outputs.exception-id }}
         run: |
           args=(stage --output release-artifacts)
+          # The one-time continuation must retain the same 37 candidates even
+          # after npm publication. The publisher accepts existing versions only
+          # when their immutable digest matches; it never republishes them.
+          if [[ -n "$RELEASE_EXCEPTION" ]]; then
+            released=()
+            while IFS= read -r name; do released+=("$name"); done < <(jq -r '.entries[] | select(.releaseType != "none") | .name' governance/package-release-notes.json)
+            if [[ "${#released[@]}" != 37 || -n "$PNPM_FILTER" ]]; then
+              echo "::error::The one-time continuation requires the exact 37-package cascade."
+              exit 1
+            fi
+            args+=(--include-published)
+            for name in "${released[@]}"; do
+              args+=(--package "$name")
+            done
+          fi
           if [[ -n "$PNPM_FILTER" ]]; then
             args+=(--filter "$PNPM_FILTER")
           fi
@@ -347,7 +363,7 @@ jobs:
   # code. The separate sync job receives only repository/PR authority and
   # exposes its GitHub credential solely during the push and PR steps.
   sync-versions:
-    if: needs.publish.result == 'success' && needs.prepare.outputs.mode == 'cascade'
+    if: always() && !cancelled() && needs.prepare.result == 'success' && needs.publish.result == 'success' && needs.prepare.outputs.mode == 'cascade'
     needs: [prepare, publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
