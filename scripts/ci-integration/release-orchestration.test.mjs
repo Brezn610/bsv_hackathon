@@ -343,3 +343,58 @@ test('remaining image validator accepts only both version bumps with identical s
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('manual image admission forwards the discovered exact source rather than a missing caller input', async () => {
+  const infra = await workflow('infra-release.yaml')
+  const step = infra.jobs.qualification.steps.find(
+    item => item.name === 'Require a qualified exact source'
+  )
+  assert.equal(
+    infra.jobs.discover.outputs['admitted-sha'],
+    '${{ steps.source.outputs.admitted-sha }}'
+  )
+  assert.equal(step.env.DISCOVER_ADMITTED, '${{ needs.discover.outputs.admitted-sha }}')
+  const root = mkdtempSync(join(tmpdir(), 'image-admission-output-'))
+  const sha = 'a'.repeat(40)
+  const run = (admitted, overrides = {}) => {
+    const output = join(root, 'output')
+    writeFileSync(output, '')
+    const result = spawnSync('/bin/bash', ['-e', '-c', step.run], {
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        GITHUB_SHA: sha,
+        GITHUB_OUTPUT: output,
+        CALLED: 'true',
+        CALLER_QUALIFIED: '',
+        CALLER_WAIVED: '',
+        DISCOVER_ADMISSION: 'operator-waiver',
+        DISCOVER_ADMITTED: admitted,
+        CAMPAIGN_RESULT: 'skipped',
+        CAMPAIGN_QUALIFIED: '',
+        ...overrides
+      }
+    })
+    return { status: result.status, output: readFileSync(output, 'utf8') }
+  }
+  try {
+    const valid = run(sha)
+    assert.equal(valid.status, 0)
+    assert.match(valid.output, new RegExp(`admitted-sha=${sha}`))
+    assert.match(valid.output, /admission-kind=operator-waiver/)
+    for (const absent of ['', 'b'.repeat(40)]) assert.notEqual(run(absent).status, 0)
+    const caller = run('', { DISCOVER_ADMISSION: 'full-mutation', CALLER_QUALIFIED: sha })
+    assert.equal(caller.status, 0)
+    assert.match(caller.output, /admission-kind=full-mutation/)
+    assert.equal(
+      run('', { CALLED: 'false', CAMPAIGN_RESULT: 'success', CAMPAIGN_QUALIFIED: sha }).status,
+      0
+    )
+    assert.notEqual(
+      run('', { CALLED: 'false', CAMPAIGN_RESULT: 'failure', CAMPAIGN_QUALIFIED: sha }).status,
+      0
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
