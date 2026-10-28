@@ -49,7 +49,7 @@ export function validateReleaseException({ id, source, environment, record, path
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [id, source] = process.argv.slice(2)
   if (!/^[a-f0-9]{40}$/.test(source ?? '')) throw new Error('Expected exact source SHA')
-  const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim()
+  const git = (...args) => execFileSync('/usr/bin/git', args, { encoding: 'utf8' }).trim()
   git('merge-base', '--is-ancestor', EXCEPTION_BASE, source)
   const record = JSON.parse(git('show', `${source}:${EXCEPTION_FILE}`))
   const paths = git('diff', '--no-renames', '--name-only', EXCEPTION_BASE, source).split('\n')
