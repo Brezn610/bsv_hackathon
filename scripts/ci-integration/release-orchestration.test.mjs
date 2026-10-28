@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { REPOSITORY_ROOT } from '../repository-health.mjs'
@@ -25,7 +25,7 @@ test('one up-front approval gates npm and image publication without a late human
   assert.equal(infra.uses, './.github/workflows/infra-release.yaml')
   assert.ok(infra.needs.includes('approve'))
   assert.match(infra.if, /needs\.approve\.result == 'success'/)
-  assert.match(infra.if, /needs\.admission\.outputs\.admitted-sha == github\.sha/)
+  assert.match(infra.if, /needs\.full-mutation\.outputs\.qualified-sha == github\.sha/)
   assert.match(infra.if, /needs\.prepare\.outputs\.mode == 'cascade'/)
   assert.equal(infra.with['qualified-sha'], '${{ needs.full-mutation.outputs.qualified-sha }}')
 
@@ -38,99 +38,9 @@ test('one up-front approval gates npm and image publication without a late human
   const infraRelease = await workflow('infra-release.yaml')
   assert.deepEqual(Object.keys(infraRelease.on.workflow_call.inputs).sort(), [
     'qualified-sha',
-    'release-exception-id',
-    'source-sha',
-    'waived-sha'
+    'source-sha'
   ])
   assert.match(infraRelease.jobs['post-release-verification'].if, /called == 'false'/)
-})
-
-test('a waived campaign still reaches every successful cascade continuation', async () => {
-  const release = await workflow('release.yaml')
-  for (const name of [
-    'admission',
-    'publish',
-    'sync-versions',
-    'infra',
-    'post-release-verification'
-  ]) {
-    assert.match(release.jobs[name].if, /always\(\)/, `${name} must opt out of implicit success()`)
-  }
-  const sync = release.jobs['sync-versions']
-  assert.match(sync.if, /!cancelled\(\)/)
-  assert.match(sync.if, /needs\.prepare\.result == 'success'/)
-  assert.match(sync.if, /needs\.publish\.result == 'success'/)
-  const stage = release.jobs.prepare.steps.find(
-    step => step.name === 'Stage exact npm release artifacts'
-  )
-  assert.equal(stage.env.RELEASE_EXCEPTION, '${{ steps.exception.outputs.exception-id }}')
-  assert.match(stage.run, /--include-published/)
-  assert.match(stage.run, /select\(\.releaseType != "none"\)/)
-  assert.match(stage.run, /\$\{#released\[@\]\}.*!= 37/)
-  assert.match(stage.run, /--package "\$name"/)
-})
-
-test('continuation stages exactly the approved release entries and rejects a changed set', async () => {
-  const release = await workflow('release.yaml')
-  const stage = release.jobs.prepare.steps.find(
-    step => step.name === 'Stage exact npm release artifacts'
-  )
-  const root = mkdtempSync(join(tmpdir(), 'release-continuation-'))
-  const notes = JSON.parse(
-    readFileSync(join(REPOSITORY_ROOT, 'governance/package-release-notes.json'), 'utf8')
-  )
-  const expected = notes.entries
-    .filter(entry => entry.releaseType !== 'none')
-    .map(entry => entry.name)
-  const bin = join(root, 'bin')
-  const output = join(root, 'stage-arguments')
-  mkdirSync(bin)
-  mkdirSync(join(root, 'governance'))
-  writeFileSync(join(bin, 'node'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$STAGE_ARGUMENTS"\n')
-  chmodSync(join(bin, 'node'), 0o700)
-  const run = (exception, filter = '') =>
-    spawnSync('/bin/bash', ['-e', '-c', stage.run], {
-      cwd: root,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
-        PNPM_FILTER: filter,
-        RELEASE_EXCEPTION: exception,
-        GITHUB_OUTPUT: join(root, 'github-output'),
-        STAGE_ARGUMENTS: output
-      }
-    })
-  try {
-    const file = join(root, 'governance/package-release-notes.json')
-    writeFileSync(file, JSON.stringify(notes))
-    assert.equal(expected.length, 37)
-    const resumed = run('2026-10-27-674-experimental')
-    assert.equal(resumed.status, 0, resumed.stderr)
-    assert.deepEqual(readFileSync(output, 'utf8').trim().split('\n'), [
-      'scripts/package-release-artifacts.mjs',
-      'stage',
-      '--output',
-      'release-artifacts',
-      '--include-published',
-      ...expected.flatMap(name => ['--package', name])
-    ])
-    assert.notEqual(run('2026-10-27-674-experimental', './packages/sdk').status, 0)
-    notes.entries.find(entry => entry.name === expected[0]).releaseType = 'none'
-    writeFileSync(file, JSON.stringify(notes))
-    assert.notEqual(run('2026-10-27-674-experimental').status, 0)
-    assert.equal(run('', './packages/sdk').status, 0)
-    assert.deepEqual(readFileSync(output, 'utf8').trim().split('\n'), [
-      'scripts/package-release-artifacts.mjs',
-      'stage',
-      '--output',
-      'release-artifacts',
-      '--filter',
-      './packages/sdk'
-    ])
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
 })
 
 test('jobs downstream of a deliberately skipped campaign opt out of implicit success()', async () => {
@@ -156,28 +66,6 @@ test('jobs downstream of a deliberately skipped campaign opt out of implicit suc
   }
   assert.match(infraRelease.jobs.release.if, /needs\.discover\.result == 'success'/)
   assert.match(infraRelease.jobs.release.if, /needs\.qualification\.result == 'success'/)
-})
-
-test('remaining image recovery keeps the normal approval and exact source gates', async () => {
-  const infra = await workflow('infra-release.yaml')
-  assert.deepEqual(Object.keys(infra.on.workflow_dispatch.inputs).sort(), [
-    'release-exception-id',
-    'source-sha'
-  ])
-  assert.equal(infra.jobs['approve-recovery'].environment, 'release-approval')
-  assert.match(infra.jobs['approve-recovery'].if, /manual-recovery == 'true'/)
-  assert.ok(infra.jobs.release.needs.includes('approve-recovery'))
-  assert.match(infra.jobs.release.if, /needs\.approve-recovery\.result == 'success'/)
-  const guard = infra.jobs.discover.steps.find(
-    step => step.name === 'Verify trusted release source'
-  ).run
-  assert.match(guard, /infra-release\.yaml@refs\/heads\/main/)
-  assert.match(guard, /2026-10-27-674-experimental/)
-  assert.match(guard, /node scripts\/release-source-admission\.mjs/)
-  assert.ok(
-    guard.indexOf('git diff --name-only') <
-      guard.indexOf('node scripts/release-source-admission.mjs')
-  )
 })
 
 function git(cwd, ...arguments_) {
@@ -257,143 +145,9 @@ test('a release.yaml call accepts only the qualified commit or its infra-sync ch
       0
     )
 
-    assert.notEqual(run('', { EXCEPTION_ID: '2026-10-27-674-experimental' }).status, 0)
-    assert.notEqual(run('refs/heads/main').status, 0)
-
     const standalone = run('')
     assert.equal(standalone.status, 0)
     assert.match(standalone.output, /called=false/)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('remaining image validator accepts only both version bumps with identical source and dependencies', async () => {
-  const infra = await workflow('infra-release.yaml')
-  const script = infra.jobs.discover.steps.find(
-    step => step.name === 'Validate remaining hotfix image inputs'
-  ).run
-  const root = mkdtempSync(join(tmpdir(), 'remaining-image-inputs-'))
-  try {
-    const work = join(root, 'work')
-    const origin = join(root, 'origin.git')
-    git(root, 'init', '-q', '--bare', origin)
-    git(root, 'init', '-q', '-b', 'main', work)
-    git(work, 'config', 'user.email', 'test@example.com')
-    git(work, 'config', 'user.name', 'test')
-    git(work, 'remote', 'add', 'origin', origin)
-    const versions = { 'message-box-server': '1.1.55', 'webrtpay-relay': '0.2.2' }
-    for (const [name, version] of Object.entries(versions)) {
-      mkdirSync(join(work, 'infra', name), { recursive: true })
-      writeFileSync(
-        join(work, 'infra', name, 'package.json'),
-        JSON.stringify({ name, version, dependencies: { '@bsv/sdk': '^4.0.1' } })
-      )
-      writeFileSync(
-        join(work, 'infra', name, 'package-lock.json'),
-        JSON.stringify({
-          name,
-          version,
-          packages: {
-            '': { name, version },
-            'node_modules/@bsv/sdk': { version: '4.0.1', integrity: 'sha512-fixture' }
-          }
-        })
-      )
-    }
-    git(work, 'add', '.')
-    git(work, 'commit', '-qm', 'original generated inputs')
-    const original = git(work, 'rev-parse', 'HEAD')
-    git(work, 'push', '-q', 'origin', 'main')
-    const run = source =>
-      spawnSync('/bin/bash', ['-e', '-c', script], {
-        cwd: work,
-        encoding: 'utf8',
-        env: { ...process.env, SOURCE_SHA: source, ORIGINAL_SOURCE: original }
-      })
-    assert.notEqual(run(original).status, 0)
-    for (const [name, version] of Object.entries({
-      'message-box-server': '1.1.56',
-      'webrtpay-relay': '0.2.3'
-    })) {
-      for (const file of ['package.json', 'package-lock.json']) {
-        const path = join(work, 'infra', name, file)
-        const record = JSON.parse(readFileSync(path, 'utf8'))
-        record.version = version
-        if (record.packages) record.packages[''].version = version
-        writeFileSync(path, JSON.stringify(record))
-      }
-    }
-    git(work, 'add', '.')
-    git(work, 'commit', '-qm', 'two patch versions')
-    const accepted = git(work, 'rev-parse', 'HEAD')
-    const valid = run(accepted)
-    assert.equal(valid.status, 0, valid.stderr)
-    const file = join(work, 'infra/message-box-server/package.json')
-    const record = JSON.parse(readFileSync(file, 'utf8'))
-    record.dependencies['@bsv/sdk'] = '^4.0.0'
-    writeFileSync(file, JSON.stringify(record))
-    git(work, 'add', '.')
-    git(work, 'commit', '-qm', 'wrong dependency')
-    assert.notEqual(run(git(work, 'rev-parse', 'HEAD')).status, 0)
-    git(work, 'switch', '-q', '-c', 'product-change', accepted)
-    const changed = commit(work, 'packages/a/src/index.ts', 'export const changed = true\n')
-    assert.notEqual(run(changed).status, 0)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('manual image admission forwards the discovered exact source rather than a missing caller input', async () => {
-  const infra = await workflow('infra-release.yaml')
-  const step = infra.jobs.qualification.steps.find(
-    item => item.name === 'Require a qualified exact source'
-  )
-  assert.equal(
-    infra.jobs.discover.outputs['admitted-sha'],
-    '${{ steps.source.outputs.admitted-sha }}'
-  )
-  assert.equal(step.env.DISCOVER_ADMITTED, '${{ needs.discover.outputs.admitted-sha }}')
-  const root = mkdtempSync(join(tmpdir(), 'image-admission-output-'))
-  const sha = 'a'.repeat(40)
-  const run = (admitted, overrides = {}) => {
-    const output = join(root, 'output')
-    writeFileSync(output, '')
-    const result = spawnSync('/bin/bash', ['-e', '-c', step.run], {
-      encoding: 'utf8',
-      env: {
-        PATH: process.env.PATH,
-        GITHUB_SHA: sha,
-        GITHUB_OUTPUT: output,
-        CALLED: 'true',
-        CALLER_QUALIFIED: '',
-        CALLER_WAIVED: '',
-        DISCOVER_ADMISSION: 'operator-waiver',
-        DISCOVER_ADMITTED: admitted,
-        CAMPAIGN_RESULT: 'skipped',
-        CAMPAIGN_QUALIFIED: '',
-        ...overrides
-      }
-    })
-    return { status: result.status, output: readFileSync(output, 'utf8') }
-  }
-  try {
-    const valid = run(sha)
-    assert.equal(valid.status, 0)
-    assert.match(valid.output, new RegExp(`admitted-sha=${sha}`))
-    assert.match(valid.output, /admission-kind=operator-waiver/)
-    for (const absent of ['', 'b'.repeat(40)]) assert.notEqual(run(absent).status, 0)
-    const caller = run('', { DISCOVER_ADMISSION: 'full-mutation', CALLER_QUALIFIED: sha })
-    assert.equal(caller.status, 0)
-    assert.match(caller.output, /admission-kind=full-mutation/)
-    assert.equal(
-      run('', { CALLED: 'false', CAMPAIGN_RESULT: 'success', CAMPAIGN_QUALIFIED: sha }).status,
-      0
-    )
-    assert.notEqual(
-      run('', { CALLED: 'false', CAMPAIGN_RESULT: 'failure', CAMPAIGN_QUALIFIED: sha }).status,
-      0
-    )
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
