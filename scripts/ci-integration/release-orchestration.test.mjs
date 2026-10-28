@@ -174,6 +174,10 @@ test('remaining image recovery keeps the normal approval and exact source gates'
   assert.match(guard, /infra-release\.yaml@refs\/heads\/main/)
   assert.match(guard, /2026-10-27-674-experimental/)
   assert.match(guard, /node scripts\/release-source-admission\.mjs/)
+  assert.ok(
+    guard.indexOf('git diff --name-only') <
+      guard.indexOf('node scripts/release-source-admission.mjs')
+  )
 })
 
 function git(cwd, ...arguments_) {
@@ -252,6 +256,9 @@ test('a release.yaml call accepts only the qualified commit or its infra-sync ch
       }).status,
       0
     )
+
+    assert.notEqual(run('', { EXCEPTION_ID: '2026-10-27-674-experimental' }).status, 0)
+    assert.notEqual(run('refs/heads/main').status, 0)
 
     const standalone = run('')
     assert.equal(standalone.status, 0)
