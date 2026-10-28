@@ -158,6 +158,28 @@ test('jobs downstream of a deliberately skipped campaign opt out of implicit suc
   assert.match(infraRelease.jobs.release.if, /needs\.qualification\.result == 'success'/)
 })
 
+test('remaining image recovery keeps the normal approval and exact source gates', async () => {
+  const infra = await workflow('infra-release.yaml')
+  assert.deepEqual(Object.keys(infra.on.workflow_dispatch.inputs).sort(), [
+    'release-exception-id',
+    'source-sha'
+  ])
+  assert.equal(infra.jobs['approve-recovery'].environment, 'release-approval')
+  assert.match(infra.jobs['approve-recovery'].if, /manual-recovery == 'true'/)
+  assert.ok(infra.jobs.release.needs.includes('approve-recovery'))
+  assert.match(infra.jobs.release.if, /needs\.approve-recovery\.result == 'success'/)
+  const guard = infra.jobs.discover.steps.find(
+    step => step.name === 'Verify trusted release source'
+  ).run
+  assert.match(guard, /infra-release\.yaml@refs\/heads\/main/)
+  assert.match(guard, /2026-10-27-674-experimental/)
+  assert.match(guard, /node scripts\/release-source-admission\.mjs/)
+  assert.ok(
+    guard.indexOf('git diff --name-only') <
+      guard.indexOf('node scripts/release-source-admission.mjs')
+  )
+})
+
 function git(cwd, ...arguments_) {
   return execFileSync('git', arguments_, { cwd, encoding: 'utf8' }).trim()
 }
@@ -235,9 +257,88 @@ test('a release.yaml call accepts only the qualified commit or its infra-sync ch
       0
     )
 
+    assert.notEqual(run('', { EXCEPTION_ID: '2026-10-27-674-experimental' }).status, 0)
+    assert.notEqual(run('refs/heads/main').status, 0)
+
     const standalone = run('')
     assert.equal(standalone.status, 0)
     assert.match(standalone.output, /called=false/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('remaining image validator accepts only both version bumps with identical source and dependencies', async () => {
+  const infra = await workflow('infra-release.yaml')
+  const script = infra.jobs.discover.steps.find(
+    step => step.name === 'Validate remaining hotfix image inputs'
+  ).run
+  const root = mkdtempSync(join(tmpdir(), 'remaining-image-inputs-'))
+  try {
+    const work = join(root, 'work')
+    const origin = join(root, 'origin.git')
+    git(root, 'init', '-q', '--bare', origin)
+    git(root, 'init', '-q', '-b', 'main', work)
+    git(work, 'config', 'user.email', 'test@example.com')
+    git(work, 'config', 'user.name', 'test')
+    git(work, 'remote', 'add', 'origin', origin)
+    const versions = { 'message-box-server': '1.1.55', 'webrtpay-relay': '0.2.2' }
+    for (const [name, version] of Object.entries(versions)) {
+      mkdirSync(join(work, 'infra', name), { recursive: true })
+      writeFileSync(
+        join(work, 'infra', name, 'package.json'),
+        JSON.stringify({ name, version, dependencies: { '@bsv/sdk': '^4.0.1' } })
+      )
+      writeFileSync(
+        join(work, 'infra', name, 'package-lock.json'),
+        JSON.stringify({
+          name,
+          version,
+          packages: {
+            '': { name, version },
+            'node_modules/@bsv/sdk': { version: '4.0.1', integrity: 'sha512-fixture' }
+          }
+        })
+      )
+    }
+    git(work, 'add', '.')
+    git(work, 'commit', '-qm', 'original generated inputs')
+    const original = git(work, 'rev-parse', 'HEAD')
+    git(work, 'push', '-q', 'origin', 'main')
+    const run = source =>
+      spawnSync('/bin/bash', ['-e', '-c', script], {
+        cwd: work,
+        encoding: 'utf8',
+        env: { ...process.env, SOURCE_SHA: source, ORIGINAL_SOURCE: original }
+      })
+    assert.notEqual(run(original).status, 0)
+    for (const [name, version] of Object.entries({
+      'message-box-server': '1.1.56',
+      'webrtpay-relay': '0.2.3'
+    })) {
+      for (const file of ['package.json', 'package-lock.json']) {
+        const path = join(work, 'infra', name, file)
+        const record = JSON.parse(readFileSync(path, 'utf8'))
+        record.version = version
+        if (record.packages) record.packages[''].version = version
+        writeFileSync(path, JSON.stringify(record))
+      }
+    }
+    git(work, 'add', '.')
+    git(work, 'commit', '-qm', 'two patch versions')
+    const accepted = git(work, 'rev-parse', 'HEAD')
+    const valid = run(accepted)
+    assert.equal(valid.status, 0, valid.stderr)
+    const file = join(work, 'infra/message-box-server/package.json')
+    const record = JSON.parse(readFileSync(file, 'utf8'))
+    record.dependencies['@bsv/sdk'] = '^4.0.0'
+    writeFileSync(file, JSON.stringify(record))
+    git(work, 'add', '.')
+    git(work, 'commit', '-qm', 'wrong dependency')
+    assert.notEqual(run(git(work, 'rev-parse', 'HEAD')).status, 0)
+    git(work, 'switch', '-q', '-c', 'product-change', accepted)
+    const changed = commit(work, 'packages/a/src/index.ts', 'export const changed = true\n')
+    assert.notEqual(run(changed).status, 0)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

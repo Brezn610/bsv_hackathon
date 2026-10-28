@@ -38,6 +38,12 @@ function conjunctionPasses(expression, context) {
     // must still pass on their own.
     if (clause === 'always()') return true
     if (clause === '!cancelled()') return !context.cancelled
+    if (clause.startsWith('(') && clause.endsWith(')')) {
+      return clause
+        .slice(1, -1)
+        .split(' || ')
+        .some(option => conjunctionPasses(option, context))
+    }
     const match = /^(\S+) (==|!=) (\S+)$/.exec(clause)
     assert.ok(match, `Unexpected release guard syntax: ${clause}`)
     return match[2] === '=='
@@ -112,6 +118,32 @@ test('publishers require exact-source admission and preserve normal full qualifi
         // A release.yaml call reuses the caller's qualification of github.sha.
         context.needs.discover.outputs = { count: '1', called: 'true' }
         assert.equal(conjunctionPasses(campaign.if, context), false)
+      }
+    }
+  }
+})
+
+test('manual image recovery requires approval while normal callers retain their existing gate', async () => {
+  const { workflow } = (await releaseWorkflows()).find(entry => entry.file === 'infra-release.yaml')
+  const sha = 'a'.repeat(40)
+  for (const manual of ['true', 'false', undefined]) {
+    for (const approval of ['success', 'failure', 'cancelled', 'skipped', undefined]) {
+      for (const admitted of [sha, 'b'.repeat(40), '']) {
+        const context = {
+          github: { sha },
+          needs: {
+            discover: { result: 'success', outputs: { count: '2', 'manual-recovery': manual } },
+            qualification: { result: 'success', outputs: { 'admitted-sha': admitted } },
+            'build-image': { result: 'success' },
+            'approve-recovery': { result: approval }
+          }
+        }
+        const expected = admitted === sha && (manual !== 'true' || approval === 'success')
+        assert.equal(conjunctionPasses(workflow.jobs.release.if, context), expected)
+        assert.equal(
+          conjunctionPasses(workflow.jobs.release.if, { ...context, cancelled: true }),
+          false
+        )
       }
     }
   }

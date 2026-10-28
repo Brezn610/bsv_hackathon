@@ -363,3 +363,15 @@ Use the otherwise unchanged protected release workflow with the explicit
 qualification-exception input set to that ID. Empty input retains full mutation
 qualification. Remove this temporary admission after the authorized release and
 its published-baseline reconciliation; every future release uses normal gates.
+
+The same one-time release permits an image-only recovery for the two immutable
+tag collisions: Message Box1.1.56 and WebRTpay Relay0.2.3. Manual main dispatch
+of `infra-release.yaml` must provide the existing exception ID and an exact
+generated source child. It independently validates the unchanged application
+tree, the source ancestry and exactly four version-only manifest/lock changes
+relative to1aa0983115ba39579ac09885e1977c05b765e42e. No source, dependency or
+public package change is admitted. The normal release-approval environment and
+every Linux build, scan, signature, provenance and SBOM gate remain mandatory.
+This recovery publishes only absent image tags and performs no npm preparation
+or publication. Remove this temporary recovery together with the original
+waiver after the current release and final published-baseline reconciliation.
