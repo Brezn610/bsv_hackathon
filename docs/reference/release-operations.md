@@ -342,36 +342,47 @@ qualify a runtime campaign. Target receipts also bind the fresh successful runne
 record, report digest, property run count, deterministic seed and empty replay
 path. An overridden partial replay cannot qualify publication.
 
-## One-time experimental674 release admission
+## Retired one-time experimental #674 release waiver
 
-The operator explicitly authorized exception`2026-10-27-674-experimental` for
-the37-package/eight-image release containing SDK4.0.1 and Toolbox2.15.1. Its
-application tree must remain byte-identical to a6b6e352ab98b1fe5d7dce9fa834959ab260c71f;
-only the enumerated exception implementation, tests and this documentation may
-differ. An explicit manual main dispatch by ty-everett selects the exception.
-It expires2026-10-29T00:00:00Z and cannot cover changed packages, dependencies,
-application source, infrastructure source or a later published baseline.
+The operator authorized one full release without successful #674 mutation
+qualification: [release 40612905804](https://github.com/bsv-blockchain/ts-stack/actions/runs/40612905804),
+SDK 4.0.1, Toolbox 2.15.1, 37 npm packages and 8 infrastructure images.
+The npm source was f12e0dd669287b63964545035a39f0d339abc447, with package bytes
+identical to the tested a6b6e352 candidates. GitHub skipped its image-sync
+continuation through the intentionally skipped campaign. PR #1433 repaired only
+release controls; [continuation 40617228519](https://github.com/bsv-blockchain/ts-stack/actions/runs/40617228519)
+uses ada0681362455045ff3a0dd795fcf89e6f177d92 and the same immutable package
+bytes, with no repeated npm publication. The image source is its generated
+child 1aa0983115ba39579ac09885e1977c05b765e42e. Established compatibility and
+normal approval,
+artifact, advisory, SBOM, provenance and signature gates remained mandatory.
 
-This is an operator waiver of full mutation qualification for additive,
-experimental674 code. Failed campaigns remain failed; the admission is recorded
-as`operator-waiver`, never as successful qualification. Normal release approval,
-old/new WalletClient compatibility and all immutable-artifact, advisory, SBOM,
-provenance and signature gates remain required. The image publisher independently
-verifies the same exception and retains the single generated-sync-child rule.
+This was an operator waiver, not successful full mutation qualification. Failed
+and canceled campaign evidence remains failed. The historical record is
+`governance/release-exceptions/2026-10-27-674.json`. The temporary dispatch input
+and admission implementation are removed. Every later release requires the
+normal full mutation qualification; no future release can select this waiver.
 
-Use the otherwise unchanged protected release workflow with the explicit
-qualification-exception input set to that ID. Empty input retains full mutation
-qualification. Remove this temporary admission after the authorized release and
-its published-baseline reconciliation; every future release uses normal gates.
+The image inventory used two source children. Six new images came from
+`1aa0983115ba39579ac09885e1977c05b765e42e` at caller `ada0681362455045ff3a0dd795fcf89e6f177d92`.
+Message Box1.1.55 and WebRTpay Relay0.2.2 were already occupied by older images
+containing SDK4.0.0, so the remaining recovery published Message Box1.1.56 and
+Relay0.2.3 instead. [Image-only recovery 40623065656](https://github.com/bsv-blockchain/ts-stack/actions/runs/40623065656)
+uses caller `d344bf07b8a9d25adc7203687b667a70e96955f5` and generated child
+`f69c6f2b1f805e0d69962815515a641a35e230cb`. Relative to the original inputs, only
+those two manifest/lock version fields changed; source and dependency bytes
+remained identical. Normal approval, build, scan, signature, provenance and SBOM
+gates remained required, with no additional npm build or publication. This
+consumed the same one-time release waiver. The temporary image-only dispatch
+adapter is removed together with the original admission.
 
-The same one-time release permits an image-only recovery for the two immutable
-tag collisions: Message Box1.1.56 and WebRTpay Relay0.2.3. Manual main dispatch
-of `infra-release.yaml` must provide the existing exception ID and an exact
-generated source child. It independently validates the unchanged application
-tree, the source ancestry and exactly four version-only manifest/lock changes
-relative to1aa0983115ba39579ac09885e1977c05b765e42e. No source, dependency or
-public package change is admitted. The normal release-approval environment and
-every Linux build, scan, signature, provenance and SBOM gate remain mandatory.
-This recovery publishes only absent image tags and performs no npm preparation
-or publication. Remove this temporary recovery together with the original
-waiver after the current release and final published-baseline reconciliation.
+## Reconcile verified published baselines
+
+After a protected cascade publishes, independently verify every public version,
+integrity, actual tarball digest and source-bound attestations. Reconcile the
+generated sync PR against its original immutable image-source commit, then set
+only the verified release entries in `governance/package-release-notes.json` to
+the public `publishedVersion` with `releaseType: none`. Run `pnpm docs:packages`,
+review the generated package facts and merge the validated reconciliation PR.
+Do not advance a baseline for a held, failed or partially published candidate.
+Later metadata commits do not change the pinned image source or its provenance.

@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { REPOSITORY_ROOT } from '../repository-health.mjs'
 import { mutationExecutionBatches } from '../mutation-execution-batches.mjs'
@@ -37,13 +36,6 @@ function conjunctionPasses(expression, context) {
     // always() only lifts GitHub's implicit success(); the remaining clauses
     // must still pass on their own.
     if (clause === 'always()') return true
-    if (clause === '!cancelled()') return !context.cancelled
-    if (clause.startsWith('(') && clause.endsWith(')')) {
-      return clause
-        .slice(1, -1)
-        .split(' || ')
-        .some(option => conjunctionPasses(option, context))
-    }
     const match = /^(\S+) (==|!=) (\S+)$/.exec(clause)
     assert.ok(match, `Unexpected release guard syntax: ${clause}`)
     return match[2] === '=='
@@ -52,19 +44,13 @@ function conjunctionPasses(expression, context) {
   })
 }
 
-test('publishers require exact-source admission and preserve normal full qualification', async () => {
+test('every publisher requires complete exact-source qualification before publisher permissions', async () => {
   for (const { file, workflow } of await releaseWorkflows()) {
     const publisher = workflow.jobs[file === 'infra-release.yaml' ? 'release' : 'publish']
     const campaign = workflow.jobs['full-mutation']
     // infra-release resolves its own campaign or the release.yaml caller's
     // same-run campaign into one exact-source qualification job.
-    const gate =
-      file === 'infra-release.yaml'
-        ? 'qualification'
-        : file === 'release.yaml'
-          ? 'admission'
-          : 'full-mutation'
-    const output = file === 'wab-marketplace-release.yml' ? 'qualified-sha' : 'admitted-sha'
+    const gate = file === 'infra-release.yaml' ? 'qualification' : 'full-mutation'
     assert.equal(campaign.uses, './.github/workflows/mutation-tests.yml')
     assert.deepEqual(campaign.permissions, { contents: 'read' })
     assert.equal(campaign.with, undefined)
@@ -76,11 +62,11 @@ test('publishers require exact-source admission and preserve normal full qualifi
           github: { sha: 'a'.repeat(40) },
           needs: {
             approve: { result: 'success' },
-            prepare: { result: 'success', outputs: { count: '1' } },
+            prepare: { outputs: { count: '1' } },
             discover: { result: 'success', outputs: { count: '1' } },
             source: { result: 'success' },
             'build-image': { result: 'success' },
-            [gate]: { result, outputs: { [output]: qualified } }
+            [gate]: { result, outputs: { 'qualified-sha': qualified } }
           }
         }
         assert.equal(
@@ -102,7 +88,7 @@ test('publishers require exact-source admission and preserve normal full qualifi
         needs: {
           approve: { result: 'success' },
           [prerequisite]: { result: 'success', outputs: { count: '0', called: 'false' } },
-          [gate]: { result: 'success', outputs: { [output]: 'a'.repeat(40) } }
+          [gate]: { result: 'success', outputs: { 'qualified-sha': 'a'.repeat(40) } }
         }
       }
       assert.equal(conjunctionPasses(publisher.if, context), false)
@@ -110,40 +96,12 @@ test('publishers require exact-source admission and preserve normal full qualifi
         // The npm campaign starts at t=0 beside prepare; it also qualifies the
         // infrastructure images, so an empty npm set does not skip it.
         assert.equal(campaign.needs, undefined)
-        assert.equal(campaign.if, "inputs.qualification-exception == ''")
-        assert.deepEqual(workflow.jobs.admission.needs, ['full-mutation', 'prepare'])
-        assert.equal(workflow.on.workflow_dispatch.inputs['qualification-exception'].default, '')
+        assert.equal(campaign.if, undefined)
       } else {
         assert.equal(conjunctionPasses(campaign.if, context), false)
         // A release.yaml call reuses the caller's qualification of github.sha.
         context.needs.discover.outputs = { count: '1', called: 'true' }
         assert.equal(conjunctionPasses(campaign.if, context), false)
-      }
-    }
-  }
-})
-
-test('manual image recovery requires approval while normal callers retain their existing gate', async () => {
-  const { workflow } = (await releaseWorkflows()).find(entry => entry.file === 'infra-release.yaml')
-  const sha = 'a'.repeat(40)
-  for (const manual of ['true', 'false', undefined]) {
-    for (const approval of ['success', 'failure', 'cancelled', 'skipped', undefined]) {
-      for (const admitted of [sha, 'b'.repeat(40), '']) {
-        const context = {
-          github: { sha },
-          needs: {
-            discover: { result: 'success', outputs: { count: '2', 'manual-recovery': manual } },
-            qualification: { result: 'success', outputs: { 'admitted-sha': admitted } },
-            'build-image': { result: 'success' },
-            'approve-recovery': { result: approval }
-          }
-        }
-        const expected = admitted === sha && (manual !== 'true' || approval === 'success')
-        assert.equal(conjunctionPasses(workflow.jobs.release.if, context), expected)
-        assert.equal(
-          conjunctionPasses(workflow.jobs.release.if, { ...context, cancelled: true }),
-          false
-        )
       }
     }
   }
@@ -541,45 +499,5 @@ test('long complete-job allowances apply only to eleven qualification targets', 
   for (const id of extended) {
     assert.ok(Object.hasOwn(configured, id), id)
     assert.equal(originalNinetyMinuteTargets.includes(id), false, id)
-  }
-})
-
-test('release admission rejects missing, failed and stale proofs and labels the one-time waiver explicitly', async () => {
-  const workflows = await releaseWorkflows()
-  const release = workflows.find(x => x.file === 'release.yaml').workflow
-  const script = release.jobs.admission.steps[0].run
-  const root = mkdtempSync(join(tmpdir(), 'release-admission-'))
-  try {
-    for (const mode of ['full-mutation', 'operator-waiver']) {
-      for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
-        for (const source of ['a'.repeat(40), 'b'.repeat(40), '']) {
-          const output = join(root, 'output')
-          rmSync(output, { force: true })
-          const normal = mode === 'full-mutation'
-          const run = spawnSync('bash', ['-e', '-c', script], {
-            encoding: 'utf8',
-            env: {
-              ...process.env,
-              GITHUB_SHA: 'a'.repeat(40),
-              GITHUB_OUTPUT: output,
-              GITHUB_STEP_SUMMARY: join(root, 'summary'),
-              CAMPAIGN_RESULT: normal ? result : 'skipped',
-              QUALIFIED_SHA: normal ? source : '',
-              EXCEPTION_RESULT: normal ? 'skipped' : result,
-              WAIVED_SHA: normal ? '' : source
-            }
-          })
-          const admitted = result === 'success' && source === 'a'.repeat(40)
-          assert.equal(run.status === 0, admitted, `${mode}/${result}/${source}`)
-          if (admitted) {
-            const receipt = readFileSync(output, 'utf8')
-            assert.match(receipt, new RegExp(`admission-kind=${mode}`))
-            assert.doesNotMatch(receipt, /qualified-sha=/)
-          }
-        }
-      }
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true })
   }
 })

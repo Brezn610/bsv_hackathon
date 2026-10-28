@@ -23,15 +23,6 @@ on:
     tags:
       - 'infra/v*'
   workflow_dispatch:
-    inputs:
-      source-sha:
-        description: Exact generated child for the remaining two hotfix image versions
-        type: string
-        default: ''
-      release-exception-id:
-        description: Existing one-time hotfix waiver; empty retains normal qualification
-        type: string
-        default: ''
   workflow_call:
     inputs:
       source-sha:
@@ -40,15 +31,7 @@ on:
         type: string
       qualified-sha:
         description: Exact source qualified by the caller's full mutation campaign
-        required: false
-        type: string
-      waived-sha:
-        description: Exact source admitted by the caller's pinned one-time operator exception
-        required: false
-        type: string
-      release-exception-id:
-        description: Explicit one-time exception identity, independently verified again here
-        required: false
+        required: true
         type: string
 
 permissions: {}
@@ -70,9 +53,6 @@ jobs:
       all-matrix: ${{ steps.set.outputs.all-matrix }}
       called: ${{ steps.source.outputs.called }}
       source-sha: ${{ steps.source.outputs.source-sha }}
-      admission-kind: ${{ steps.source.outputs.admission-kind }}
-      manual-recovery: ${{ steps.source.outputs.manual-recovery }}
-      admitted-sha: ${{ steps.source.outputs.admitted-sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -90,33 +70,21 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           SOURCE_SHA: ${{ inputs.source-sha }}
           QUALIFIED_SHA: ${{ inputs.qualified-sha }}
-          WAIVED_SHA: ${{ inputs.waived-sha || (github.event_name == 'workflow_dispatch' && inputs.release-exception-id != '' && github.sha) || '' }}
-          EXCEPTION_ID: ${{ inputs.release-exception-id }}
         run: |
           git fetch origin main
-          if [[ -n "$EXCEPTION_ID" && -z "$SOURCE_SHA" ]]; then
-            echo "::error::The one-time image recovery requires an exact source SHA."
-            exit 1
-          fi
           if [[ -n "$SOURCE_SHA" ]]; then
-            if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "::error::The image source must be a full commit SHA."
-              exit 1
-            fi
             # Called from release.yaml, whose prepare job already proved that
             # github.sha is on main. No other workflow may call this one.
-            manual_recovery=false
             if [[ "$GITHUB_WORKFLOW_REF" != "$GITHUB_REPOSITORY/.github/workflows/release.yaml@"* ]]; then
-              if [[ "$GITHUB_WORKFLOW_REF" != "$GITHUB_REPOSITORY/.github/workflows/infra-release.yaml@refs/heads/main" ||
-                    "$EVENT_NAME" != "workflow_dispatch" || "$GITHUB_REF" != "refs/heads/main" ||
-                    "$EXCEPTION_ID" != "2026-10-27-674-experimental" || "$WAIVED_SHA" != "$GITHUB_SHA" ]]; then
-                echo "::error::Only the release caller or the explicit protected hotfix image recovery is allowed."
-                exit 1
-              fi
-              manual_recovery=true
+              echo "::error::Only release.yaml may call the infrastructure release ($GITHUB_WORKFLOW_REF)."
+              exit 1
             fi
             if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
               echo "::error::The calling release commit must be reachable from main."
+              exit 1
+            fi
+            if [[ "$QUALIFIED_SHA" != "$GITHUB_SHA" ]]; then
+              echo "::error::The caller did not qualify the exact release commit."
               exit 1
             fi
             if [[ "$SOURCE_SHA" != "$GITHUB_SHA" ]]; then
@@ -135,20 +103,6 @@ jobs:
                 exit 1
               fi
             fi
-            if [[ -n "$WAIVED_SHA" ]]; then
-              if [[ -n "$QUALIFIED_SHA" || "$WAIVED_SHA" != "$GITHUB_SHA" ]]; then
-                echo "::error::Ambiguous or stale operator exception."
-                exit 1
-              fi
-              node scripts/release-source-admission.mjs "$EXCEPTION_ID" "$WAIVED_SHA"
-              echo "admission-kind=operator-waiver" >> "$GITHUB_OUTPUT"
-            elif [[ "$QUALIFIED_SHA" == "$GITHUB_SHA" ]]; then
-              echo "admission-kind=full-mutation" >> "$GITHUB_OUTPUT"
-            else
-              echo "::error::The caller did not qualify or explicitly admit the exact release commit."
-              exit 1
-            fi
-            echo "manual-recovery=$manual_recovery" >> "$GITHUB_OUTPUT"
             echo "called=true" >> "$GITHUB_OUTPUT"
             echo "source-sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
             exit 0
@@ -164,42 +118,6 @@ jobs:
             echo "::error::Infrastructure release tags must point to a commit reachable from main."
             exit 1
           fi
-
-      - name: Validate remaining hotfix image inputs
-        if: steps.source.outputs.manual-recovery == 'true'
-        env:
-          SOURCE_SHA: ${{ inputs.source-sha }}
-          ORIGINAL_SOURCE: 1aa0983115ba39579ac09885e1977c05b765e42e
-        run: |
-          git fetch origin "$ORIGINAL_SOURCE"
-          node --input-type=module <<'JS'
-          import assert from 'node:assert/strict'
-          import { execFileSync } from 'node:child_process'
-          const { SOURCE_SHA: source, ORIGINAL_SOURCE: original } = process.env
-          assert.match(source, /^[0-9a-f]{40}$/)
-          const git = (...args) => execFileSync('/usr/bin/git', args, { encoding: 'utf8' })
-          const versions = { 'message-box-server': '1.1.56', 'webrtpay-relay': '0.2.3' }
-          const expected = Object.keys(versions).flatMap(name => ['package.json', 'package-lock.json'].map(file => `infra/${name}/${file}`)).sort()
-          const changed = git('diff', '--name-only', original, source, '--', 'packages', 'infra', 'pnpm-lock.yaml').trim().split('\n').sort()
-          assert.deepEqual(changed, expected)
-          for (const [name, version] of Object.entries(versions)) {
-            for (const file of ['package.json', 'package-lock.json']) {
-              const path = `infra/${name}/${file}`
-              const before = JSON.parse(git('show', `${original}:${path}`))
-              const after = JSON.parse(git('show', `${source}:${path}`))
-              assert.equal(after.version, version)
-              delete before.version
-              delete after.version
-              if (file === 'package-lock.json') {
-                assert.equal(after.packages[''].version, version)
-                delete before.packages[''].version
-                delete after.packages[''].version
-              }
-              assert.deepEqual(after, before, `${path} must change only its version`)
-            }
-          }
-          console.log('Only the two collision-free image patch versions changed; all source and dependency bytes are retained.')
-          JS
 
       - name: Log in to GHCR (for manifest probes)
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -270,34 +188,25 @@ jobs:
     uses: ./.github/workflows/mutation-tests.yml
 
   qualification:
-    name: Resolve exact-source release admission
+    name: Resolve exact-source qualification
     needs: [discover, full-mutation]
-    if: always() && !cancelled() && needs.discover.result == 'success' && needs.discover.outputs.count != '0'
+    if: always() && needs.discover.result == 'success' && needs.discover.outputs.count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
     outputs:
-      admitted-sha: ${{ steps.resolve.outputs.admitted-sha }}
-      admission-kind: ${{ steps.resolve.outputs.admission-kind }}
+      qualified-sha: ${{ steps.resolve.outputs.qualified-sha }}
     steps:
       - name: Require a qualified exact source
         id: resolve
         env:
           CALLED: ${{ needs.discover.outputs.called }}
           CALLER_QUALIFIED: ${{ inputs.qualified-sha }}
-          DISCOVER_ADMITTED: ${{ needs.discover.outputs.admitted-sha }}
-          DISCOVER_ADMISSION: ${{ needs.discover.outputs.admission-kind }}
           CAMPAIGN_RESULT: ${{ needs.full-mutation.result }}
           CAMPAIGN_QUALIFIED: ${{ needs.full-mutation.outputs.qualified-sha }}
         run: |
-          kind=full-mutation
           if [[ "$CALLED" == "true" ]]; then
-            if [[ "$DISCOVER_ADMISSION" == "operator-waiver" && -z "$CALLER_QUALIFIED" ]]; then
-              qualified="$DISCOVER_ADMITTED"
-              kind=operator-waiver
-            else
-              qualified="$CALLER_QUALIFIED"
-            fi
+            qualified="$CALLER_QUALIFIED"
           elif [[ "$CAMPAIGN_RESULT" == "success" ]]; then
             qualified="$CAMPAIGN_QUALIFIED"
           else
@@ -308,20 +217,7 @@ jobs:
             echo "::error::Qualified source '$qualified' is not $GITHUB_SHA."
             exit 1
           fi
-          echo "admitted-sha=$qualified" >> "$GITHUB_OUTPUT"
-          echo "admission-kind=$kind" >> "$GITHUB_OUTPUT"
-
-  approve-recovery:
-    name: Approve remaining hotfix images
-    needs: discover
-    if: needs.discover.outputs.manual-recovery == 'true' && needs.discover.outputs.count != '0'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    environment: release-approval
-    permissions: {}
-    steps:
-      - name: Record approval of the two version-only image recoveries
-        run: echo "Approved the source-pinned Message Box and WebRTpay Relay hotfix image recovery; every image security gate remains required."
+          echo "qualified-sha=$qualified" >> "$GITHUB_OUTPUT"
 
   # Build, scan and describe each image while the mutation campaign qualifies
   # the source. This job has no publishing permissions; the release job
@@ -447,13 +343,13 @@ jobs:
 
   release:
     name: Release ${{ matrix.component.name }}@${{ matrix.component.tag }}
-    needs: [discover, qualification, build-image, approve-recovery]
+    needs: [discover, qualification, build-image]
     # always(): a release.yaml call deliberately skips full-mutation, and the
     # implicit success() would treat that skipped ancestor as a failure.
     # build-image may fail for one component without blocking the others: each
     # component publishes only its own reviewed image, and a component whose
     # build or scan failed has no image to download.
-    if: always() && !cancelled() && needs.discover.result == 'success' && needs.discover.outputs.count != '0' && needs.qualification.result == 'success' && needs.qualification.outputs.admitted-sha == github.sha && needs.build-image.result != 'cancelled' && needs.build-image.result != 'skipped' && (needs.discover.outputs.manual-recovery != 'true' || needs.approve-recovery.result == 'success')
+    if: always() && needs.discover.result == 'success' && needs.discover.outputs.count != '0' && needs.qualification.result == 'success' && needs.qualification.outputs.qualified-sha == github.sha && needs.build-image.result != 'cancelled' && needs.build-image.result != 'skipped'
     runs-on: ubuntu-latest
     permissions:
       artifact-metadata: write
