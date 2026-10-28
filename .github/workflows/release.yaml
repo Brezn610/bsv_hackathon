@@ -18,10 +18,6 @@ on:
         description: 'pnpm filter (single mode only, e.g. ./packages/sdk)'
         required: false
         default: ''
-      qualification-exception:
-        description: 'One-time operator exception ID; empty requires full mutation qualification'
-        type: string
-        default: ''
 
 permissions: {}
 
@@ -56,8 +52,6 @@ jobs:
       count: ${{ steps.artifacts.outputs.count }}
       filter: ${{ steps.plan.outputs.filter }}
       mode: ${{ steps.plan.outputs.mode }}
-      admitted-exception-sha: ${{ steps.exception.outputs.admitted-sha }}
-      exception-id: ${{ steps.exception.outputs.exception-id }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,13 +79,6 @@ jobs:
             echo "::error::Release tags must point to a commit reachable from main."
             exit 1
           fi
-
-      - name: Validate the explicit one-time release exception
-        id: exception
-        if: inputs.qualification-exception != ''
-        env:
-          EXCEPTION_ID: ${{ inputs.qualification-exception }}
-        run: node scripts/release-source-admission.mjs "$EXCEPTION_ID" "$GITHUB_SHA"
 
       - name: Install dependencies
         # Release builds deny dependency lifecycle scripts. Rebuild only the
@@ -180,24 +167,8 @@ jobs:
         id: artifacts
         env:
           PNPM_FILTER: ${{ steps.plan.outputs.filter }}
-          RELEASE_EXCEPTION: ${{ steps.exception.outputs.exception-id }}
         run: |
           args=(stage --output release-artifacts)
-          # The one-time continuation must retain the same 37 candidates even
-          # after npm publication. The publisher accepts existing versions only
-          # when their immutable digest matches; it never republishes them.
-          if [[ -n "$RELEASE_EXCEPTION" ]]; then
-            released=()
-            while IFS= read -r name; do released+=("$name"); done < <(jq -r '.entries[] | select(.releaseType != "none") | .name' governance/package-release-notes.json)
-            if [[ "${#released[@]}" != 37 || -n "$PNPM_FILTER" ]]; then
-              echo "::error::The one-time continuation requires the exact 37-package cascade."
-              exit 1
-            fi
-            args+=(--include-published)
-            for name in "${released[@]}"; do
-              args+=(--package "$name")
-            done
-          fi
           if [[ -n "$PNPM_FILTER" ]]; then
             args+=(--filter "$PNPM_FILTER")
           fi
@@ -221,48 +192,16 @@ jobs:
   # same exact github.sha, and it also qualifies the infrastructure release.
   full-mutation:
     name: Qualify exact source before publication
-    if: inputs.qualification-exception == ''
     permissions:
       contents: read
     uses: ./.github/workflows/mutation-tests.yml
-
-  admission:
-    name: Resolve exact-source release admission
-    needs: [full-mutation, prepare]
-    if: always() && !cancelled()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions: {}
-    outputs:
-      admitted-sha: ${{ steps.resolve.outputs.admitted-sha }}
-      admission-kind: ${{ steps.resolve.outputs.admission-kind }}
-    steps:
-      - name: Require qualification or the explicit one-time exception
-        id: resolve
-        env:
-          CAMPAIGN_RESULT: ${{ needs.full-mutation.result }}
-          QUALIFIED_SHA: ${{ needs.full-mutation.outputs.qualified-sha }}
-          EXCEPTION_RESULT: ${{ needs.prepare.result }}
-          WAIVED_SHA: ${{ needs.prepare.outputs.admitted-exception-sha }}
-        run: |
-          if [[ "$CAMPAIGN_RESULT" == "success" && "$QUALIFIED_SHA" == "$GITHUB_SHA" ]]; then
-            kind=full-mutation
-          elif [[ "$EXCEPTION_RESULT" == "success" && "$WAIVED_SHA" == "$GITHUB_SHA" ]]; then
-            kind=operator-waiver
-          else
-            echo "::error::No exact-source release admission. Mutation status remains $CAMPAIGN_RESULT."
-            exit 1
-          fi
-          echo "admitted-sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-          echo "admission-kind=$kind" >> "$GITHUB_OUTPUT"
-          echo "Release admission: $kind for $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
 
   # This job receives the protected npm-production environment. It runs no
   # package build or lifecycle code: it verifies, scans, attests, and publishes
   # only the immutable bytes uploaded by prepare.
   publish:
-    if: always() && !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.count != '0' && needs.approve.result == 'success' && needs.admission.result == 'success' && needs.admission.outputs.admitted-sha == github.sha
-    needs: [approve, prepare, admission]
+    if: needs.prepare.outputs.count != '0' && needs.approve.result == 'success' && needs.full-mutation.result == 'success' && needs.full-mutation.outputs.qualified-sha == github.sha
+    needs: [approve, prepare, full-mutation]
     runs-on: ubuntu-24.04
     environment: npm-production
     timeout-minutes: 90
@@ -363,7 +302,7 @@ jobs:
   # code. The separate sync job receives only repository/PR authority and
   # exposes its GitHub credential solely during the push and PR steps.
   sync-versions:
-    if: always() && !cancelled() && needs.prepare.result == 'success' && needs.publish.result == 'success' && needs.prepare.outputs.mode == 'cascade'
+    if: needs.publish.result == 'success' && needs.prepare.outputs.mode == 'cascade'
     needs: [prepare, publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -580,8 +519,8 @@ jobs:
   # because other versions on main may be unpublished.
   infra:
     name: Release infrastructure images
-    needs: [approve, prepare, full-mutation, admission, publish, sync-versions]
-    if: always() && !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.mode == 'cascade' && needs.approve.result == 'success' && needs.admission.result == 'success' && needs.admission.outputs.admitted-sha == github.sha && (needs.sync-versions.result == 'success' || (needs.prepare.outputs.count == '0' && needs.publish.result == 'skipped'))
+    needs: [approve, prepare, full-mutation, publish, sync-versions]
+    if: always() && needs.prepare.outputs.mode == 'cascade' && needs.approve.result == 'success' && needs.full-mutation.result == 'success' && needs.full-mutation.outputs.qualified-sha == github.sha && (needs.sync-versions.result == 'success' || (needs.prepare.outputs.count == '0' && needs.publish.result == 'skipped'))
     permissions:
       artifact-metadata: write
       attestations: write
@@ -592,8 +531,6 @@ jobs:
     with:
       source-sha: ${{ needs.sync-versions.outputs.source-sha || github.sha }}
       qualified-sha: ${{ needs.full-mutation.outputs.qualified-sha }}
-      waived-sha: ${{ needs.prepare.outputs.admitted-exception-sha }}
-      release-exception-id: ${{ needs.prepare.outputs.exception-id }}
 
   post-release-verification:
     if: always() && needs.publish.result != 'failure' && needs.infra.result != 'failure' && (needs.publish.result == 'success' || needs.infra.result == 'success')
