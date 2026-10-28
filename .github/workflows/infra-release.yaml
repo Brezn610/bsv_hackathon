@@ -72,6 +72,7 @@ jobs:
       source-sha: ${{ steps.source.outputs.source-sha }}
       admission-kind: ${{ steps.source.outputs.admission-kind }}
       manual-recovery: ${{ steps.source.outputs.manual-recovery }}
+      admitted-sha: ${{ steps.source.outputs.admitted-sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -284,7 +285,7 @@ jobs:
         env:
           CALLED: ${{ needs.discover.outputs.called }}
           CALLER_QUALIFIED: ${{ inputs.qualified-sha }}
-          CALLER_WAIVED: ${{ inputs.waived-sha }}
+          DISCOVER_ADMITTED: ${{ needs.discover.outputs.admitted-sha }}
           DISCOVER_ADMISSION: ${{ needs.discover.outputs.admission-kind }}
           CAMPAIGN_RESULT: ${{ needs.full-mutation.result }}
           CAMPAIGN_QUALIFIED: ${{ needs.full-mutation.outputs.qualified-sha }}
@@ -292,7 +293,7 @@ jobs:
           kind=full-mutation
           if [[ "$CALLED" == "true" ]]; then
             if [[ "$DISCOVER_ADMISSION" == "operator-waiver" && -z "$CALLER_QUALIFIED" ]]; then
-              qualified="$CALLER_WAIVED"
+              qualified="$DISCOVER_ADMITTED"
               kind=operator-waiver
             else
               qualified="$CALLER_QUALIFIED"
