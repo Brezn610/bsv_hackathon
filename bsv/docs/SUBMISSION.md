@@ -63,7 +63,7 @@ A second withdrawal for intent 2 was refused live: `journal already holds this i
 - **BSV:** `@bsv/sdk` 3.2.1 (custom vault script, `Spend` interpreter, BEEF/SPV), `@bsv/wallet-toolbox` 2.14.9 (server wallets, `WalletPermissionsManager` guardian), BSV Desktop as the owner's BRC-100 wallet, BRC-42 derived keys, `@bsv/402-pay` 0.3.3 (BRC-121), `@bsv/btms` 1.2.6 + public `tm_btms` overlay, `SIGHASH_SINGLE | ANYONECANPAY` maker offers, Arcade/ARC broadcast, WhatsOnChain.
 - **API3 / EVM:** `TreasuryGuard.sol` on Base Sepolia (verified), API3 AirnodeHub signed data (CoinPaprika BSV/USD, TwitterAPI.io), x402 payments in aUSD, Foundry, viem.
 - **Agent model:** the purchase decision is made by an LLM: Claude (Anthropic SDK, structured output) or DeepSeek (JSON mode), under a deterministic guardian.
-- **Tests:** 64 offline tests on the BSV side (mock chain with real keys and signatures), plus live read-only checks against the deployed contract. The API3 side has 122 forge tests and 24 TS tests.
+- **Tests:** 65 offline tests on the BSV side (mock chain with real keys and signatures), plus live read-only checks against the deployed contract. The API3 side has 122 forge tests and 24 TS tests.
 
 ## Security and safety gates
 

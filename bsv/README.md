@@ -31,7 +31,7 @@ Node.js ≥ 22. Offline tests spend nothing.
 ```sh
 cd bsv
 npm ci
-npm test                 # 64 offline tests pass (mock chain, real keys/signatures/BEEF); 2 live tests skipped
+npm test                 # 65 offline tests pass (mock chain, real keys/signatures/BEEF); 2 live tests skipped
 LIVE_BASE=1 npm test     # + read-only checks against the deployed contract on Base Sepolia
 npm run typecheck
 npm run sync:api3        # after an API3 interface change: re-copy the ABI (a test fails on drift)

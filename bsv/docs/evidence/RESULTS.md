@@ -41,7 +41,7 @@ mainnet. agent+watcher OK; agent-only, watcher-only, agent/watcher on the owner 
 the cosign branch: all fail; change goes back to the vault script; the policy approves; owner-only
 exit OK; mock chain accepts both the cosigned spend and the owner exit. See `gate1.json`.
 
-## Offline tests: 64/64 pass (`npm test`), plus 2 live Base reads that pass with `LIVE_BASE=1`
+## Offline tests: 65/65 pass (`npm test`), plus 2 live Base reads that pass with `LIVE_BASE=1`
 
 Negative proofs, all before the watcher signs: overspend (fee counted), wrong recipient, extra
 payee, change to agent, fee cap, expired and inside-margin, settled, SWAP, wrong chain, contract
@@ -81,7 +81,7 @@ insufficient sats.
 - Agent and watcher keys are on one machine run by one operator; the owner exit protects the owner, but the two spending keys are not yet held by independent parties.
 - Demo video and organizer confirmation of the pre-event code rules.
 
-**TESTED**: 64/64 offline tests, 2/2 live Base reads, `tsc` clean, gate (1) 12/12 on the exact mainnet script.
+**TESTED**: 65/65 offline tests, 2/2 live Base reads, `tsc` clean, gate (1) 12/12 on the exact mainnet script.
 
 **LIVE VERIFIED**: every transaction in the tables above, checked on WhatsOnChain and Basescan; `getIntent(2)`, `getIntent(4)` and `getIntent(5)` read back after `settle`.
 

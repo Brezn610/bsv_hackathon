@@ -435,6 +435,16 @@ async function withdraw(): Promise<void> {
   if (!existsSync(path.join(EVIDENCE_DIR, 'owner-exit.json'))) throw new Error('Gate (2): the owner exit has not been proven on mainnet yet')
   const live = loadUtxos().filter(u => u.status === 'live')
   if (live.length === 0) throw new Error('No live vault UTXO; fund the vault first')
+  // A signed withdrawal from an earlier run: never build a second proposal for this intent.
+  const pendingFile = path.join(STATE_DIR, `pending-withdrawal-${intentId}.json`)
+  if (existsSync(pendingFile)) {
+    const pending = readJson<{ txid: string }>(pendingFile)
+    throw new Error(
+      `Intent ${intentId} already has a signed withdrawal ${woc(pending.txid)} (${pendingFile}). ` +
+        'If it is on chain: record it at the watcher (POST /broadcast {intentId, tx} from that file), update the vault UTXOs, then delete the file. ' +
+        'If it is not: re-broadcast that exact tx (its ancestryBeef is in the file). No new proposal is built for this intent.'
+    )
+  }
   requireMainnetConfirm(`Withdrawing for intent ${intentId}`)
   const reader = createIntentReader({ binding: loadBinding(), rpcUrl: process.env.BASE_SEPOLIA_RPC })
   const agent = await agentWallet()
@@ -482,7 +492,6 @@ async function withdraw(): Promise<void> {
         }
       }
     }
-    const pendingFile = path.join(STATE_DIR, `pending-withdrawal-${intentId}.json`)
     const t0 = Date.now()
     const intent = await reader.readIntent(intentId)
     console.log(`Intent ${intentId}: vault ${intent.vaultId}, kind ${intent.kind}, maxSats ${intent.maxSats}, expires ${new Date(Number(intent.expiry) * 1000).toISOString()}, read at block ${intent.readAtBlock}`)
