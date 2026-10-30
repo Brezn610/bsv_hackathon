@@ -51,7 +51,10 @@ contract DeployTreasuryGuard is Script {
         guard = new TreasuryGuard();
         vaultId = guard.createVault(config, posts);
         if (vm.envOr("JUDGE_VAULT", false)) {
+            // Judges rehearse and run live many times a day. This vault holds no funds: the watcher co-signs only
+            // intents of the agent's vault, so its budget is only a counter.
             config.agent = deployer;
+            config.dailyBudgetUsd = 100e6;
             judgeVaultId = guard.createVault(config, posts);
         }
         vm.stopBroadcast();
