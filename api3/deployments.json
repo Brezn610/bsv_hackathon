@@ -3,7 +3,7 @@
     "chainId": 84532,
     "explorer": "https://sepolia.basescan.org",
     "treasuryGuard": "0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773",
-    "vaultId": 1,
+    "vaultId": 3,
     "judgeVaultId": 2,
     "deployTx": "0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884",
     "deployBlock": 52226250,
@@ -20,6 +20,10 @@
         "federalreserve": {
           "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
           "requestHash": "0xceecf6d2b5c25f57242052a0a59ca73222bf017e41a7ec13418fe1207b7b9ec6"
+        },
+        "TreasuryGuardDe": {
+          "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
+          "requestHash": "0x2e867a28c43c9781e1e8c9d139c9be65dca7b111033071859af3104c971839d3"
         }
       }
     }
