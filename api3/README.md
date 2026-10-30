@@ -61,9 +61,10 @@ verified on-chain.
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Contract            | TreasuryGuard [`0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773`](https://sepolia.basescan.org/address/0x8e38cc6b1bd1f0d25357066cd0036f28fd1f7773), Base Sepolia (84532), verified                                                                                                                                            |
 | Deploy              | tx [`0xfc0219e4…`](https://sepolia.basescan.org/tx/0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884), block 52226250                                                                                                                                                                                   |
-| Vault 1             | the team's agent loop, $1/day                                                                                                                                                                                                                                                                                            |
+| Vault 1             | first agent vault, superseded by vault 3 (same config, without the demo account)                                                                                                                                                                                                                                         |
 | Vault 2             | judge vault, $100/day counter, holds no funds; its agent is the team's deployer key                                                                                                                                                                                                                                      |
-| Feeds               | CoinPaprika BSV/USD `0x18b78216…399480`, TwitterAPI.io @WhiteHouse and @federalreserve, full hashes in [`deployments.json`](deployments.json)                                                                                                                                                                            |
+| Vault 3             | the team's agent loop, $1/day, also whitelists the team demo X account @TreasuryGuardDe (`0x2e867a28…839d3`), tx [`0x53bbd928…`](https://sepolia.basescan.org/tx/0x53bbd9283eaa5d7b19498d3793971487310bdf1d7038a88cbb7c870d7041d17c), block 52231374                                                                     |
+| Feeds               | CoinPaprika BSV/USD `0x18b78216…399480`, TwitterAPI.io @WhiteHouse, @federalreserve and (vault 3) @TreasuryGuardDe, full hashes in [`deployments.json`](deployments.json)                                                                                                                                                |
 | Last live judge run | 7/7 PASS on vault 2: valid SPEND intent #1 ($1 → 5,856,771 sats at $17.07) [`0x8426f241…`](https://sepolia.basescan.org/tx/0x8426f2416e45e2f44cceaaea392dcc84d8c991913d4a833b52f6f628953c574a), x402 [`0x628034c4…`](https://sepolia.basescan.org/tx/0x628034c475e4d84c1a89cfd9ab63b545895b8b8e93bf1ff0d1fb4114bfb9fb93) |
 
 **Tamper test.** Check order for a price: request → signer → signature age → replay → budget, so a cached fixture still
@@ -105,7 +106,7 @@ Edit a digit of `data`, swap the signature or bring a fresh price, and the rever
 price case above against the live contract as a free `eth_call`, sends one valid `submitPrice` that creates a real SPEND
 intent, then shows `Replay`: `node --env-file=.env src/judge.ts [--dry] [--post WhiteHouse]`. It signs with the vault's agent
 key (`PRIVATE_KEY`), pays x402 with `PAYER_PRIVATE_KEY` (from the environment, else from `.env.agent`), defaults to the
-judge vault and refuses the agent's vault 1. We run it live on vault 2. To run it yourself, create your own vault with `createVault` (anyone can;
+judge vault and refuses the agent vault from `deployments.json`. We run it live on vault 2. To run it yourself, create your own vault with `createVault` (anyone can;
 you become its owner, set yourself as agent) and pass `--vault <id>`; your key then needs Base Sepolia ETH and aUSD from
 the [faucet](https://api3dao.github.io/airnodehub-hackathon/faucet/). Set `RPC_URL`, `PRIVATE_KEY` (the vault's agent) and
 `PAYER_PRIVATE_KEY` (pays x402, may be the same key) in `.env`.
@@ -116,8 +117,8 @@ the [faucet](https://api3dao.github.io/airnodehub-hackathon/faucet/). Set `RPC_U
   [BSV/USD purchase](https://sepolia.basescan.org/tx/0x71b12c9ead04e0891898547b6a1206e4c77dfb6aac73eaa31c716e64a2b1e4c7)),
   the tamper cases above on real fixtures. The BSV side (vault, watcher, payments) runs on BSV mainnet with tiny amounts.
 - **Demo:** Base Sepolia, not Base mainnet (x402 in aUSD only exists there). The live vault runs a $1/day budget. The
-  stablecoin on BSV is a demo token and not redeemable. One team-run watcher and LP. The team demo X account (planned, not whitelisted yet) will be labeled
-  as such. The circuit breaker firing is shown from a recorded real event: we never loosen thresholds to force it.
+  stablecoin on BSV is a demo token and not redeemable. One team-run watcher and LP. The team demo X account
+  @TreasuryGuardDe is labeled as a demo account. The circuit breaker firing is shown from a recorded real event: we never loosen thresholds to force it.
 - The agent loop and the watcher are built by the BSV side of the team on top of the client in
   [`src/client/`](src/client/); they are not part of this folder.
 
