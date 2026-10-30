@@ -33,7 +33,7 @@ mainnet. agent+watcher OK; agent-only, watcher-only, agent/watcher on the owner 
 the cosign branch: all fail; change goes back to the vault script; the policy approves; owner-only
 exit OK; mock chain accepts both the cosigned spend and the owner exit. See `gate1.json`.
 
-## Offline tests: 56/56 pass (`npm test`), plus 2 live Base reads (`LIVE_BASE=1`)
+## Offline tests: 54/54 pass (`npm test`), plus 2 live Base reads that pass with `LIVE_BASE=1`
 
 Negative proofs, all before the watcher signs: overspend (fee counted), wrong recipient, extra
 payee, change to agent, fee cap, expired and inside-margin, settled, SWAP, wrong chain, contract
