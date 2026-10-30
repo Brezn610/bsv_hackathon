@@ -6,6 +6,7 @@
     "vaultId": 5,
     "judgeVaultId": 6,
     "liveJudgeVaultId": 7,
+    "runnerVaultId": 8,
     "retiredVaults": {
       "1": "first agent vault (WhiteHouse, federalreserve), superseded by 3",
       "2": "first judge vault, superseded by 4",
