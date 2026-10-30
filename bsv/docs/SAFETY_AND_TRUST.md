@@ -53,6 +53,11 @@ is an ordinary wallet. Merchant payments are guarded by the rail's guardian
 (`WalletPermissionsManager`: declared intent, merchant allowlist, per-payment cap, daily budget,
 and for swaps a transaction-level plan check). They are **not** enforced by Base.
 
+What to buy is proposed by the agent's model (`src/agent/brain.ts`: Claude with structured output, or
+DeepSeek in JSON mode when only a DeepSeek key is configured). The model can only say no or propose
+a purchase; the guardian's deterministic rules still decide whether the wallet pays, and a model
+error or refusal means no purchase. Without model credentials a labelled rule decides.
+
 ## Atomic swap-and-pay (`executeSwap`)
 
 `fillOffer` signs whatever it is given, so every live fill goes through `executeSwap`. It checks

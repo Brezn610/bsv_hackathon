@@ -10,7 +10,7 @@ and does not enforce anything on BSV; the watcher does, from its own reading of 
 | Chain | Base Sepolia, 84532 | `api3/deployments.json` |
 | Contract | `0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773` | same |
 | Guarded vault | `vaultId = 5` | same |
-| Never co-signed | judge 6, live judge 7, retired 1–4 | same (`judgeVaultId`, `liveJudgeVaultId`, `retiredVaults`) |
+| Never co-signed | judge 6, live judge 7, API3 runner 8, retired 1–4 | same (every `*VaultId` field other than `vaultId`, and `retiredVaults`) |
 | Vault 5 config (read 30 Oct) | daily budget $1.000000, intent TTL 900 s, max signature age 300 s | `getVaultConfig(5)` |
 | ABI | 7 entries copied from `api3/src/client/abi.ts` | `npm run sync:api3`; `test/api3-readonly.test.ts` fails on drift |
 
@@ -23,11 +23,13 @@ addresses read from `api3/deployments.json` itself. No EVM key exists on the BSV
 
 1. **Vault binding.** `(84532, 0x8e38…7773, vault 5)` ↔ one BSV vault locking script, one
    Agent Float locking script, BSV mainnet, recorded in `bsv/data/vault-binding.json`
-   (version `tg-vault-vault-5-v1-2026-10-30`). The Base contract does not know this mapping; the
+   (version `tg-vault-vault-5-v1-2026-10-30`, then `…+float-wallet`, see below). The Base contract does not know this mapping; the
    watcher enforces it. A new binding needs `tg init --force` and is only allowed while unfunded.
    - Vault script: `63 21 0234a2…3fad ad 21 0288c0…2790 ac 67 21 02ec58…c242 ac 68`
      (`IF <agent> CHECKSIGVERIFY <watcher> CHECKSIG ELSE <owner> CHECKSIG ENDIF`)
-   - Agent Float: `76a91419e272af3877858a136f6b5a9c67a390bb13b7e088ac`
+   - Agent Float: `76a91419e272af3877858a136f6b5a9c67a390bb13b7e088ac` (in the agent wallet) for intent 2; from
+     `…+float-wallet` on, `76a914000d3c59311f64d8806fb5bf5a1daaf0dd15b27988ac`, a dedicated float wallet whose only
+     income is vault withdrawals, so its payments are traceable to them. The vault script did not change.
 2. **Recipient policy.** A SPEND intent carries `maxSats` but no destination. The watcher allows
    exactly one recipient: the pre-registered Agent Float. Merchants are paid later, from the
    float, under the guardian. Base never certified a recipient, and we do not say it did.
