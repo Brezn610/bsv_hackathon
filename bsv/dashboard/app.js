@@ -30,7 +30,9 @@
   const INTERVAL = { health: 5000, decisions: 3000, base: 20000, logs: 30000, vault: 30000, tx: 60000 };
   // Log window, by time: the block rate is measured once (Base Sepolia produces several blocks per second).
   const LOG_WINDOW_SEC = 1800n;
-  const LOG_MAX_PAGES = 60n; // never more than 60 eth_getLogs calls of 200 blocks for the first scan
+  const LOG_MAX_PAGES = 60n; // the full ~30 min window: at most 60 eth_getLogs calls, only when the vault-8 tab is open
+  const LOG_FIRST_PAGES = 10n; // first load: the newest 10 pages of 200 blocks only
+  const LOG_PAGE_GAP_MS = 400; // pacing between log pages, so the public RPC never sees a burst
 
   const base = C.createBase(CFG.rpc, EV.base.contract);
   const woc = C.createWoc(CFG.woc);
@@ -49,7 +51,9 @@
     logData: { from: null, to: null, intentTx: new Map(), prices: [], intents: [], keys: new Set(), blocksPerWindow: null, secPerBlockMilli: null },
     tx: new Map(), // txid → { state: 'loading'|'mined'|'unconfirmed'|'unknown'|'error', height, at, error }
     receipts: new Map(), // intentId string → txid, from OP_RETURN of a vault UTXO's transaction
-    receiptOut: new Map(), // intentId string → sats paid to the Agent Float script in that transaction
+    receiptOut: new Map(), // intentId string → { sats, vout, payee: 'current'|'earlier' }: the float output of that withdrawal
+    payments: new Map(), // intentId string → { state: 'unspent'|'spent'|'error', txid, sats, at }: next spend of the float output
+    basePolls: 0,
     seenDecisions: new Set(),
     newDecisions: new Set(),
     decisionsPrimed: false
@@ -237,7 +241,7 @@
         baseCreatedTx: logTx?.txHash || null,
         settled: onChain ? onChain.settled : false,
         settleTx: null,
-        payment: null,
+        payment: S.payments.get(id) ?? null,
         chainOut: S.receiptOut.get(id) ?? null
       };
     });
@@ -298,13 +302,22 @@
     const last = live.length ? live[live.length - 1] : null;
     let reach, stop = null, caption;
     if (last) {
-      if (last.status === 200) { reach = 2; caption = `Latest watcher decision: intent ${last.intentId} co-signed at ${clock(Date.parse(last.at))}. Approval alone does not establish broadcast or payment.`; }
+      if (last.status === 200) {
+        const row = pipelineRows().find((r) => r.id === String(last.intentId));
+        const paid = row?.payment?.state === 'spent' && row.payment.sats !== null;
+        reach = paid ? 5 : row?.state === 'withdrawn' ? 4 : 2;
+        caption = paid ? `Latest watcher decision: intent ${last.intentId} co-signed at ${clock(Date.parse(last.at))}; the float output was then spent: ${group(row.payment.sats)} sats paid over HTTP 402.`
+          : row?.state === 'withdrawn' ? `Latest watcher decision: intent ${last.intentId} co-signed at ${clock(Date.parse(last.at))}; the withdrawal is on BSV, its float output is not spent yet.`
+            : `Latest watcher decision: intent ${last.intentId} co-signed at ${clock(Date.parse(last.at))}. Approval alone does not establish broadcast or payment.`;
+      }
       else { reach = 2; stop = 2; caption = `Latest live decision: intent ${last.intentId} refused (${last.status}) at ${clock(Date.parse(last.at))}. Nothing was signed.`; }
     } else {
       const latest = pipelineRows().find((r) => r.state === 'withdrawn');
-      if (latest && !latest.rec) {
-        reach = 4;
-        caption = `Latest run: intent ${latest.id}, live from both chains. Its 402 purchase is not publicly visible.`;
+      if (latest) {
+        const paid = latest.payment?.state === 'spent' && latest.payment.sats !== null;
+        reach = paid ? 5 : 4;
+        caption = paid ? `Latest run: intent ${latest.id}, live from both chains. The next spend of its float output paid ${group(latest.payment.sats)} sats over HTTP 402.`
+          : `Latest run: intent ${latest.id}, live from both chains. Its float output is not spent yet.`;
       } else {
         reach = -1;
         caption = 'Waiting for a transaction from the connected sources. No payment has been verified by this dashboard.';
@@ -320,7 +333,7 @@
           h('span', { class: 'flow-label' }, label),
           h('span', { class: 'sr-only' }, st === 'done' ? ' (reached)' : st === 'stop' ? ' (refused here)' : ' (not reached)'));
       }),
-      h('li', { class: 'flow-caption' }, last ? srcBadge('decisions', 'watcher') : fromChain ? srcBadge('base', 'chain') : h('span', { class: 'muted' }, 'No activity loaded'), ' ', caption)
+      h('li', { class: 'flow-caption' }, last ? srcBadge('decisions', 'watcher') : fromChain ? srcBadge('base', 'chain') : h('span', { class: 'muted' }, 'No activity loaded'), '. ', caption)
     ]);
   };
 
@@ -473,12 +486,23 @@
 
   const renderFlows = (rows) => {
     const observed = rows.filter((r) => r.chainOut !== null);
-    const paid = observed.reduce((sum, r) => sum + r.chainOut, 0n);
-    mount($('#flows-card'), stringify([paid, observed.length]), () => [
+    const paid = observed.reduce((sum, r) => sum + r.chainOut.sats, 0n);
+    const earlier = observed.filter((r) => r.chainOut.payee === 'earlier');
+    const earlierSats = earlier.reduce((sum, r) => sum + r.chainOut.sats, 0n);
+    const spent = observed.filter((r) => r.payment?.state === 'spent' && r.payment.sats !== null);
+    const spentSats = spent.reduce((sum, r) => sum + r.payment.sats, 0n);
+    const pending = observed.some((r) => !r.payment || r.payment.state === 'error');
+    mount($('#flows-card'), stringify([paid, observed.length, earlierSats, spentSats, spent.length, pending]), () => [
       h('div', { class: 'card-head' }, h('h3', { id: 'flows-title' }, 'Paid to the agent')),
       h('p', { class: 'big' }, h('span', { class: 'num' }, observed.length ? group(paid) : '—'), observed.length ? h('span', { class: 'unit' }, ' sats') : null),
-      h('p', { class: 'muted small' }, observed.length ? `Paid to the float in ${observed.length} observed BSV transactions.` : 'No withdrawal into the float has been read from BSV.'),
-      h('p', { class: 'state' }, 'Purchases are not connected. Add a payment receipt source to show HTTP 402 spending.'),
+      h('p', { class: 'muted small' }, observed.length
+        ? `Out of the vault in ${observed.length} observed BSV withdrawals${earlier.length ? `, including ${group(earlierSats)} sats to the earlier float (agent wallet)` : ''}.`
+        : 'No withdrawal into the float has been read from BSV.'),
+      h('h4', null, 'Spent over HTTP 402'),
+      h('p', { class: 'big' }, h('span', { class: 'num' }, spent.length ? group(spentSats) : '—'), spent.length ? h('span', { class: 'unit' }, ' sats') : null),
+      h('p', { class: 'muted small' }, spent.length
+        ? `${spent.length} payments: the next spend of each float output, read from WhatsOnChain${pending ? '; still checking the rest' : ''}.`
+        : pending ? 'Checking whether the float outputs have been spent…' : 'No float output has been spent yet.'),
       h('p', { class: 'muted small' }, 'The full float wallet balance is not public.')
     ]);
   };
@@ -502,7 +526,7 @@
   };
   const renderPipeline = (rows) => {
     const el = $('#pipeline');
-    const txSig = rows.map((r) => [r.txid, S.tx.get(r.txid)?.state, r.payment ? S.tx.get(r.payment.txid)?.state : null]);
+    const txSig = rows.map((r) => [r.txid, S.tx.get(r.txid)?.state, r.payment, r.payment?.txid ? S.tx.get(r.payment.txid)?.state : null]);
     const sig = stringify([rows.map((r) => [r.id, r.state, r.txid, r.mismatch, r.settled, r.maxSats, r.approval, r.baseCreatedTx, r.onChain?.expiry, r.chainOut]), txSig, S.base.okAt > 0]);
     mount(el, sig, () => {
       const head = h('div', { class: 'card-head' },
@@ -515,6 +539,17 @@
         h('tbody', null, rows.length ? rows.map(pipeRow) : h('tr', null, h('td', { colspan: '7', class: 'empty' }, 'No intents loaded for vault 5. Check the Base connection in Connection details.'))));
       return [head, sub, h('div', { class: 'table-wrap', tabindex: '0', role: 'region', 'aria-label': 'Scrollable transaction table' }, table)];
     });
+  };
+  const paymentCell = (r) => {
+    if (!r.chainOut) return h('span', { class: 'muted small' }, '—');
+    const p = r.payment;
+    const earlier = r.chainOut.payee === 'earlier';
+    if (!p) return h('span', { class: 'muted small' }, 'checking…');
+    if (p.state === 'error') return h('span', { class: 'bad small' }, 'WhatsOnChain unavailable, retrying');
+    if (p.state === 'unspent') return h('span', { class: 'muted small' }, earlier ? 'agent-wallet output not spent yet' : 'float output not spent yet');
+    return [wocTx(p.txid), ' ', txState(p.txid),
+      p.sats !== null ? h('span', { class: 'num block' }, `${group(p.sats)} sats paid`) : h('span', { class: 'muted small block' }, 'amount not derivable from this transaction’s shape'),
+      h('span', { class: 'muted small block' }, earlier ? 'next spend of the agent-wallet output' : 'next spend of the float output (the agent’s HTTP 402 payment)')];
   };
   const pipeRow = (r) => {
     const [cls, label] = STATE_LABEL[r.state];
@@ -540,9 +575,11 @@
       h('td', null, outflow !== null && r.maxSats ? [
         h('span', { class: 'num', title: `${group(r.approval.toFloat)} to float + ${group(r.approval.fee)} fee` }, `${group(outflow)} / ${group(r.maxSats)}`),
         h('span', { class: 'bar bar-sm', role: 'img', 'aria-label': `${share} % of the limit used` }, h('span', { class: `bar-fill ${share <= 100 ? 'bar-ok' : 'bar-bad'}`, dataset: { w: String(Math.min(share, 100)) } }))
-      ] : r.chainOut ? [h('span', { class: 'num' }, `${group(r.chainOut)} to float`), h('span', { class: 'muted small block' }, 'read from the BSV tx · fee not shown')]
+      ] : r.chainOut ? (r.chainOut.payee === 'earlier'
+        ? [h('span', { class: 'num' }, `paid ${group(r.chainOut.sats)} sats`), h('span', { class: 'muted small block' }, 'to the earlier float (agent wallet), before rebind-float')]
+        : [h('span', { class: 'num' }, `${group(r.chainOut.sats)} to float`), h('span', { class: 'muted small block' }, 'read from the BSV tx · fee not shown')])
         : h('span', { class: 'muted' }, '—')),
-      h('td', null, h('span', { class: 'muted small' }, 'Payment receipts not connected')),
+      h('td', null, paymentCell(r)),
       h('td', null, r.settled === true
         ? h('span', { class: 'status status-info' }, 'record on Base')
         : h('span', { class: 'muted' }, 'not settled')));
@@ -726,6 +763,7 @@
     if (name === 'overview' && location.hash) history.replaceState(null, '', location.pathname + location.search);
     if (name === 'evidence') fetchEvidenceTx();
     if (name === 'hedges') fetchOtherRegimes();
+    if (name === 'agent' && logPoller) logPoller.now();
     render();
   };
   const initTabs = () => {
@@ -821,10 +859,13 @@
     const [block, count] = await Promise.all([base.blockNumber(), base.intentCount()]);
     S.chain.block = block;
     S.chain.count = count;
+    const full = S.basePolls++ % 3 === 0 || currentTab() !== 'overview';
     for (let i = 1n; i <= count; i++) {
       const id = i.toString();
       const known = S.chain.intents.get(id);
       if (known && known.settled) continue;
+      // Expired, unsettled intents change only through settle: re-read them every third poll.
+      if (known && !full && nowSec() >= known.expiry) continue;
       const cached = cache.get(`${CACHE_NS}.intent.${id}`);
       if (!known && cached) { S.chain.intents.set(id, reviveIntent(cached)); continue; }
       // Unsettled intents are re-read: settle can still change them. Expired unsettled ones change only via settle.
@@ -832,7 +873,7 @@
       S.chain.intents.set(id, it);
       if (it.settled) cache.set(`${CACHE_NS}.intent.${id}`, it);
     }
-    for (const [key, v] of [['v5', VAULT], ['v8', RUNNER]]) {
+    for (const [key, v] of full ? [['v5', VAULT], ['v8', RUNNER]] : [['v5', VAULT]]) {
       const cfgKey = `${CACHE_NS}.config.${v}`;
       if (!S.chain[key].config) {
         const c = cache.get(cfgKey);
@@ -885,26 +926,29 @@
     }
     return S.logData.blocksPerWindow;
   };
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
   const loadLogs = async () => {
     if (!S.chain.block) throw new Error('waiting for the Base block number');
     const head = S.chain.block;
     const win = await windowBlocks(head);
+    // The full ~30 min window is only needed for the vault-8 history; the overview needs recent intents only.
+    const wanted = currentTab() === 'agent' ? win : (LOG_FIRST_PAGES * 200n < win ? LOG_FIRST_PAGES * 200n : win);
     if (S.logData.to === null || head - S.logData.to > win) {
-      // First scan (or after a long sleep): newest page first, so recent cycles show up at once.
-      const floor = head - win + 1n;
       S.logData.to = head;
       S.logData.from = head + 1n;
-      for (let end = head; end >= floor; end -= 200n) {
-        const start = end - 199n > floor ? end - 199n : floor;
-        mergeLogs(await base.contractLogs(start, end));
-        S.logData.from = start;
-        render();
-      }
-      return true;
-    }
-    if (head > S.logData.to) {
+    } else if (head > S.logData.to) {
       mergeLogs(await base.contractLogs(S.logData.to + 1n, head));
       S.logData.to = head;
+    }
+    // Extend backwards, newest page first and paced, until the wanted window is covered.
+    const floor = head - wanted + 1n;
+    while (S.logData.from > floor) {
+      const end = S.logData.from - 1n;
+      const start = end - 199n > floor ? end - 199n : floor;
+      mergeLogs(await base.contractLogs(start, end));
+      S.logData.from = start;
+      render();
+      if (S.logData.from > floor) await pause(LOG_PAGE_GAP_MS);
     }
     return true;
   };
@@ -933,14 +977,56 @@
         const id = rc.intentId.toString();
         S.receipts.set(id, txid);
         // The float output, read from the transaction itself (WhatsOnChain gives BSV as a decimal; sats are integers).
-        let toFloat = 0n;
+        // Intent 2 paid the earlier float (the agent wallet) before `tg rebind-float`.
         for (const o of tx.vout ?? []) {
-          if (o?.scriptPubKey?.hex === EV.bsv.floatScript && Number.isFinite(o.value)) toFloat += BigInt(Math.round(o.value * 1e8));
+          const hex = o?.scriptPubKey?.hex;
+          const payee = hex === EV.bsv.floatScript ? 'current' : EV.bsv.earlierFloatScript && hex === EV.bsv.earlierFloatScript ? 'earlier' : null;
+          if (payee && Number.isFinite(o.value) && Number.isInteger(o.n)) {
+            S.receiptOut.set(id, { sats: BigInt(Math.round(o.value * 1e8)), vout: o.n, payee });
+            break;
+          }
         }
-        if (toFloat > 0n) S.receiptOut.set(id, toFloat);
         render();
+        if (S.receiptOut.has(id)) readPayment(id);
       }
     } catch { receiptTried.delete(txid); }
+  };
+
+  // The agent's HTTP 402 payment is the next spend of the float output: WhatsOnChain's /tx/<txid>/<n>/spent names the
+  // spending transaction. In every payment so far it has one input (that output) and two outputs: output 0 pays the
+  // merchant and output 1 is the wallet's change. Any other shape is shown without an amount.
+  const paymentBusy = new Set();
+  const readPayment = async (id) => {
+    const out = S.receiptOut.get(id);
+    const txid = S.receipts.get(id);
+    if (!out || !txid || paymentBusy.has(id)) return;
+    const cur = S.payments.get(id);
+    if (cur && (cur.state === 'spent' || Date.now() - cur.at < INTERVAL.tx)) return;
+    paymentBusy.add(id);
+    try {
+      let spender = null;
+      try {
+        const r = await woc.spentBy(txid, out.vout);
+        spender = typeof r?.txid === 'string' && TXID.test(r.txid) ? r.txid : null;
+        if (!spender) throw new Error('unexpected /spent answer');
+      } catch (e) {
+        if (e.status === 404) { S.payments.set(id, { state: 'unspent', txid: null, sats: null, at: Date.now() }); return; }
+        throw e;
+      }
+      const tx = await woc.tx(spender);
+      noteTx(spender, tx);
+      const ins = tx?.vin ?? [];
+      const outs = tx?.vout ?? [];
+      const spendsIt = ins.some((i) => i?.txid === txid && i?.vout === out.vout);
+      const first = outs.find((o) => o?.n === 0);
+      const sats = spendsIt && ins.length === 1 && outs.length === 2 && Number.isFinite(first?.value) ? BigInt(Math.round(first.value * 1e8)) : null;
+      S.payments.set(id, { state: 'spent', txid: spender, sats, at: Date.now() });
+    } catch (e) {
+      S.payments.set(id, { state: 'error', txid: null, sats: null, at: Date.now(), error: String(e.message || e) });
+    } finally {
+      paymentBusy.delete(id);
+      render();
+    }
   };
 
   const noteTx = (txid, tx) => {
@@ -974,15 +1060,20 @@
     const ids = [];
     for (const id of S.receipts.values()) ids.push(id);
     for (const [, i] of vaultIntents()) if (i.settled) ids.push(i.bsvTxid.slice(2));
+    for (const p of S.payments.values()) if (p.txid) ids.push(p.txid);
     return [...new Set(ids)];
   };
-  const fetchCoreTx = async () => { for (const id of coreTxids()) await fetchTx(id); };
+  const fetchCoreTx = async () => {
+    for (const id of coreTxids()) await fetchTx(id);
+    for (const id of S.receiptOut.keys()) await readPayment(id); // unspent outputs are re-checked at most once a minute
+  };
   const fetchEvidenceTx = async () => {
     for (const r of evidenceRows()) if (r.txid) await fetchTx(r.txid);
   };
 
   // ---------------------------------------------------------------- start
 
+  let logPoller = null;
   const start = () => {
     initControls();
     initTabs();
@@ -991,7 +1082,7 @@
     C.poll(loadDecisions, INTERVAL.decisions, update('decisions'));
     C.poll(loadBase, INTERVAL.base, update('base'));
     // Logs wait for the first block number, then follow it; started a little later to spread the first requests.
-    setTimeout(() => C.poll(loadLogs, INTERVAL.logs, update('logs')), 3000);
+    setTimeout(() => { logPoller = C.poll(loadLogs, INTERVAL.logs, update('logs')); }, 3000);
     C.poll(loadVault, INTERVAL.vault, update('vault'));
     setTimeout(() => C.poll(fetchCoreTx, INTERVAL.tx, () => render()), 1500);
   };

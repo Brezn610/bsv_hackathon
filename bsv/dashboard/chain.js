@@ -300,6 +300,8 @@
     };
     return {
       scriptUnspent: (scriptHash) => get(`/script/${scriptHash}/unspent/all`),
+      // The transaction that spent output `n` of `txid`: { txid, vin, status }. HTTP 404 while it is unspent.
+      spentBy: (txid, n) => get(`/tx/${txid}/${n}/spent`),
       tx: (txid) => get(`/tx/hash/${txid}`)
     };
   };

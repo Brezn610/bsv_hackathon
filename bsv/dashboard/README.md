@@ -6,7 +6,7 @@ Only data read from the configured watcher, Base Sepolia and WhatsOnChain is dis
 
 `config.js` contains public connection settings. Verify the contract, vault and script configuration after merging before your live test. Optional `watcher`, `rpc`, `woc`, and `theme` query parameters configure endpoints and appearance. Do not put secret credentials in URLs. The former recorded mode is removed.
 
-HTTP 402 purchases need a real receipt source and are shown as not connected. Owner exit and end-to-end testing remain pending. The dashboard cannot sign, broadcast or move funds. Watcher co-signing is separate from broadcast, and Base settlement is not cross-chain verification.
+The agent's HTTP 402 payment is read as the next spend of each withdrawal's float output (WhatsOnChain `/tx/<txid>/<n>/spent`); output 0 of that transaction is the amount paid, and any other transaction shape is shown without an amount. Owner exit and end-to-end testing remain pending. The dashboard cannot sign, broadcast or move funds. Watcher co-signing is separate from broadcast, and Base settlement is not cross-chain verification.
 
 The audience is judges at the TUM hackathon, watching a live projector demo.
 

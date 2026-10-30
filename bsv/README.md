@@ -37,7 +37,7 @@ pages) and WhatsOnChain. It never calls `/cosign` or `/broadcast`, never signs, 
 | `?rpc=` | `https://sepolia.base.org` | Base Sepolia RPC |
 | `?theme=dark` / `light` | system | colour theme |
 
-End-to-end validation is pending your real transaction test. HTTP 402 purchases require a connected receipt source. Public deployment settings are in `dashboard/config.js`; verify them after merging.
+End-to-end validation is pending your real transaction test. The agent's HTTP 402 payment is shown as the next spend of each withdrawal's float output (WhatsOnChain `/tx/<txid>/<n>/spent`). Public deployment settings are in `dashboard/config.js`; verify them after merging.
 
 ## Run
 

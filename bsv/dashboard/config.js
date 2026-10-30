@@ -1,4 +1,5 @@
 // Public connection configuration only. No sample transactions or test results.
+// earlierFloatScript: the agent wallet that received withdrawals before `tg rebind-float` (intent 2, RESULTS.md).
 'use strict';
 window.TG_CONFIG = Object.freeze({
   "base": {
@@ -32,6 +33,7 @@ window.TG_CONFIG = Object.freeze({
     "binding": "tg-vault-vault-5-v1-2026-10-30+float-wallet",
     "vaultScriptSha256": "0f5b17cb97ddaf4e6d6ea2ab2a90f2ef67cdbf0be72aa2fb4ee5cfbd122c0244",
     "floatAddress": "11GrdqLCiF1WtzhXqPo5bBb2jCfCTMz8z",
-    "floatScript": "76a914000d3c59311f64d8806fb5bf5a1daaf0dd15b27988ac"
+    "floatScript": "76a914000d3c59311f64d8806fb5bf5a1daaf0dd15b27988ac",
+    "earlierFloatScript": "76a91419e272af3877858a136f6b5a9c67a390bb13b7e088ac"
   }
 });
