@@ -1,0 +1,21 @@
+{
+  "baseSepolia": {
+    "chainId": 84532,
+    "explorer": "https://sepolia.basescan.org",
+    "treasuryGuard": null,
+    "deployTx": null,
+    "deployBlock": null,
+    "feeds": {
+      "bsvUsd": {
+        "airnode": "0xB8b7816a39A0bF55eF2ae9A282A1502ce35ff732",
+        "requestHash": "0x18b782163c79529c7bbe757343b930284f3aef690e45560f0aa771b629399480"
+      },
+      "tweets": {
+        "WhiteHouse": {
+          "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
+          "requestHash": "0x783a61a36250c7dfdf26d9ea96ca3cc5894a286c9f4b4139798345cb4d9395e9"
+        }
+      }
+    }
+  }
+}
