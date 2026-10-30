@@ -584,16 +584,20 @@ interface AutoState {
  */
 async function auto(): Promise<void> {
   requireMainnetConfirm('The automatic withdrawal loop')
+  // The same environment withdraw() will see, before any of it is checked or used.
+  loadEnv()
   if (process.env.TG_INPROCESS_WATCHER === '1') throw new Error('tg auto only runs against the separate watcher (tg watcher-serve); unset TG_INPROCESS_WATCHER')
   const { binding } = loadStoredBinding()
   const vaultId = binding.base.vaultId
   const maxIntents = Number(arg('max-intents') ?? 5)
+  if (!Number.isSafeInteger(maxIntents) || maxIntents <= 0) throw new Error('--max-intents must be a positive integer')
   const withBuy = process.argv.includes('--buy')
   const reader = createIntentReader({ binding: loadBinding(), rpcUrl: process.env.BASE_SEPOLIA_RPC })
   const state: AutoState = existsSync(AUTO_STATE_FILE) ? readJson<AutoState>(AUTO_STATE_FILE) : { nextBlock: '0', handled: {} }
+  // Only intents created from now on, unless --from-block says otherwise: never old ones from a rehearsal.
   const fromArg = arg('from-block')
-  if (fromArg !== undefined) state.nextBlock = BigInt(fromArg).toString()
-  else if (state.nextBlock === '0') state.nextBlock = (await reader.latestBlock()).toString()
+  state.nextBlock = (fromArg !== undefined ? BigInt(fromArg) : await reader.latestBlock()).toString()
+  const firstBlock = BigInt(state.nextBlock)
   const log = (entry: Record<string, unknown>): void => {
     const line = { at: new Date().toISOString(), ...entry }
     appendFileSync(AUTO_LOG_FILE, JSON.stringify(line) + '\n')
@@ -611,7 +615,7 @@ async function auto(): Promise<void> {
     stopping = true
     console.log('[auto] stopping after the current step')
   })
-  let withdrawn = Object.values(state.handled).filter(h => h.status === 'done' || h.status === 'done-unrecorded').length
+  let withdrawn = 0
   const attempts = new Map<string, number>()
   log({ event: 'start', vaultId: vaultId.toString(), fromBlock: state.nextBlock, buy: withBuy, maxIntents })
 
@@ -619,10 +623,13 @@ async function auto(): Promise<void> {
     try {
       const to = (await reader.latestBlock()) - 1n // same one-block lag as readIntent
       const from = BigInt(state.nextBlock)
+      // A small overlap: a lagging RPC node may have answered the last window without its newest logs.
+      const scanFrom = from - 20n > firstBlock ? from - 20n : firstBlock
       let retryLater = false
-      for (const ev of from <= to ? await reader.intentEvents(from, to, vaultId) : []) {
+      for (const ev of scanFrom <= to ? await reader.intentEvents(scanFrom, to, vaultId) : []) {
         const id = ev.intentId
-        if (stopping || state.handled[id.toString()] !== undefined) continue
+        if (stopping) break
+        if (state.handled[id.toString()] !== undefined) continue
         if (ev.kind !== 0) {
           log({ event: 'skip', intentId: id.toString(), reason: 'SWAP intent: the watcher never co-signs SWAP' })
           mark(id, { status: 'skipped:swap' })
@@ -638,7 +645,7 @@ async function auto(): Promise<void> {
           const pending = existsSync(path.join(STATE_DIR, `pending-withdrawal-${id}.json`))
           const tries = (attempts.get(id.toString()) ?? 0) + 1
           attempts.set(id.toString(), tries)
-          if (!pending && tries < 3 && AUTO_RETRYABLE.test(message) && !/may still have signed/.test(message)) {
+          if (!pending && tries < 6 && AUTO_RETRYABLE.test(message) && !/may still have signed/.test(message)) {
             delete state.handled[id.toString()]
             writeJson(AUTO_STATE_FILE, state)
             log({ event: 'retry', intentId: id.toString(), attempt: tries, error: message })
@@ -662,7 +669,7 @@ async function auto(): Promise<void> {
           )
         }
       }
-      if (!retryLater) {
+      if (!retryLater && !stopping) {
         state.nextBlock = (to + 1n > from ? to + 1n : from).toString()
         writeJson(AUTO_STATE_FILE, state)
       }

@@ -44,12 +44,13 @@ creates a SPEND intent (`submitPrice(5, …, usd(0.001))`). The BSV side runs wi
 CONFIRM_MAINNET=1 npm run tg -- auto --buy      # new vault-5 SPEND intents → withdraw over the watcher → HTTP 402 buy
 ```
 
-- Only new intents (from the current Base block, or `--from-block B`); SPEND only (SWAP intents are
-  logged as `skipped:swap`: the watcher never co-signs them). At most `--max-intents` (default 5).
+- Only intents created after it starts (or from `--from-block B`), so a rehearsal never leaks into the
+  demo; SPEND only (SWAP intents are
+  logged as `skipped:swap`: the watcher never co-signs them). At most `--max-intents` per run (default 5).
 - Each intent goes through exactly the `tg withdraw` path (watcher checks, journal, pending file).
   It is marked `started` before and never started twice, also across restarts.
 - Stops on the first failure that is not a clean refusal before signing; Base/WhatsOnChain hiccups
-  are retried (max 3). State: `data/auto-state.json`; log: `data/auto-cycle.jsonl`.
+  are retried (up to 6 ticks, ~1 min). State: `data/auto-state.json`; log: `data/auto-cycle.jsonl`.
 - The API3 side finds the BSV txid on chain (the `TGv1 … 5 N` receipt) and calls `settle`.
 
 ## 3. The float buys something
