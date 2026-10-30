@@ -1,6 +1,6 @@
 // One autonomous Base cycle of the agent: decide whether a signed price is worth buying now, buy it via x402, submit it,
-// and say when the next one is worth buying. No loop inside: src/agent.ts schedules it, and the BSV side's agent calls
-// it as its Base step on its own vault, so there is one cycle logic for every agent process.
+// and say when the next one is worth buying. No loop inside: src/agent.ts schedules it (the runner on vault 8). The BSV
+// side never calls it and has no EVM key: it only reacts to SPEND intents on vault 5, which it reads on-chain.
 //
 // The contract makes the decisions that matter (budget, circuit breaker, re-entry) from each signed price. The agent
 // decides when data is worth paying for: every 10 min when calm, every 2 min when the 1h change is near the breaker
