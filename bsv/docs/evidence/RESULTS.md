@@ -1,5 +1,7 @@
 # Results
 
+**End to end, live:** API3 signed price → SPEND intent 2 on Base Sepolia → watcher checks and co-signs → BSV mainnet vault → Agent Float withdrawal → `settle` on Base. The HTTP 402 payment and the owner-only exit are also live on mainnet.
+
 Revision: see `git log -- bsv` (branch `feat/bsv-treasury-guard`), checked 2026-10-30, Europe/Berlin.
 Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock chain for offline tests.
 "0-conf" means broadcast and visible on WhatsOnChain, not yet seen in a block at the time of writing.
@@ -21,7 +23,7 @@ Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock c
 | Gate 2b: owner funds vault (spend demo) | [`c1f97102…6ad4`](https://whatsonchain.com/tx/c1f971027a2f0015a19c5945a48adf1282d5b1bb9cf8ab3f4e16d7574e246ad4) | 5,000 sats; mined in block 973333 |
 | HTTP 402 purchase by the agent wallet | [`43c8255e…9b77`](https://whatsonchain.com/tx/43c8255e63ab363f9d3641a601e74aee5ea95b5d53b747fcc86c40d71e959b77) | `@bsv/402-pay` 0.3.3 + `withHostOriginator`; HTTP 200; merchant +1,000 sats exactly; guardian approved the declared purchase; 857 ms from request to answer; local demo merchant, real mainnet payment. Paid from the agent's existing balance, **not** yet from a vault withdrawal |
 | **Vault withdrawal for Base intent 2** | [`ae35d469…dcf5`](https://whatsonchain.com/tx/ae35d46939d7fd7f79ff32aab1d6bdc906d28a18da93cce3950c013ccc91dcf5) | watcher re-read intent 2 at Base block 52281922 and APPROVED; spends vault UTXO `c1f97102…:0` (5,000) with agent + watcher signatures: 2,796 to the Agent Float, 2,162 change back to the same vault script, `OP_RETURN "TGv1 84532 0x8e38… 5 2"`; fee 42; vault outflow 2,838 ≤ maxSats 2,896; 1,045 ms from intent read to broadcast; the float took it in (agent balance 20,707). A second `withdraw --intent 2` was refused: "journal already holds this intent as broadcast" |
-| `settle(2, 0xae35d469…dcf5)` on Base | handed to the API3 owner; **pending**: confirm with the `Settled` event | |
+| **`settle(2, 0xae35d469…dcf5)` on Base Sepolia** | [`0xc1a8c9bb…e5b8`](https://sepolia.basescan.org/tx/0xc1a8c9bb236698e05a51293e337369ab9ea6284b97d863e0a66257c2844de5b8) | sent by the vault-5 agent `0x0310dCF1…4cf0`, block 52283537, status success; `Settled(intentId 2, bsvTxid 0xae35d469…dcf5)`. Independently re-read by the BSV side: `getIntent(2).settled = true`, `bsvTxid` equals the BSV withdrawal txid. A recorded claim by the agent, not a cross-chain proof |
 | Atomic swap-and-pay | [`ee2a3896…8e8c`](https://whatsonchain.com/tx/ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c) | rail baseline, earlier on 30 Oct: 1,000 sats to the maker, 1 pUSD to the merchant, fee 66, one tx. Price was a fixed 1,000 sats; the signed-rate `executeSwap` wrapper is **offline only** |
 
 ## Gate (1), exact mainnet script, offline: PASS 12/12
