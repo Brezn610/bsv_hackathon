@@ -57,14 +57,14 @@ verified on-chain.
 
 ## For judges
 
-|                     |                                                                                                                                                                               |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Contract            | TreasuryGuard [`0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773`](https://sepolia.basescan.org/address/0x8e38cc6b1bd1f0d25357066cd0036f28fd1f7773), Base Sepolia (84532), verified |
-| Deploy              | tx [`0xfc0219e4…`](https://sepolia.basescan.org/tx/0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884), block 52226250                                        |
-| Vault 1             | the team's agent loop, $1/day                                                                                                                                                 |
-| Vault 2             | judge vault, $100/day counter, holds no funds; its agent is the team's deployer key                                                                                           |
-| Feeds               | CoinPaprika BSV/USD `0x18b78216…399480`, TwitterAPI.io @WhiteHouse and @federalreserve, full hashes in [`deployments.json`](deployments.json)                                 |
-| Last live judge run | _pending_                                                                                                                                                                     |
+|                     |                                                                                                                                                                                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Contract            | TreasuryGuard [`0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773`](https://sepolia.basescan.org/address/0x8e38cc6b1bd1f0d25357066cd0036f28fd1f7773), Base Sepolia (84532), verified                                                                                                                                            |
+| Deploy              | tx [`0xfc0219e4…`](https://sepolia.basescan.org/tx/0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884), block 52226250                                                                                                                                                                                   |
+| Vault 1             | the team's agent loop, $1/day                                                                                                                                                                                                                                                                                            |
+| Vault 2             | judge vault, $100/day counter, holds no funds; its agent is the team's deployer key                                                                                                                                                                                                                                      |
+| Feeds               | CoinPaprika BSV/USD `0x18b78216…399480`, TwitterAPI.io @WhiteHouse and @federalreserve, full hashes in [`deployments.json`](deployments.json)                                                                                                                                                                            |
+| Last live judge run | 7/7 PASS on vault 2: valid SPEND intent #1 ($1 → 5,856,771 sats at $17.07) [`0x8426f241…`](https://sepolia.basescan.org/tx/0x8426f2416e45e2f44cceaaea392dcc84d8c991913d4a833b52f6f628953c574a), x402 [`0x628034c4…`](https://sepolia.basescan.org/tx/0x628034c475e4d84c1a89cfd9ab63b545895b8b8e93bf1ff0d1fb4114bfb9fb93) |
 
 **Tamper test.** Check order for a price: request → signer → signature age → replay → budget, so a cached fixture still
 shows its own error. All fixtures in [`test/fixtures/`](test/fixtures/) are real signed responses, bought once via x402.
@@ -103,8 +103,9 @@ Edit a digit of `data`, swap the signature or bring a fresh price, and the rever
 
 **Judge script.** [`src/judge.ts`](src/judge.ts) buys one fresh signed BSV/USD price via x402 (0.001 aUSD), runs every
 price case above against the live contract as a free `eth_call`, sends one valid `submitPrice` that creates a real SPEND
-intent, then shows `Replay`: `node --env-file=.env src/judge.ts [--dry] [--post WhiteHouse]`. It needs the key of the
-vault's agent, so we run it live on vault 2. To run it yourself, create your own vault with `createVault` (anyone can;
+intent, then shows `Replay`: `node --env-file=.env src/judge.ts [--dry] [--post WhiteHouse]`. It signs with the vault's agent
+key (`PRIVATE_KEY`), pays x402 with `PAYER_PRIVATE_KEY` (from the environment, else from `.env.agent`), defaults to the
+judge vault and refuses the agent's vault 1. We run it live on vault 2. To run it yourself, create your own vault with `createVault` (anyone can;
 you become its owner, set yourself as agent) and pass `--vault <id>`; your key then needs Base Sepolia ETH and aUSD from
 the [faucet](https://api3dao.github.io/airnodehub-hackathon/faucet/). Set `RPC_URL`, `PRIVATE_KEY` (the vault's agent) and
 `PAYER_PRIVATE_KEY` (pays x402, may be the same key) in `.env`.

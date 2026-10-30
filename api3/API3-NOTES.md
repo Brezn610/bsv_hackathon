@@ -191,6 +191,8 @@ x402 payments (Base Sepolia, agent key): [BSV/USD](https://sepolia.basescan.org/
 | Vault 1 (agent loop) | agent `0x0310dCF1E329FE74fe881ae273E1E1d2784b4cf0`, $1/day, tx [`0x71d629e1…cd78856e`](https://sepolia.basescan.org/tx/0x71d629e187f872adaeb6343761fb76d9fdf0448d8fc286df29541208cd78856e), block 52226260 |
 | Vault 2 (judges) | agent = deployer `0x85652193A6f230fC382aF4dA10CBD5DeB589fD9F`, $100/day counter, holds no funds, tx [`0xa43a4f7e…265f5a4c`](https://sepolia.basescan.org/tx/0xa43a4f7e8f4e68c33b9462baac09d1e0a726ce441100744470f72481265f5a4c), block 52226271 |
 
+Judge: `node --env-file=.env src/judge.ts [--dry] [--post WhiteHouse]`. Signs with the deployer key (agent of vault 2), pays x402 with the agent key (reads only `PAYER_PRIVATE_KEY` from `.env.agent`), defaults to `judgeVaultId`, refuses vault 1. Live run 30.10. on vault 2: 7/7 PASS, valid SPEND intent #1 = [`0x8426f241…`](https://sepolia.basescan.org/tx/0x8426f2416e45e2f44cceaaea392dcc84d8c991913d4a833b52f6f628953c574a) ($1 → 5,856,771 sats at $17.07425473), x402 [`0x628034c4…`](https://sepolia.basescan.org/tx/0x628034c475e4d84c1a89cfd9ab63b545895b8b8e93bf1ff0d1fb4114bfb9fb93).
+
 Both vaults: CoinPaprika BSV/USD (`0x18b78216…399480`), posts WhiteHouse + federalreserve, sig age 300 s, data age 600 s, post age 1800 s, cooldown 3600 s, intent TTL 900 s, breaker −5 % / re-entry +1 %, breaker hedge 50 %, event hedge 25 %, slippage 1 %. The BSV watcher must only co-sign intents of **vault 1**. Team demo X account not whitelisted yet (needs a new vault once the handle exists).
 
 ## TreasuryGuard interface (v1, 30.10., shared with the client/judge chat)

@@ -10,7 +10,7 @@ Read this first in a new chat.
 - **Next:**
   1. ~~Hour-0 spike~~, ~~plan~~, ~~Opus pre-check~~, ~~build + tests~~ done. Retweets are rejected.
   2. ~~Opus post-build review~~ applied.
-  3. Agree the interface with the BSV side (note: `vaultId` argument, not in the brief), ~~deploy~~ done. Team demo X handle pending → new vault with its hash (agent/watcher then switch vaultId). Next: first live valid submit (judge script on vault 2) → "last demo-ok".
+  3. Agree the interface with the BSV side (note: `vaultId` argument, not in the brief), ~~deploy~~ done. Team demo X handle pending → new vault with its hash (agent/watcher then switch vaultId). ~~First live valid submit~~ done (judge 7/7).
   4. Parallel chat owns `src/client/**`, `src/judge.ts`, `deployments.json`, `docs/INTERFACE.md`.
-- **README:** top section "Treasury Guard (API3 part)" = API3 submission text (use case, forged-data impact, missing AirnodeHub data, judge section with tamper table + keyless `cast call` checkPrice path, real vs demo). Fill "Last live judge run" in the README judge table with the tx once the judge run is green. Devfolio text (API3 part) was given in chat, not in the repo.
-- **Last demo-ok:** none yet.
+- **README:** top section "Treasury Guard (API3 part)" = API3 submission text (use case, forged-data impact, missing AirnodeHub data, judge section with tamper table + keyless `cast call` checkPrice path, real vs demo). Devfolio text (API3 part) was given in chat, not in the repo.
+- **Last demo-ok:** `837278ea4` — judge live 7/7 on vault 2 (`node --env-file=.env src/judge.ts`): SignerMismatch ×2, WrongRequest, StaleSignature, BudgetExceeded, valid SPEND intent #1 ([tx](https://sepolia.basescan.org/tx/0x8426f2416e45e2f44cceaaea392dcc84d8c991913d4a833b52f6f628953c574a), $1 → 5,856,771 sats), Replay. x402 [tx](https://sepolia.basescan.org/tx/0x628034c475e4d84c1a89cfd9ab63b545895b8b8e93bf1ff0d1fb4114bfb9fb93).
