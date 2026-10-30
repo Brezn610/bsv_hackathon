@@ -1,7 +1,7 @@
 {
-  "name": "agent-swap-rail",
+  "name": "treasury-guard-bsv",
   "private": true,
-  "description": "Non-custodial swap-and-pay rail for AI agents on BSV, with a guardian inside the agent's wallet.",
+  "description": "Treasury Guard BSV side: owner-exit vault, watcher co-signing against API3 SPEND intents on Base, Agent Float paying HTTP 402, and the Agent Swap Rail.",
   "type": "commonjs",
   "engines": {
     "node": ">=22"
@@ -18,7 +18,8 @@
     "keys:init": "tsx scripts/keys-init.ts",
     "agent:fund": "tsx scripts/agent-fund.ts",
     "agent:fill": "tsx scripts/agent-fill.ts",
-    "desktop:offer": "tsx scripts/maker-offer.ts"
+    "desktop:offer": "tsx scripts/maker-offer.ts",
+    "sync:api3": "tsx scripts/sync-api3.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
