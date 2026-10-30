@@ -4,7 +4,7 @@
     "explorer": "https://sepolia.basescan.org",
     "treasuryGuard": "0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773",
     "vaultId": 3,
-    "judgeVaultId": 2,
+    "judgeVaultId": 4,
     "deployTx": "0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884",
     "deployBlock": 52226250,
     "feeds": {
