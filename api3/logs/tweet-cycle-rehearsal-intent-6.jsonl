@@ -1,0 +1,13 @@
+{"at":"2026-10-30T22:13:09.329Z","event":"start","vaultId":"5","live":false,"agent":"0x0310dCF1E329FE74fe881ae273E1E1d2784b4cf0","account":"956_kakashi","mode":"once","regime":"NORMAL","verdict":"IGNORE","ausd":"8.904000","cap":"1.000000"}
+{"at":"2026-10-30T22:13:11.373Z","event":"post-new","vaultId":"5","live":false,"postId":"2116178783355199907","text":"test"}
+{"at":"2026-10-30T22:13:12.746Z","event":"rejected","vaultId":"5","live":false,"postId":"2116178783355199907","reason":"StalePost"}
+{"at":"2026-10-30T22:13:12.746Z","event":"stop","vaultId":"5","live":false,"ausdSpent":"0.011000"}
+{"at":"2026-10-30T22:25:18.327Z","event":"start","vaultId":"5","live":true,"agent":"0x0310dCF1E329FE74fe881ae273E1E1d2784b4cf0","account":"956_kakashi","mode":"poll 30 s × 20 min","regime":"NORMAL","verdict":"IGNORE","ausd":"8.893000","cap":"1.000000"}
+{"at":"2026-10-30T22:25:20.481Z","event":"baseline","vaultId":"5","live":true,"postId":"2116178783355199907","note":"present at start, not acted on"}
+{"at":"2026-10-30T22:27:28.323Z","event":"post-new","vaultId":"5","live":true,"postId":"2116295879288311875","text":"Treasury Guard rehearsal – risk check"}
+{"at":"2026-10-30T22:27:34.163Z","event":"post-verified","vaultId":"5","live":true,"postId":"2116295879288311875","eventTx":"https://sepolia.basescan.org/tx/0xe12bf82eadd8ec47e6e355b48804ecc769f2645c3f570f04daadcb22b8e06663","regime":"NORMAL → NORMAL","verdict":"IGNORE","hedge":"none (verdict IGNORE)"}
+{"at":"2026-10-30T22:27:38.579Z","event":"spend-created","vaultId":"5","live":true,"postId":"2116295879288311875","spendId":"6","maxSats":"5807","priceTx":"https://sepolia.basescan.org/tx/0x23c75a3d4a47af33c909a9908c4d965fd603ca0b2a64bd1f420040cc27e75b81"}
+{"at":"2026-10-30T22:27:38.597Z","event":"receipt-wait","vaultId":"5","live":true,"intentId":"6","expect":"TGv1 84532 0x8e38cc6b1bd1f0d25357066cd0036f28fd1f7773 5 6"}
+{"at":"2026-10-30T22:28:09.667Z","event":"receipt-found","vaultId":"5","live":true,"intentId":"6","bsvTxid":"bbbd9137a1275ebbac968aa277c289cf775635d0bc9942f7145e7c88f37552ec","status":"mempool","woc":"https://whatsonchain.com/tx/bbbd9137a1275ebbac968aa277c289cf775635d0bc9942f7145e7c88f37552ec"}
+{"at":"2026-10-30T22:28:14.006Z","event":"settle-sent","vaultId":"5","live":true,"intentId":"6","settleTx":"https://sepolia.basescan.org/tx/0xfc733737edfba6d77f586829c85bf53828d00104667cabfe27c113199fbb58ea"}
+{"at":"2026-10-30T22:28:14.028Z","event":"settled","vaultId":"5","live":true,"intentId":"6","settled":true,"bsvTxid":"0xbbbd9137a1275ebbac968aa277c289cf775635d0bc9942f7145e7c88f37552ec","match":true}
