@@ -38,8 +38,9 @@ response), the signer against the stored Airnode address, the signature age (5 m
 (10 min) and of the post (30 min), and replay (a price must be newer than the last one, a post id counts once).
 
 **What a signature does not prove.** An API3 signature proves who said what, and when, and that the data was not changed.
-It does not prove the content is true. That is why the uncapped rules use only price data, and the post-driven rule is
-capped at 25 %. The analyst verdict is signed off-chain and only its hash is stored, not verified on-chain.
+It does not prove the content is true. That is why the larger rule-based moves (budget, breaker hedge 50 %) use only signed price data, and the post-driven
+hedge is capped at 25 %. The analyst verdict is signed off-chain; only its hash is emitted in `PostVerified`, it is not
+verified on-chain.
 
 ## Data we could not find on AirnodeHub
 
@@ -68,17 +69,17 @@ capped at 25 %. The analyst verdict is signed off-chain and only its hash is sto
 **Tamper test.** Check order for a price: request → signer → signature age → replay → budget, so a cached fixture still
 shows its own error. All fixtures in [`test/fixtures/`](test/fixtures/) are real signed responses, bought once via x402.
 
-| Case                      | Input                                        | Expected revert                          | Fixture                          | Forge test                                    | Live in judge script   |
-| ------------------------- | -------------------------------------------- | ---------------------------------------- | -------------------------------- | --------------------------------------------- | ---------------------- |
-| Valid + fresh             | fresh BSV/USD price, amount ≤ budget         | none, SPEND intent created               | `coinpaprika-bsv-usd.json`¹      | `test_valid_freshPriceCreatesSpendIntent`     | yes (sends a tx)       |
-| Edited value              | one digit of `data` changed                  | `SignerMismatch(recovered)` `0x64fd0fbe` | `coinpaprika-bsv-usd.json`       | `test_tamper_editedValue`                     | yes                    |
-| Wrong key                 | re-signed with a local key                   | `SignerMismatch(that key)` `0x64fd0fbe`  | none (`vm.sign`)                 | `test_tamper_wrongKey`                        | yes                    |
-| Other request             | CoinPaprika BTC/USD, same signer             | `WrongRequest(0xcadca27a…)` `0x4a161c51` | `coinpaprika-btc-usd.json`       | `test_tamper_wrongRequest_btcInsteadOfBsv`    | yes                    |
-| Too old                   | signature older than 5 min                   | `StaleSignature()` `0x480cfdff`          | `coinpaprika-bsv-usd.json`       | `test_tamper_tooOld`                          | yes                    |
-| Replay                    | the same response twice                      | `Replay()` `0xb5a78004`                  | `coinpaprika-bsv-usd.json`       | `test_tamper_replay`                          | yes (not with `--dry`) |
-| Over budget               | amount > remaining today                     | `BudgetExceeded(remaining)` `0x19af843d` | `coinpaprika-bsv-usd.json`       | `test_tamper_budgetExceeded`                  | yes (simulated)        |
-| Old post, fresh signature | @federalreserve, post 16.6 h old when signed | `StalePost()` `0x7f1d2c82`               | `twitterapi-federalreserve.json` | `test_tamper_stalePost_oldPostFreshSignature` | Forge only             |
-| Retweet                   | @WhiteHouse, text `RT @CENTCOM: ...`         | `NotOriginalPost()` `0x579354d1`         | `twitterapi-whitehouse.json`     | `test_realRetweetIsNotOriginalPost`           | Forge only²            |
+| Case                      | Input                                        | Expected revert                          | Fixture                                           | Forge test                                    | Live in judge script   |
+| ------------------------- | -------------------------------------------- | ---------------------------------------- | ------------------------------------------------- | --------------------------------------------- | ---------------------- |
+| Valid + fresh             | fresh BSV/USD price, amount ≤ budget         | none, SPEND intent created               | `coinpaprika-bsv-usd.json`¹                       | `test_valid_freshPriceCreatesSpendIntent`     | yes (sends a tx)       |
+| Edited value              | one digit of `data` changed                  | `SignerMismatch(recovered)` `0x64fd0fbe` | `coinpaprika-bsv-usd.json`                        | `test_tamper_editedValue`                     | yes                    |
+| Wrong key                 | re-signed with a local key                   | `SignerMismatch(that key)` `0x64fd0fbe`  | `coinpaprika-bsv-usd.json`, re-signed (`vm.sign`) | `test_tamper_wrongKey`                        | yes                    |
+| Other request             | CoinPaprika BTC/USD, same signer             | `WrongRequest(0xcadca27a…)` `0x4a161c51` | `coinpaprika-btc-usd.json`                        | `test_tamper_wrongRequest_btcInsteadOfBsv`    | yes                    |
+| Too old                   | signature older than 5 min                   | `StaleSignature()` `0x480cfdff`          | `coinpaprika-bsv-usd.json`                        | `test_tamper_tooOld`                          | yes                    |
+| Replay                    | the same response twice                      | `Replay()` `0xb5a78004`                  | `coinpaprika-bsv-usd.json`                        | `test_tamper_replay`                          | yes (not with `--dry`) |
+| Over budget               | amount > remaining today                     | `BudgetExceeded(remaining)` `0x19af843d` | `coinpaprika-bsv-usd.json`                        | `test_tamper_budgetExceeded`                  | yes (simulated)        |
+| Old post, fresh signature | @federalreserve, post 16.6 h old when signed | `StalePost()` `0x7f1d2c82`               | `twitterapi-federalreserve.json`                  | `test_tamper_stalePost_oldPostFreshSignature` | Forge only             |
+| Retweet                   | @WhiteHouse, text `RT @CENTCOM: ...`         | `NotOriginalPost()` `0x579354d1`         | `twitterapi-whitehouse.json`                      | `test_realRetweetIsNotOriginalPost`           | Forge only²            |
 
 ¹ In Forge the valid case uses `vm.warp` to the fixture's signing time. On the live contract a cached fixture is stale;
 the valid case needs a freshly bought price. ² `--post <account>` buys the latest real post and shows what
@@ -105,7 +106,8 @@ price case above against the live contract as a free `eth_call`, sends one valid
 intent, then shows `Replay`: `node --env-file=.env src/judge.ts [--dry] [--post WhiteHouse]`. It needs the key of the
 vault's agent, so we run it live on vault 2. To run it yourself, create your own vault with `createVault` (anyone can;
 you become its owner, set yourself as agent) and pass `--vault <id>`; your key then needs Base Sepolia ETH and aUSD from
-the [faucet](https://api3dao.github.io/airnodehub-hackathon/faucet/).
+the [faucet](https://api3dao.github.io/airnodehub-hackathon/faucet/). Set `RPC_URL`, `PRIVATE_KEY` (the vault's agent) and
+`PAYER_PRIVATE_KEY` (pays x402, may be the same key) in `.env`.
 
 ## Real vs demo
 
@@ -113,7 +115,7 @@ the [faucet](https://api3dao.github.io/airnodehub-hackathon/faucet/).
   [BSV/USD purchase](https://sepolia.basescan.org/tx/0x71b12c9ead04e0891898547b6a1206e4c77dfb6aac73eaa31c716e64a2b1e4c7)),
   the tamper cases above on real fixtures. The BSV side (vault, watcher, payments) runs on BSV mainnet with tiny amounts.
 - **Demo:** Base Sepolia, not Base mainnet (x402 in aUSD only exists there). The live vault runs a $1/day budget. The
-  stablecoin on BSV is a demo token and not redeemable. One team-run watcher and LP. The team demo X account is labeled
+  stablecoin on BSV is a demo token and not redeemable. One team-run watcher and LP. The team demo X account (planned, not whitelisted yet) will be labeled
   as such. The circuit breaker firing is shown from a recorded real event: we never loosen thresholds to force it.
 - The agent loop and the watcher are built by the BSV side of the team on top of the client in
   [`src/client/`](src/client/); they are not part of this folder.
