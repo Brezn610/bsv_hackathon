@@ -6,7 +6,7 @@ networking, fact 31). For mainnet steps: `export TG_ENV_FILE=…/rail/.env TG_DA
 ## 0. Offline proof (no money, ~10 s)
 
 ```sh
-npm test                    # 65 offline tests (2 live ones skipped)
+npm test                    # 70 offline tests (2 live ones skipped)
 LIVE_BASE=1 npx tsx --test test/api3-readonly.test.ts   # live reads of vault 5; intent #1 (vault 2) refused
 ```
 
@@ -33,6 +33,28 @@ Run both terminals from the same checkout, the one whose `bsv/data` holds the bi
 journal. If `watcher-serve` says "No watcher journal", you are in the wrong checkout or the file is missing: restore it
 from the backup. Never answer that with `--init-journal`, which would start an empty journal and forget which intents
 were already signed.
+
+## 2b. Unattended: a verified post starts the whole cycle
+
+The API3 side verifies a post from a whitelisted account on vault 5 (`submitEvent`, RISK_OFF), then
+creates a SPEND intent (`submitPrice(5, …, usd(0.001))`). The BSV side runs without a human:
+
+```sh
+# Terminal A: watcher (as above)        Terminal B: the BSV agent, unattended
+CONFIRM_MAINNET=1 npm run tg -- auto --buy      # new vault-5 SPEND intents → withdraw over the watcher → HTTP 402 buy
+# paying an external 402 service instead of the local demo merchant:
+CONFIRM_MAINNET=1 npm run tg -- auto --buy --url <analyst URL> --price <sats> --description "<offer text>" [--item <name>]
+```
+
+- Only intents created after it starts (or from `--from-block B`), so a rehearsal never leaks into the
+  demo; SPEND only (SWAP intents are
+  logged as `skipped:swap`: the watcher never co-signs them). At most `--max-intents` per run (default 5) and `--max-sats` of vault outflow per run (default
+  15,000, counted at each intent's `maxSats` before it starts).
+- Each intent goes through exactly the `tg withdraw` path (watcher checks, journal, pending file).
+  It is marked `started` before and never started twice, also across restarts.
+- Stops on the first failure that is not a clean refusal before signing; Base/WhatsOnChain hiccups
+  are retried (up to 6 ticks, ~1 min). State: `data/auto-state.json`; log: `data/auto-cycle.jsonl`.
+- The API3 side finds the BSV txid on chain (the `TGv1 … 5 N` receipt) and calls `settle`.
 
 ## 3. The float buys something
 

@@ -29,6 +29,7 @@ import { openServerWallet, type ServerWallet } from '../src/chain/serverWallet'
 import { config } from '../src/config'
 import { DATA_DIR, loadEnv, RAIL_DIR, requireEnv, STATE_DIR, WATCHER_ENV_FILE } from '../src/env'
 import { EventBus } from '../src/events'
+import { runAutoCycle } from '../src/flow/autoCycle'
 import { withdrawForIntent } from '../src/flow/withdraw'
 import { Guardian } from '../src/guardian/guardian'
 import { RESEARCH_PATH, startPaidApi } from '../src/merchant/paidApi'
@@ -428,8 +429,8 @@ async function status(): Promise<void> {
   if (existsSync(JOURNAL_FILE)) console.log(readFileSync(JOURNAL_FILE, 'utf8'))
 }
 
-async function withdraw(): Promise<void> {
-  const intentId = BigInt(arg('intent') ?? NaN)
+async function withdraw(intentIdArg?: bigint): Promise<void> {
+  const intentId = intentIdArg ?? BigInt(arg('intent') ?? NaN)
   const { stored, binding } = loadStoredBinding()
   requireGate1(stored.vaultLockingScript)
   if (!existsSync(path.join(EVIDENCE_DIR, 'owner-exit.json'))) throw new Error('Gate (2): the owner exit has not been proven on mainnet yet')
@@ -561,6 +562,53 @@ async function withdraw(): Promise<void> {
     lock?.release()
     await agent.close()
   }
+}
+
+const AUTO_STATE_FILE = path.join(STATE_DIR, 'auto-state.json')
+const AUTO_LOG_FILE = path.join(STATE_DIR, 'auto-cycle.jsonl')
+
+/**
+ * Unattended BSV half of the cycle (src/flow/autoCycle.ts): every new SPEND intent of the guarded
+ * vault goes through exactly the `tg withdraw` path over the separate watcher, then optionally
+ * `tg buy` (which reads --url/--price/--description/--item/--task from the same command line).
+ */
+async function auto(): Promise<void> {
+  requireMainnetConfirm('The automatic withdrawal loop')
+  // The same environment withdraw() will see, before any of it is checked or used.
+  loadEnv()
+  if (process.env.TG_INPROCESS_WATCHER === '1') throw new Error('tg auto only runs against the separate watcher (tg watcher-serve); unset TG_INPROCESS_WATCHER')
+  const { binding } = loadStoredBinding()
+  const withBuy = process.argv.includes('--buy')
+  const maxIntents = Number(arg('max-intents') ?? 5)
+  if (!Number.isSafeInteger(maxIntents) || maxIntents <= 0) throw new Error('--max-intents must be a positive integer')
+  const maxSats = Number(arg('max-sats') ?? 15_000)
+  if (!Number.isSafeInteger(maxSats) || maxSats <= 0) throw new Error('--max-sats must be a positive integer')
+  if (withBuy && arg('url') !== undefined && arg('description') === undefined) throw new Error('--description is required with --url')
+  const fromArg = arg('from-block')
+  const stop = { requested: false }
+  process.once('SIGINT', () => {
+    stop.requested = true
+    console.log('[auto] stopping after the current step')
+  })
+  const pendingFile = (id: bigint): string => path.join(STATE_DIR, `pending-withdrawal-${id}.json`)
+  await runAutoCycle({
+    reader: createIntentReader({ binding: loadBinding(), rpcUrl: process.env.BASE_SEPOLIA_RPC }),
+    vaultId: binding.base.vaultId,
+    withdraw: async id => {
+      await withdraw(id)
+      // An unrecorded broadcast is logged by the loop as done-unrecorded; it must not end the run.
+      process.exitCode = undefined
+    },
+    receipt: id => readJson<{ bsvTxid: string; vaultOutflowSats: number }>(path.join(EVIDENCE_DIR, `withdrawal-intent-${id}.json`)),
+    hasPending: id => existsSync(pendingFile(id)),
+    buy: withBuy ? buy : undefined,
+    stateFile: AUTO_STATE_FILE,
+    logFile: AUTO_LOG_FILE,
+    maxIntents,
+    maxSats,
+    fromBlock: fromArg === undefined ? undefined : BigInt(fromArg),
+    stop
+  })
 }
 
 /**
@@ -717,7 +765,7 @@ async function buy(): Promise<void> {
   }
 }
 
-const commands: Record<string, () => Promise<void>> = { 'watcher-key': watcherKey, 'float-key': floatKey, 'rebind-float': rebindFloat, 'watcher-serve': watcherServe, init, gate, fund, exit, status, withdraw, buy }
+const commands: Record<string, () => Promise<void>> = { 'watcher-key': watcherKey, 'float-key': floatKey, 'rebind-float': rebindFloat, 'watcher-serve': watcherServe, init, gate, fund, exit, status, withdraw, buy, auto }
 
 const command = commands[process.argv[2] ?? '']
 if (command === undefined) {
