@@ -40,6 +40,13 @@ needs it too. Every mainnet step needs `CONFIRM_MAINNET=1`, and each one was app
   operator looks up the recorded `proposalId` (the txid with empty unlocking scripts) on chain
   and either re-broadcasts that exact transaction or leaves the intent unused. The owner can
   always exit.
+- **Answer lost after signing** (watcher process): if the HTTP response to `/cosign` is lost
+  after the watcher journaled `signed`, the signatures are gone and the intent is spent (fail
+  closed by design; its vault outpoints stay claimed). The agent is told to check `/decisions`
+  rather than retry; recovery is a new intent, or the owner exit.
+- **Lost record after broadcast:** `tg withdraw` keeps the signed tx in
+  `data/pending-withdrawal-N.json` from just before broadcast until the watcher has recorded it,
+  and refuses to build another proposal for intent N while that file exists.
 - The watcher can block (refuse to sign) but cannot take funds: it cannot spend without the agent.
 - **Separate process (Option B).** `tg watcher-serve` runs the watcher as its own process, an HTTP
   server on 127.0.0.1 that alone loads `.env.watcher` and owns the journal (an exclusive lock file;
