@@ -14,7 +14,8 @@ export const responseDigest = ({
 
 // Changes one digit of a numeric field and keeps the signature, so the signer recovered on-chain is some unknown address.
 export const editDigit = (response: SignedResponse, field = 'price'): SignedResponse => {
-  const match = new RegExp(`"${field}":"?-?(\\d)`).exec(response.data);
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`"${escaped}":"?-?(\\d)`).exec(response.data);
   if (!match) throw new Error(`The data has no numeric field ${field}`);
   const digitIndex = match.index + match[0].length - 1;
   const digit = Number(response.data[digitIndex]);

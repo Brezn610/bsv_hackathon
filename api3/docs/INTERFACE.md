@@ -7,13 +7,14 @@ owner first.
 
 ## Where things are
 
-|                           |                                                                                                 |
-| ------------------------- | ----------------------------------------------------------------------------------------------- |
-| Chain                     | Base Sepolia (84532), explorer https://sepolia.basescan.org                                     |
-| Contract + demo vault     | `deployments.json` → `baseSepolia.treasuryGuard`, `baseSepolia.vaultId` (`null` until deployed) |
-| Feeds the contract trusts | `deployments.json` → `feeds` (Airnode signer + request hash per feed)                           |
-| ABI                       | `src/client/abi.ts` (typed, generated from the forge build)                                     |
-| Client                    | `src/client/treasury-guard.ts`                                                                  |
+|                           |                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------- |
+| Chain                     | Base Sepolia (84532), explorer https://sepolia.basescan.org                                       |
+| Contract + the real vault | `deployments.json` → `baseSepolia.treasuryGuard`, `baseSepolia.vaultId` (the ONLY vault to guard) |
+| Judge vaults, retired     | `judgeVaultId`, `liveJudgeVaultId`, `retiredVaults`: never co-sign intents of these               |
+| Feeds the contract trusts | `deployments.json` → `feeds` (Airnode signer + request hash per feed)                             |
+| ABI                       | `src/client/abi.ts` (typed, generated from the forge build)                                       |
+| Client                    | `src/client/treasury-guard.ts`                                                                    |
 
 ## Units
 
@@ -37,7 +38,8 @@ const { intents, hash } = await guard.submitPrice(vaultId, price, usd(0.5)); // 
 const post = await guard.fetchPost('WhiteHouse', paying); // newest post of a whitelisted account
 await guard.submitEvent(vaultId, post, price, Verdict.RISK_OFF); // hedge ≤ 25 %, only from NORMAL
 
-await guard.settle(intentId, bsvTxid); // record the BSV tx that carried out an intent
+await guard.settle(intentId, bsvTxid); // record the BSV tx that carried out an intent (agent key only)
+// bsvTxid: the txid as explorers show it (e.g. WhatsOnChain), as 0x-prefixed bytes32
 ```
 
 - Every write is simulated first. A rejected response throws `ContractRejection` with `errorName`
@@ -45,19 +47,38 @@ await guard.settle(intentId, bsvTxid); // record the BSV tx that carried out an 
   `Cooldown`, ...) and costs no gas. Log it and skip the cycle; never retry in a tight loop.
 - `usd(0)` submits a price without spending: it only feeds the breaker.
 - Budget: debited when the intent is created, never refunded (also not on expiry), reset once per UTC day.
-- A price must be newer than the last accepted one, and at most `maxSignatureAge` old (see `getVaultConfig`).
+- `submitPrice`: the price must be newer than the last one this vault accepted, and at most `maxSignatureAge` old
+  (see `getVaultConfig`). `submitEvent` only needs a fresh price; its replay key is the post id.
 - Retweets are rejected (`NotOriginalPost`). A post can be used once per vault (`Replay`).
 
 ## Watcher (no key needed, read-only)
 
 ```ts
 const guard = createTreasuryGuardClient({ rpcUrl });
-const past = await guard.getIntentEvents(vaultId); // catch up from the deploy block
-const stop = guard.watchIntents(async (intentId) => {
-  const intent = await guard.getIntent(intentId);
-  // co-sign only a BSV tx that matches the intent, and only before intent.expiry
-});
+const vaultId = BigInt(guard.deployment.vaultId!); // never hardcode it
+// One call does both: every past intent since the deploy block, then new ones (polls every 10 s, no gap in between,
+// RPC errors go to onError and the same blocks are retried). Each intentId is delivered once per process.
+const stop = guard.watchIntents(
+  async (intentId) => {
+    const intent = await guard.getIntent(intentId); // always re-read before signing
+    if (intent.vaultId !== vaultId) return; // the contract holds other vaults: ignore them
+    // co-sign only a BSV tx that matches the intent (rules below)
+  },
+  vaultId,
+  { onError: (error) => console.error(error) }
+);
 ```
+
+Co-sign rules:
+
+- `intent.vaultId == vaultId` from `deployments.json`. Judge vaults also create real intents; never sign those.
+- `now < intent.expiry` and `intent.settled == false`. `settled` is only a record the agent writes, not an
+  authority: it does not stop a second signature.
+- **At most one BSV tx per intentId.** Persist the intentIds you signed (a small file) and never sign one twice,
+  also across restarts. Nothing on-chain enforces this; the watcher does.
+- SPEND: sats leaving the vault (excluding change back to it) ≤ `maxSats`. SWAP: amount ≤ `maxBps`/10000 of the
+  vault (DUSD_TO_SATS: of its dUSD) and effective price within [`minOut`, `maxOut`].
+- Any doubt (RPC error, unknown intent, mismatch): don't sign. The owner can always exit alone.
 
 `getIntent(intentId)` returns:
 
@@ -67,7 +88,7 @@ const stop = guard.watchIntents(async (intentId) => {
 | `kind`                   | 0 SPEND, 1 SWAP                                                                |
 | `direction`              | 0 NONE (SPEND), 1 SATS_TO_DUSD (hedge), 2 DUSD_TO_SATS (re-entry)              |
 | `source`                 | 0 BUDGET, 1 BREAKER, 2 REENTRY, 3 EVENT                                        |
-| `maxSats`                | SPEND: most sats the tx may pay out (`usdAmount / price`)                      |
+| `maxSats`                | SPEND: most sats the tx may pay out (`usdAmount * 1e10 / price`, rounded down) |
 | `maxBps`                 | SWAP: most share of the vault to swap (DUSD_TO_SATS: of its dUSD); 0 for SPEND |
 | `minOut`, `maxOut`       | SWAP: allowed price band, signed price ∓ slippage (USD per BSV, 8 decimals)    |
 | `expiry`                 | unix seconds; the watcher must not co-sign after it                            |
@@ -85,6 +106,9 @@ Other views: `remainingUsdToday(vaultId)`, `regime(vaultId)` (`'NORMAL' | 'RISK_
 
 ## Judge script (API3 standalone, no BSV needed)
 
-`node --env-file=.env src/judge.ts` (judge vault `judgeVaultId`, deployer key; x402 paid by the agent key) buys one fresh BSV/USD price (0.001 aUSD), runs every rejected case as a free
-`eth_call` (edited digit, local key, BTC/USD request, too old, over budget), sends one valid SPEND, then shows `Replay`.
-`--dry` sends nothing, `--post WhiteHouse` also checks the latest post.
+`node --env-file=.env src/judge.ts` (judge vault `judgeVaultId`, deployer key; x402 paid by the agent key) buys one
+fresh BSV/USD price (0.001 aUSD), runs every rejected case as a free `eth_call` (edited digit, local key, BTC/USD
+request, too old, over budget), sends one valid SPEND, then shows `Replay`. `--dry` sends nothing. `--post <account>`
+also buys that account's latest post: with `--dry` it only shows what `checkEvent` says; without it, a fresh original
+post creates a REAL hedge intent, which works once per vault (it stays `GUARDED`). `--live` uses `liveJudgeVaultId`,
+kept fresh for that one hedge at live judging.

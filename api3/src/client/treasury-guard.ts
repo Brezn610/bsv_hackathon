@@ -97,9 +97,19 @@ export const createTreasuryGuardClient = ({
     return response;
   };
 
+  // Writes go to whatever chain the RPC serves (chain: null), so the RPC is checked against deployments.json once.
+  let chainChecked: Promise<void> | undefined;
+  const checkChain = () =>
+    (chainChecked ??= publicClient.getChainId().then((chainId) => {
+      if (chainId !== deployment.chainId) {
+        throw new Error(`The RPC serves chain ${chainId}, but deployments.json is for chain ${deployment.chainId}`);
+      }
+    }));
+
   // Writes are simulated first, so a rejected response reverts here with its error name and costs no gas.
   const send = async (functionName: 'submitPrice' | 'submitEvent' | 'settle', args: readonly unknown[]) => {
     const { walletClient, account } = requireWallet();
+    await checkChain();
     const { request } = await publicClient
       .simulateContract({ ...contract, functionName, args, account } as Parameters<
         typeof publicClient.simulateContract
@@ -110,8 +120,76 @@ export const createTreasuryGuardClient = ({
     >[0]);
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     if (receipt.status !== 'success') throw new Error(`Transaction ${hash} reverted`);
-    const events = parseEventLogs({ abi: treasuryGuardAbi, logs: receipt.logs });
+    const events = parseEventLogs({
+      abi: treasuryGuardAbi,
+      logs: receipt.logs.filter((log) => log.address.toLowerCase() === address.toLowerCase()),
+    });
     return { hash, receipt, events };
+  };
+
+  /** All intents of a vault in [fromBlock, toBlock] (defaults: deploy block, latest). Reads the logs in chunks of
+   * `logBlockRange` blocks, since public RPCs cap eth_getLogs (sepolia.base.org: 200 blocks). */
+  const getIntentEvents = async (
+    vaultId?: bigint,
+    fromBlock = BigInt(deployment.deployBlock ?? 0),
+    toBlock?: bigint
+  ) => {
+    const last = toBlock ?? (await publicClient.getBlockNumber());
+    const events = [];
+    for (let from = fromBlock; from <= last; from += logBlockRange) {
+      const to = from + logBlockRange - 1n < last ? from + logBlockRange - 1n : last;
+      events.push(
+        ...(await publicClient.getContractEvents({
+          ...contract,
+          eventName: 'IntentCreated',
+          args: vaultId === undefined ? undefined : { vaultId },
+          fromBlock: from,
+          toBlock: to,
+        }))
+      );
+    }
+    return events;
+  };
+
+  /** Calls `onIntent` once per IntentCreated of `vaultId`, first for every past one since `fromBlock` (default: the
+   * deploy block), then for new ones, polling every `pollMs`. Catch-up and live share one block cursor, so nothing
+   * falls in between, and a poll that fails (RPC error, laptop asleep) is reported to `onError` and retried from the
+   * same block. Returns the function that stops watching. */
+  const watchIntents = (
+    onIntent: (intentId: bigint, vaultId: bigint) => void | Promise<void>,
+    vaultId?: bigint,
+    {
+      fromBlock = BigInt(deployment.deployBlock ?? 0),
+      pollMs = 10_000,
+      onError = (error: unknown) => console.error('watchIntents:', error),
+    }: { fromBlock?: bigint; pollMs?: number; onError?: (error: unknown) => void } = {}
+  ) => {
+    let next = fromBlock;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const seen = new Set<bigint>();
+    const poll = async () => {
+      try {
+        const latest = await publicClient.getBlockNumber();
+        if (latest >= next) {
+          for (const { args } of await getIntentEvents(vaultId, next, latest)) {
+            if (args.intentId === undefined || args.vaultId === undefined || seen.has(args.intentId)) continue;
+            seen.add(args.intentId);
+            await onIntent(args.intentId, args.vaultId);
+          }
+          next = latest + 1n;
+        }
+      } catch (error) {
+        onError(error);
+      } finally {
+        if (!stopped) timer = setTimeout(poll, pollMs);
+      }
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   };
 
   return {
@@ -129,17 +207,24 @@ export const createTreasuryGuardClient = ({
       return fetchVerified(tweetFeed(userName), feed.requestHash, fetchFunction);
     },
 
-    /** Runs every check of submitPrice with eth_call: free, throws ContractRejection like the write would. */
-    checkPrice: (vaultId: bigint, response: SignedResponse) =>
+    /** Runs every check of submitPrice with eth_call: free, throws ContractRejection like the write would. Pass
+     * `blockNumber` (e.g. a receipt's) to read the state right after a transaction, even from a lagging RPC node. */
+    checkPrice: (vaultId: bigint, response: SignedResponse, blockNumber?: bigint) =>
       publicClient
-        .readContract({ ...contract, functionName: 'checkPrice', args: [vaultId, toResponseTuple(response)] })
+        .readContract({
+          ...contract,
+          functionName: 'checkPrice',
+          args: [vaultId, toResponseTuple(response)],
+          blockNumber,
+        })
         .catch(rethrowRejection),
-    checkEvent: (vaultId: bigint, post: SignedResponse, price: SignedResponse) =>
+    checkEvent: (vaultId: bigint, post: SignedResponse, price: SignedResponse, blockNumber?: bigint) =>
       publicClient
         .readContract({
           ...contract,
           functionName: 'checkEvent',
           args: [vaultId, toResponseTuple(post), toResponseTuple(price)],
+          blockNumber,
         })
         .catch(rethrowRejection),
 
@@ -181,43 +266,15 @@ export const createTreasuryGuardClient = ({
       publicClient.readContract({ ...contract, functionName: 'getIntent', args: [intentId] }),
     remainingUsdToday: (vaultId: bigint) =>
       publicClient.readContract({ ...contract, functionName: 'remainingUsdToday', args: [vaultId] }),
-    regime: async (vaultId: bigint) =>
-      Regime[await publicClient.readContract({ ...contract, functionName: 'regime', args: [vaultId] })],
+    regime: async (vaultId: bigint, blockNumber?: bigint) =>
+      Regime[await publicClient.readContract({ ...contract, functionName: 'regime', args: [vaultId], blockNumber })],
     lastPrice: (vaultId: bigint) =>
       publicClient.readContract({ ...contract, functionName: 'lastPrice', args: [vaultId] }),
     getVaultConfig: (vaultId: bigint) =>
       publicClient.readContract({ ...contract, functionName: 'getVaultConfig', args: [vaultId] }),
 
-    /** All intents of a vault since `fromBlock` (default: the deploy block), e.g. for a watcher catching up. Reads the
-     * logs in chunks of `logBlockRange` blocks, since public RPCs cap eth_getLogs (sepolia.base.org: 200 blocks). */
-    getIntentEvents: async (vaultId?: bigint, fromBlock = BigInt(deployment.deployBlock ?? 0)) => {
-      const latest = await publicClient.getBlockNumber();
-      const events = [];
-      for (let from = fromBlock; from <= latest; from += logBlockRange) {
-        const to = from + logBlockRange - 1n < latest ? from + logBlockRange - 1n : latest;
-        events.push(
-          ...(await publicClient.getContractEvents({
-            ...contract,
-            eventName: 'IntentCreated',
-            args: vaultId === undefined ? undefined : { vaultId },
-            fromBlock: from,
-            toBlock: to,
-          }))
-        );
-      }
-      return events;
-    },
-    /** Calls `onIntent` for every new IntentCreated. Returns the function that stops watching. */
-    watchIntents: (onIntent: (intentId: bigint, vaultId: bigint) => void, vaultId?: bigint) =>
-      publicClient.watchContractEvent({
-        ...contract,
-        eventName: 'IntentCreated',
-        args: vaultId === undefined ? undefined : { vaultId },
-        onLogs: (logs) => {
-          for (const { args } of logs)
-            if (args.intentId !== undefined && args.vaultId !== undefined) onIntent(args.intentId, args.vaultId);
-        },
-      }),
+    getIntentEvents,
+    watchIntents,
   };
 };
 

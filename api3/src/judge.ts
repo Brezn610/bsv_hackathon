@@ -7,8 +7,10 @@
 //   node --env-file=.env src/judge.ts                 fetch a fresh price via x402 (0.001 aUSD) and run all cases
 //   node --env-file=.env src/judge.ts --file r.json   use a saved response instead (it must still be fresh)
 //   options: --dry (no transaction) --usd <dollars> (default 1) --vault <id> (default: judgeVaultId)
-//            --post <account> (also buy that account's latest post, 0.01 aUSD: a fresh original post gets a RISK_OFF
-//            verdict and a real hedge intent, anything else shows what checkEvent says) --post-file <r.json>
+//            --live (use liveJudgeVaultId, the vault kept fresh for the one real hedge at live judging)
+//            --post <account> (also buy that account's latest post, 0.01 aUSD: without --dry, a fresh original post
+//            gets a RISK_OFF verdict and a REAL hedge intent, once per vault; anything else shows what checkEvent says)
+//            --post-file <r.json> (a saved post instead of --post)
 //            --network <name> --deployments <path> (default baseSepolia, deployments.json)
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs, parseEnv } from 'node:util';
@@ -36,6 +38,7 @@ const { values } = parseArgs({
     vault: { type: 'string' },
     usd: { type: 'string', default: '1' },
     dry: { type: 'boolean', default: false },
+    live: { type: 'boolean', default: false },
     post: { type: 'string' },
     'post-file': { type: 'string' },
     network: { type: 'string', default: 'baseSepolia' },
@@ -58,8 +61,9 @@ const readPayerKey = () =>
 const readFixture = (name: string) =>
   JSON.parse(readFileSync(new URL(`../test/fixtures/${name}`, import.meta.url), 'utf8')) as SignedResponse;
 
+if (values.post && values['post-file']) throw new Error('Pass --post or --post-file, not both');
 const deployment = loadDeployment(values.network, values.deployments ?? DEPLOYMENTS_URL);
-const vaultId = BigInt(values.vault ?? deployment.judgeVaultId ?? 0);
+const vaultId = BigInt(values.vault ?? (values.live ? deployment.liveJudgeVaultId : deployment.judgeVaultId) ?? 0);
 if (vaultId === 0n) throw new Error('No vault: pass --vault <id> or set judgeVaultId in deployments.json');
 if (deployment.vaultId !== null && vaultId === BigInt(deployment.vaultId)) {
   throw new Error(
@@ -81,6 +85,11 @@ const payingFetch = (): typeof fetch => {
 
 // ---- the fresh price every case starts from
 console.log(`TreasuryGuard ${guard.address} on ${values.network}, vault ${vaultId}, agent ${guard.agent}\n`);
+// Checked before anything is paid for: a wrong key would only waste an x402 payment.
+const config = await guard.getVaultConfig(vaultId);
+if (config.agent.toLowerCase() !== guard.agent?.toLowerCase()) {
+  throw new Error(`PRIVATE_KEY is not the agent of vault ${vaultId} (${config.agent}): run with --env-file=.env`);
+}
 let fresh: SignedResponse;
 if (values.file) {
   fresh = JSON.parse(readFileSync(values.file, 'utf8')) as SignedResponse;
@@ -96,20 +105,22 @@ if (values.file) {
 }
 const { price, change1h, updatedAt } = parsePriceData(fresh.data);
 const now = Number((await guard.publicClient.getBlock()).timestamp);
-const config = await guard.getVaultConfig(vaultId);
-if (config.agent.toLowerCase() !== guard.agent?.toLowerCase()) {
-  throw new Error(`PRIVATE_KEY is not the agent of vault ${vaultId} (${config.agent}): run with --env-file=.env`);
-}
 console.log(`  data: ${fresh.data}`);
 console.log(`  BSV = ${price} USD, 1h change ${change1h} %, measured ${updatedAt}`);
 console.log(
   `  signed ${signatureAge(fresh, now)} s ago (max ${config.maxSignatureAge} s), signature checked off-chain ✓\n`
 );
 
-if (signatureAge(fresh, now) > config.maxSignatureAge) {
+// A price close to the limit could expire between the checks and the transaction, and a price the vault already
+// accepted reads Replay everywhere: both would show failures that say nothing about the tamper checks.
+const HEADROOM = 60;
+if (signatureAge(fresh, now) + HEADROOM > config.maxSignatureAge) {
   throw new Error(
-    'The price is no longer fresh, so every case would read StaleSignature. Run without --file to buy one'
+    `The price is ${signatureAge(fresh, now)} s old, too close to the ${config.maxSignatureAge} s limit. Run without --file to buy one`
   );
+}
+if (BigInt(fresh.timestamp) <= (await guard.lastPrice(vaultId)).signedAt) {
+  throw new Error('This vault already accepted this price (or a newer one). Run without --file to buy a new one');
 }
 
 interface IntentArgs {
@@ -185,19 +196,25 @@ if (values.dry) {
   await expectReject('Valid + fresh (eth_call only, --dry)', 'accepted', () => guard.checkPrice(vaultId, fresh));
   skip('Same response again', 'Replay', '--dry sends no transaction');
 } else {
-  const before = remaining;
-  const { hash, intents } = await guard.submitPrice(vaultId, fresh, usdAmount);
-  const spend = intents.find((event) => Kind[event.args.kind] === 'SPEND');
-  results.push({
-    name: `Valid + fresh: SPEND ${formatUsd(usdAmount)} USD`,
-    expected: 'SPEND intent',
-    got: spend ? `intent #${spend.args.intentId}` : 'no SPEND intent',
-    pass: spend !== undefined,
-  });
-  console.log(`Valid case sent: ${explorerTx(hash)}`);
-  intents.forEach(({ args }) => printIntent(args));
-  console.log(`  budget today: ${formatUsd(before)} → ${formatUsd(await guard.remainingUsdToday(vaultId))} USD\n`);
-  await expectReject('Same response again', 'Replay', () => guard.checkPrice(vaultId, fresh));
+  const name = `Valid + fresh: SPEND ${formatUsd(usdAmount)} USD`;
+  try {
+    const { hash, receipt, intents } = await guard.submitPrice(vaultId, fresh, usdAmount);
+    const spend = intents.find((event) => Kind[event.args.kind] === 'SPEND');
+    results.push({
+      name,
+      expected: 'SPEND intent',
+      got: spend ? `intent #${spend.args.intentId}` : 'no SPEND intent',
+      pass: spend !== undefined,
+    });
+    console.log(`Valid case sent: ${explorerTx(hash)}`);
+    intents.forEach(({ args }) => printIntent(args));
+    console.log(`  budget today: ${formatUsd(remaining)} → ${formatUsd(remaining - usdAmount)} USD\n`);
+    // Read at the receipt's block, so a lagging RPC node can't answer from before the transaction.
+    await expectReject('Same response again', 'Replay', () => guard.checkPrice(vaultId, fresh, receipt.blockNumber));
+  } catch (error) {
+    if (!(error instanceof ContractRejection)) throw error;
+    results.push({ name, expected: 'SPEND intent', got: error.errorName, pass: false });
+  }
 }
 
 // A stale post can't be forced live (it depends on when the account last posted); the Forge tests cover it with
@@ -227,23 +244,37 @@ if (post) {
   if (got !== 'accepted' || values.dry) {
     // An old post or a retweet is a normal answer, not a failure: it depends on what the account last posted.
     results.push({ name: `Latest post (info${values.dry ? ', --dry' : ''})`, expected: 'any', got, pass: undefined });
-  } else {
-    const regimeBefore = await guard.regime(vaultId);
-    const { hash, intents } = await guard.submitEvent(vaultId, post, fresh, Verdict.RISK_OFF);
-    const hedge = intents.find((event) => Kind[event.args.kind] === 'SWAP');
+  } else if ((await guard.regime(vaultId)) !== 'NORMAL') {
+    // Only a NORMAL vault hedges on a post. Sending it anyway would use up the post for no hedge.
+    const regime = await guard.regime(vaultId);
     results.push({
-      name: 'Fresh original post + RISK_OFF verdict',
-      expected: 'hedge intent',
-      got: hedge
-        ? `intent #${hedge.args.intentId}, ${hedge.args.maxBps / 100} % of the vault`
-        : `no hedge (was ${regimeBefore})`,
-      // Only a NORMAL vault hedges on a post; after a hedge it stays GUARDED for the cooldown.
-      pass: hedge ? true : regimeBefore === 'NORMAL' ? false : undefined,
+      name: 'Fresh original post (vault already hedged)',
+      expected: 'any',
+      got: `not sent: vault is ${regime}, use --live or a fresh judge vault`,
+      pass: undefined,
     });
-    console.log(`Event sent: ${explorerTx(hash)}`);
-    intents.forEach(({ args }) => printIntent(args));
-    console.log(`  regime: ${regimeBefore} → ${await guard.regime(vaultId)}\n`);
-    await expectReject('Same post again', 'Replay', () => guard.checkEvent(vaultId, post, fresh));
+  } else {
+    const name = 'Fresh original post + RISK_OFF verdict';
+    try {
+      const { hash, receipt, intents } = await guard.submitEvent(vaultId, post, fresh, Verdict.RISK_OFF);
+      const hedge = intents.find((event) => Kind[event.args.kind] === 'SWAP');
+      results.push({
+        name,
+        expected: 'hedge intent',
+        got: hedge ? `intent #${hedge.args.intentId}, ${hedge.args.maxBps / 100} % of the vault` : 'no hedge intent',
+        pass: hedge !== undefined,
+      });
+      console.log(`Event sent: ${explorerTx(hash)}`);
+      intents.forEach(({ args }) => printIntent(args));
+      console.log(`  regime: NORMAL → ${await guard.regime(vaultId, receipt.blockNumber)}\n`);
+      await expectReject('Same post again', 'Replay', () =>
+        guard.checkEvent(vaultId, post, fresh, receipt.blockNumber)
+      );
+    } catch (error) {
+      // e.g. Cooldown: checkEvent leaves out that verdict-dependent check by design.
+      if (!(error instanceof ContractRejection)) throw error;
+      results.push({ name, expected: 'hedge intent', got: error.errorName, pass: false });
+    }
   }
 }
 
