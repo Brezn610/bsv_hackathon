@@ -1,6 +1,8 @@
 // Treasury Guard on BSV mainnet. Base Sepolia (testnet) decides; BSV mainnet moves the money.
 //
 //   npm run tg -- watcher-key            create .env.watcher (watcher root key), print its public key
+//   npm run tg -- float-key              create .env.float: the Agent Float's own wallet (income = vault withdrawals only)
+//   npm run tg -- rebind-float           new binding version: same vault, Agent Float = the float wallet
 //   npm run tg -- init                   derive agent / watcher / owner (BSV Desktop) vault keys, write data/vault-binding.json
 //   npm run tg -- gate                   safety gate (1), offline: the EXACT mainnet script through the interpreter and the mock chain
 //   npm run tg -- fund --sats N          CONFIRM_MAINNET=1; owner (BSV Desktop) funds the vault, N <= 5000
@@ -14,6 +16,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { Beef, P2PKH, PrivateKey, ProtoWallet, Script, Transaction, Utils, WalletClient } from '@bsv/sdk'
+import { decidePurchase, type PaidOffer } from '../src/agent/brain'
 import { buyResearch } from '../src/agent/buyResearch'
 import { floatLockingScript, internalizeWithdrawal } from '../src/agent/float'
 import { createIntentReader } from '../src/api3/intentReader'
@@ -21,7 +24,8 @@ import { loadBinding, settleTxidArg } from '../src/api3/policyTypes'
 import { MockChain } from '../src/chain/mockChain'
 import { unspentByScript } from '../src/chain/wocUtxos'
 import { openServerWallet, type ServerWallet } from '../src/chain/serverWallet'
-import { DATA_DIR, loadEnv, requireEnv, STATE_DIR, WATCHER_ENV_FILE } from '../src/env'
+import { config } from '../src/config'
+import { DATA_DIR, loadEnv, RAIL_DIR, requireEnv, STATE_DIR, WATCHER_ENV_FILE } from '../src/env'
 import { EventBus } from '../src/events'
 import { withdrawForIntent } from '../src/flow/withdraw'
 import { Guardian } from '../src/guardian/guardian'
@@ -50,6 +54,8 @@ const UTXO_FILE = path.join(STATE_DIR, 'vault-utxos.json')
 const GATE_FILE = path.join(STATE_DIR, 'gate1.json')
 const JOURNAL_FILE = path.join(STATE_DIR, 'watcher-journal.json')
 const EVIDENCE_DIR = path.join(STATE_DIR, 'evidence')
+/** The Agent Float's own wallet: its only income is vault withdrawals, so what it pays is traceable to them. */
+const FLOAT_ENV_FILE = path.join(RAIL_DIR, '.env.float')
 const woc = (txid: string): string => `https://whatsonchain.com/tx/${txid}`
 
 interface StoredBinding {
@@ -95,15 +101,35 @@ function ownerSigner(): VaultSigner & { wallet: WalletClient } {
   return { wallet: new WalletClient('auto', OWNER_ORIGINATOR), keyID: KEY_ID, originator: OWNER_ORIGINATOR }
 }
 
-function watcherSigner(): VaultSigner {
-  if (!existsSync(WATCHER_ENV_FILE)) throw new Error('No watcher key. Run: npm run tg -- watcher-key')
-  const env: Record<string, string> = {}
-  for (const line of readFileSync(WATCHER_ENV_FILE, 'utf8').split('\n')) {
+/** Reads one key from a key file of its own, without putting it into process.env. */
+function readKeyFile(file: string, name: string, hint: string): string {
+  if (!existsSync(file)) throw new Error(`No ${name}. Run: npm run tg -- ${hint}`)
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
     const m = /^([A-Z_]+)=(.*)$/.exec(line.trim())
-    if (m !== null) env[m[1]] = m[2]
+    if (m !== null && m[1] === name) return m[2]
   }
-  if (env.WATCHER_ROOT_KEY_HEX === undefined) throw new Error(`${WATCHER_ENV_FILE} has no WATCHER_ROOT_KEY_HEX`)
-  return { wallet: new ProtoWallet(PrivateKey.fromHex(env.WATCHER_ROOT_KEY_HEX)), keyID: KEY_ID }
+  throw new Error(`${file} has no ${name}`)
+}
+
+function watcherSigner(): VaultSigner {
+  return { wallet: new ProtoWallet(PrivateKey.fromHex(readKeyFile(WATCHER_ENV_FILE, 'WATCHER_ROOT_KEY_HEX', 'watcher-key'))), keyID: KEY_ID }
+}
+
+async function floatWallet(): Promise<ServerWallet> {
+  return await openServerWallet('float', readKeyFile(FLOAT_ENV_FILE, 'FLOAT_ROOT_KEY_HEX', 'float-key'), STATE_DIR)
+}
+
+/** The wallet that owns the bound Agent Float script: the float wallet after rebind-float, the agent wallet before. */
+async function floatOwner(stored: StoredBinding): Promise<ServerWallet> {
+  if (existsSync(FLOAT_ENV_FILE)) {
+    const f = await floatWallet()
+    if ((await floatLockingScript(f.wallet)) === stored.floatLockingScript) return f
+    await f.close()
+  }
+  const a = await agentWallet()
+  if ((await floatLockingScript(a.wallet)) === stored.floatLockingScript) return a
+  await a.close()
+  throw new Error('Neither the float wallet nor the agent wallet owns the bound Agent Float script')
 }
 
 async function agentWallet(): Promise<ServerWallet> {
@@ -145,6 +171,46 @@ async function watcherKey(): Promise<void> {
   writeFileSync(WATCHER_ENV_FILE, `WATCHER_ROOT_KEY_HEX=${PrivateKey.fromRandom().toHex()}\n`, { mode: 0o600 })
   console.log(`Watcher key created in ${WATCHER_ENV_FILE} (mode 600). Vault key ${await vaultPublicKey(watcherSigner())}`)
   console.log('Never commit, paste or share that file.')
+}
+
+async function floatKey(): Promise<void> {
+  if (!existsSync(FLOAT_ENV_FILE)) writeFileSync(FLOAT_ENV_FILE, `FLOAT_ROOT_KEY_HEX=${PrivateKey.fromRandom().toHex()}\n`, { mode: 0o600 })
+  const f = await floatWallet()
+  try {
+    console.log(`Float wallet key in ${FLOAT_ENV_FILE} (mode 600). Identity ${f.identityKey}; Agent Float script ${await floatLockingScript(f.wallet)}`)
+    console.log('Never commit, paste or share that file.')
+  } finally {
+    await f.close()
+  }
+}
+
+/**
+ * New binding version: the same vault script and keys, the Agent Float moved to the dedicated
+ * float wallet, and the excluded-vault list refreshed from api3/deployments.json. Refused while
+ * the journal holds a signature that was not broadcast. The previous version is kept on disk.
+ */
+async function rebindFloat(): Promise<void> {
+  const { stored } = loadStoredBinding()
+  if (existsSync(JOURNAL_FILE)) {
+    const pending = Object.entries(readJson<{ records: Record<string, { status: string }> }>(JOURNAL_FILE).records).filter(([, r]) => r.status === 'reserved' || r.status === 'signed')
+    if (pending.length > 0) throw new Error(`Journal has unbroadcast signatures (${pending.map(([k]) => k).join(', ')}); reconcile first`)
+  }
+  const f = await floatWallet()
+  try {
+    const base = loadBinding()
+    const next: StoredBinding = {
+      ...stored,
+      version: `${stored.version}+float-wallet`,
+      floatLockingScript: await floatLockingScript(f.wallet),
+      base: { ...stored.base, excludedVaultIds: base.excludedVaultIds.map(String) },
+      createdAt: new Date().toISOString()
+    }
+    writeJson(BINDING_FILE.replace(/\.json$/, `.${stored.version}.json`), stored)
+    writeJson(BINDING_FILE, next)
+    console.log(`Binding ${next.version}: vault script unchanged; Agent Float now ${next.floatLockingScript}; excluded vaults ${next.base.excludedVaultIds.join(', ')}`)
+  } finally {
+    await f.close()
+  }
 }
 
 async function init(): Promise<void> {
@@ -343,6 +409,14 @@ async function status(): Promise<void> {
   } finally {
     await agent.close()
   }
+  if (existsSync(FLOAT_ENV_FILE)) {
+    const f = await floatWallet()
+    try {
+      console.log(`Float wallet balance: ${await f.wallet.balance()} sats`)
+    } finally {
+      await f.close()
+    }
+  }
   if (existsSync(JOURNAL_FILE)) console.log(readFileSync(JOURNAL_FILE, 'utf8'))
 }
 
@@ -394,7 +468,14 @@ async function withdraw(): Promise<void> {
       utxos.push({ outpoint: `${result.txid}.${changeIndex}`, satoshis: result.tx.outputs[changeIndex].satoshis!, beef: Utils.toHex(Array.from(b.toBinaryAtomic(result.txid))), purpose: 'change', status: 'live', fundedAt: new Date().toISOString() })
     }
     writeJson(UTXO_FILE, utxos)
-    await internalizeWithdrawal(agent.wallet, result.tx, Array.from(ancestry.toBinary()), stored.floatLockingScript)
+    const float = await floatOwner(stored)
+    let floatBalance: number
+    try {
+      await internalizeWithdrawal(float.wallet, result.tx, Array.from(ancestry.toBinary()), stored.floatLockingScript)
+      floatBalance = await float.wallet.balance()
+    } finally {
+      if (float !== agent) await float.close()
+    }
     const receipt = {
       intentId: intentId.toString(),
       base: { chainId: binding.base.chainId, contract: binding.base.contract, vaultId: intent.vaultId.toString(), readAtBlock: intent.readAtBlock.toString(), maxSats: intent.maxSats.toString(), expiry: intent.expiry.toString() },
@@ -411,45 +492,87 @@ async function withdraw(): Promise<void> {
     }
     writeJson(path.join(EVIDENCE_DIR, `withdrawal-intent-${intentId}.json`), receipt)
     console.log(`Withdrawal broadcast: ${woc(result.txid)}`)
-    console.log(`  ${result.amountSats} sats to the Agent Float, fee ${result.fee}; agent balance ${await agent.wallet.balance()}`)
+    console.log(`  ${result.amountSats} sats to the Agent Float, fee ${result.fee}; float wallet balance ${floatBalance}`)
     console.log(`  For the API3 owner: settle(${intentId}, ${receipt.settleArg})`)
   } finally {
     await agent.close()
   }
 }
 
+/** Txids of the vault withdrawals recorded in the evidence folder. */
+function withdrawalTxids(): Set<string> {
+  if (!existsSync(EVIDENCE_DIR)) return new Set()
+  const { readdirSync } = require('node:fs') as typeof import('node:fs')
+  return new Set(
+    readdirSync(EVIDENCE_DIR)
+      .filter(f => f.startsWith('withdrawal-intent-'))
+      .map(f => readJson<{ bsvTxid: string }>(path.join(EVIDENCE_DIR, f)).bsvTxid)
+  )
+}
+
+/** The txids a mainnet transaction spends from, as WhatsOnChain reports them (retries while it indexes). */
+async function inputTxids(txid: string): Promise<string[] | undefined> {
+  for (let i = 0; i < 6; i++) {
+    const res = await fetch(`https://api.whatsonchain.com/v1/bsv/main/tx/hash/${txid}`, { signal: AbortSignal.timeout(15_000) }).catch(() => undefined)
+    if (res?.ok === true) return ((await res.json()) as { vin: Array<{ txid: string }> }).vin.map(v => v.txid)
+    await new Promise(r => setTimeout(r, 2_000))
+  }
+  return undefined
+}
+
 async function buy(): Promise<void> {
   requireMainnetConfirm('The HTTP 402 purchase')
   loadEnv()
+  // Model keys (DEEPSEEK_API_KEY or ANTHROPIC_API_KEY) live in their own gitignored file.
+  const llmEnv = path.join(RAIL_DIR, '.env.llm')
+  if (existsSync(llmEnv)) process.loadEnvFile(llmEnv)
   const price = Number(process.env.RESEARCH_PRICE_SATS ?? 1_000)
-  const agent = await agentWallet()
+  const task = arg('task') ?? 'Write a short note for the treasury owner on what BSV network fees look like for agent micropayments today.'
+  const { stored } = loadStoredBinding()
+  const payer = await floatOwner(stored)
   const merchant = await openServerWallet('merchant', requireEnv('MERCHANT_ROOT_KEY_HEX'), DATA_DIR)
   const api = await startPaidApi(merchant.wallet, { priceSats: price })
   const domain = 'research.treasuryguard.dev'
+  const limits = { maxPerPaymentSats: 2_000, dailyBudgetSats: 10_000, reserveSats: 0 }
   try {
-    const guarded = createGuardedWallet(agent.wallet)
+    const floatSats = await payer.wallet.balance()
+    const offer: PaidOffer = { merchant: domain, item: 'research note', description: 'One paid research answer from the Treasury Guard demo merchant', priceSats: price }
+    const decision = await decidePurchase(offer, { task, floatSats, maxPerPaymentSats: limits.maxPerPaymentSats })
+    console.log(`Agent (${decision.decidedBy}): ${decision.buy ? 'BUY' : 'SKIP'} - ${decision.reason}`)
+    if (!decision.buy) {
+      writeJson(path.join(EVIDENCE_DIR, `http402-${Date.now()}.json`), { task, offer, decision, paid: false, at: new Date().toISOString() })
+      return
+    }
+    const guarded = createGuardedWallet(payer.wallet)
     const guardian = new Guardian({
       manager: guarded,
-      wallet: agent.wallet,
+      wallet: payer.wallet,
       events: new EventBus(),
-      limits: { maxPerPaymentSats: 2_000, dailyBudgetSats: 10_000, reserveSats: 0 },
+      limits,
       issueAllowances: false,
       merchants: [{ domain, label: 'Treasury Guard research API (local demo merchant)', trust: 'trusted' }],
-      useClaude: false
+      useClaude: config.claude.enabled
     })
     guardian.start()
-    await guardian.declareIntent({ merchant: domain, item: 'research note', why: 'Agent task: one paid research answer', expectedSats: price, source: 'self' })
+    await guardian.declareIntent({ merchant: domain, item: offer.item, why: decision.reason, expectedSats: price, source: 'self' })
     const merchantBefore = await merchant.wallet.balance()
     const t0 = Date.now()
-    const bought = await buyResearch(bindOriginator(guarded, domain), `${api.baseUrl}${RESEARCH_PATH}?topic=bsv-treasury`).finally(() => guardian.clearIntent(domain))
+    const bought = await buyResearch(bindOriginator(guarded, domain), `${api.baseUrl}${RESEARCH_PATH}?topic=bsv-fees`).finally(() => guardian.clearIntent(domain))
     const ms = Date.now() - t0
+    const inputs = bought.paymentTxid === undefined ? undefined : await inputTxids(bought.paymentTxid)
+    const fundedBy = inputs?.filter(t => withdrawalTxids().has(t)) ?? []
     const evidence = {
+      task,
+      decision,
+      payer: payer.name,
       status: bought.status,
       paymentTxid: bought.paymentTxid,
       url: bought.paymentTxid === undefined ? undefined : woc(bought.paymentTxid),
       priceSats: price,
       merchantReceivedSats: (await merchant.wallet.balance()) - merchantBefore,
       guardian: guardian.journal.at(-1)?.verdict,
+      paymentInputsFrom: inputs ?? 'not yet indexed by WhatsOnChain',
+      fundedByVaultWithdrawal: fundedBy,
       body: bought.body,
       msRequestToAnswer: ms,
       note: 'Local demo merchant (localhost); the payment itself is a real BSV mainnet transaction.',
@@ -457,14 +580,15 @@ async function buy(): Promise<void> {
     }
     writeJson(path.join(EVIDENCE_DIR, `http402-${Date.now()}.json`), evidence)
     console.log(`HTTP ${bought.status}; payment ${evidence.url ?? 'none'}; merchant +${evidence.merchantReceivedSats} sats`)
+    console.log(fundedBy.length > 0 ? `  Paid from vault withdrawal ${fundedBy.join(', ')}` : `  Payment inputs: ${JSON.stringify(inputs ?? 'unknown')}`)
   } finally {
     await api.close()
-    await agent.close()
+    await payer.close()
     await merchant.close()
   }
 }
 
-const commands: Record<string, () => Promise<void>> = { 'watcher-key': watcherKey, init, gate, fund, exit, status, withdraw, buy }
+const commands: Record<string, () => Promise<void>> = { 'watcher-key': watcherKey, 'float-key': floatKey, 'rebind-float': rebindFloat, init, gate, fund, exit, status, withdraw, buy }
 
 const command = commands[process.argv[2] ?? '']
 if (command === undefined) {
