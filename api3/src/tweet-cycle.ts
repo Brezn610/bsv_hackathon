@@ -9,6 +9,8 @@
 //   node --env-file=.env.agent src/tweet-cycle.ts --live --once       manual trigger: act on the latest post now
 //   node --env-file=.env.agent src/tweet-cycle.ts --live --settle-only <N>   find the receipt of SPEND N and settle it
 //   options: --account <name> (default 956_kakashi) --max-ausd <aUSD per run> (default 1) --spend-usd (default 0.001)
+//            --verdict risk_off|ignore (default risk_off). IGNORE verifies the post on-chain (PostVerified) but never
+//            hedges or changes the regime: a repeatable rehearsal of the whole cycle that keeps the one-shot hedge.
 //
 // RISK_OFF hedges once per vault: the first verified post moves vault 5 from NORMAL to GUARDED for good, later posts
 // only verify. Each poll buys the post (0.01 aUSD), a new post also a price (0.001 aUSD), paid by the agent key. This is
@@ -58,8 +60,13 @@ const { values } = parseArgs({
     'spend-usd': { type: 'string', default: '0.001' },
     network: { type: 'string', default: 'baseSepolia' },
     deployments: { type: 'string' },
+    verdict: { type: 'string', default: 'risk_off' },
   },
 });
+const verdicts = { risk_off: Verdict.RISK_OFF, ignore: Verdict.IGNORE } as const;
+if (!Object.hasOwn(verdicts, values.verdict)) throw new Error('--verdict must be risk_off or ignore');
+const verdictName = values.verdict as keyof typeof verdicts;
+const verdict = verdicts[verdictName];
 if (values.live && values.dry) throw new Error('Pass --live or --dry, not both');
 const live = values.live;
 
@@ -270,7 +277,11 @@ const handlePost = async (post: SignedResponse) => {
   if (!live) {
     try {
       await guard.checkEvent(vaultId, post, price);
-      log('dry-accepted', { postId, regime: await guard.regime(vaultId), would: 'submitEvent RISK_OFF' });
+      log('dry-accepted', {
+        postId,
+        regime: await guard.regime(vaultId),
+        would: `submitEvent ${verdictName.toUpperCase()}`,
+      });
     } catch (error) {
       const reason = rejection(error);
       if (!reason) throw error;
@@ -289,13 +300,18 @@ const handlePost = async (post: SignedResponse) => {
 
   const regimeBefore = await guard.regime(vaultId);
   try {
-    const { hash, receipt, intents } = await guard.submitEvent(vaultId, post, price, Verdict.RISK_OFF, '0x');
+    const { hash, receipt, intents } = await guard.submitEvent(vaultId, post, price, verdict, '0x');
     const hedge = intents.find(({ args }) => Kind[args.kind] === 'SWAP');
     log('post-verified', {
       postId,
       eventTx: explorerTx(hash),
       regime: `${regimeBefore} → ${await guard.regime(vaultId, receipt.blockNumber)}`,
-      hedge: hedge ? `SWAP #${hedge.args.intentId} ${hedge.args.maxBps / 100} %` : 'none (one-shot already used)',
+      verdict: verdictName.toUpperCase(),
+      hedge: hedge
+        ? `SWAP #${hedge.args.intentId} ${hedge.args.maxBps / 100} %`
+        : verdict === Verdict.IGNORE
+          ? 'none (verdict IGNORE)'
+          : 'none (one-shot already used)',
     });
   } catch (error) {
     const reason = rejection(error);
@@ -371,6 +387,7 @@ log('start', {
       ? 'once'
       : `poll ${values.interval} s × ${values.minutes} min`,
   regime: await guard.regime(vaultId),
+  verdict: verdictName.toUpperCase(),
   ausd: formatUsd(startBalance),
   cap: formatUsd(maxAusd),
 });
