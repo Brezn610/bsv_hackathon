@@ -4,7 +4,7 @@
 
 Revision: see `git log -- bsv` (branch `feat/bsv-treasury-guard`), checked 2026-10-30, Europe/Berlin.
 Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock chain for offline tests.
-"0-conf" means broadcast and visible on WhatsOnChain, not yet seen in a block at the time of writing.
+"Mined" means seen in a block on WhatsOnChain. Every BSV mainnet transaction below was mined by 18:01 Berlin.
 
 | Item | Value |
 | --- | --- |
@@ -18,11 +18,11 @@ Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock c
 
 | Step | Txid | Detail |
 | --- | --- | --- |
-| Gate 2a: owner funds vault (exit proof) | [`cdcbf706…e81f`](https://whatsonchain.com/tx/cdcbf706af70c65ecc04b65c3b9ddfecc6626a9cda3088a5312afcebc541e81f) | 3,000 sats to the exact vault script, BSV Desktop |
-| Gate 2a: **owner-only exit** | [`db5ca41c…d41e`](https://whatsonchain.com/tx/db5ca41c82c4506f66614193b6c2ccf5b84f3d7afffcda4f1a588b09edf7d41e) | spends the vault UTXO via `<ownerSig> OP_0`; 2,960 sats back to BSV Desktop; fee 40 sats; 1.7 s; no agent, no watcher, no Base tx |
+| Gate 2a: owner funds vault (exit proof) | [`cdcbf706…e81f`](https://whatsonchain.com/tx/cdcbf706af70c65ecc04b65c3b9ddfecc6626a9cda3088a5312afcebc541e81f) | 3,000 sats to the exact vault script, BSV Desktop; mined in block 973333 |
+| Gate 2a: **owner-only exit** | [`db5ca41c…d41e`](https://whatsonchain.com/tx/db5ca41c82c4506f66614193b6c2ccf5b84f3d7afffcda4f1a588b09edf7d41e) | spends the vault UTXO via `<ownerSig> OP_0`; 2,960 sats back to BSV Desktop; fee 40 sats; 1.7 s; no agent, no watcher, no Base tx; mined in block 973333 |
 | Gate 2b: owner funds vault (spend demo) | [`c1f97102…6ad4`](https://whatsonchain.com/tx/c1f971027a2f0015a19c5945a48adf1282d5b1bb9cf8ab3f4e16d7574e246ad4) | 5,000 sats; mined in block 973333 |
-| HTTP 402 purchase by the agent wallet | [`43c8255e…9b77`](https://whatsonchain.com/tx/43c8255e63ab363f9d3641a601e74aee5ea95b5d53b747fcc86c40d71e959b77) | `@bsv/402-pay` 0.3.3 + `withHostOriginator`; HTTP 200; merchant +1,000 sats exactly; guardian approved the declared purchase; 857 ms from request to answer; local demo merchant, real mainnet payment. Paid from the agent's existing balance, **not** yet from a vault withdrawal |
-| **Vault withdrawal for Base intent 2** | [`ae35d469…dcf5`](https://whatsonchain.com/tx/ae35d46939d7fd7f79ff32aab1d6bdc906d28a18da93cce3950c013ccc91dcf5) | watcher re-read intent 2 at Base block 52281922 and APPROVED; spends vault UTXO `c1f97102…:0` (5,000) with agent + watcher signatures: 2,796 to the Agent Float, 2,162 change back to the same vault script, `OP_RETURN "TGv1 84532 0x8e38… 5 2"`; fee 42; vault outflow 2,838 ≤ maxSats 2,896; 1,045 ms from intent read to broadcast; the float took it in (agent balance 20,707). A second `withdraw --intent 2` was refused: "journal already holds this intent as broadcast" |
+| HTTP 402 purchase by the agent wallet | [`43c8255e…9b77`](https://whatsonchain.com/tx/43c8255e63ab363f9d3641a601e74aee5ea95b5d53b747fcc86c40d71e959b77) | `@bsv/402-pay` 0.3.3 + `withHostOriginator`; HTTP 200; merchant +1,000 sats exactly; guardian approved the declared purchase; 857 ms from request to answer; local demo merchant, real mainnet payment. Paid from the agent's existing balance, **not** from the vault withdrawal; mined in block 973334 |
+| **Vault withdrawal for Base intent 2** | [`ae35d469…dcf5`](https://whatsonchain.com/tx/ae35d46939d7fd7f79ff32aab1d6bdc906d28a18da93cce3950c013ccc91dcf5) | watcher re-read intent 2 at Base block 52281922 and APPROVED; spends vault UTXO `c1f97102…:0` (5,000) with agent + watcher signatures: 2,796 to the Agent Float, 2,162 change back to the same vault script, `OP_RETURN "TGv1 84532 0x8e38… 5 2"`; fee 42; vault outflow 2,838 ≤ maxSats 2,896; 1,045 ms from intent read to broadcast; the float took it in (agent balance 20,707); mined in block 973334. A second `withdraw --intent 2` was refused: "journal already holds this intent as broadcast" |
 | **`settle(2, 0xae35d469…dcf5)` on Base Sepolia** | [`0xc1a8c9bb…e5b8`](https://sepolia.basescan.org/tx/0xc1a8c9bb236698e05a51293e337369ab9ea6284b97d863e0a66257c2844de5b8) | sent by the vault-5 agent `0x0310dCF1…4cf0`, block 52283537, status success; `Settled(intentId 2, bsvTxid 0xae35d469…dcf5)`. Independently re-read by the BSV side: `getIntent(2).settled = true`, `bsvTxid` equals the BSV withdrawal txid. A recorded claim by the agent, not a cross-chain proof |
 | Atomic swap-and-pay | [`ee2a3896…8e8c`](https://whatsonchain.com/tx/ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c) | rail baseline, earlier on 30 Oct: 1,000 sats to the maker, 1 pUSD to the merchant, fee 66, one tx. Price was a fixed 1,000 sats; the signed-rate `executeSwap` wrapper is **offline only** |
 
@@ -49,6 +49,40 @@ insufficient sats.
   values as `getIntent` returns them); the swap's signed rate ($20.00 fixture) in `execute-swap.test.ts`.
 - The paid API is a local demo merchant serving a deterministic note, not external data.
 - Watcher and agent ran in one CLI process with separate keys (see SAFETY_AND_TRUST.md).
-- Confirmations: funding `cdcbf706`, `c1f97102` (block 973333) and the owner exit `db5ca41c` had 1 confirmation at 17:27; the 402 payment and the withdrawal were 0-conf when recorded.
+- Blocks: `cdcbf706`, `db5ca41c`, `c1f97102` in 973333; `43c8255e`, `ae35d469` in 973334 (checked 18:01 Berlin).
 - The HTTP 402 payment `43c8255e` was made before the withdrawal, from the agent's existing balance; the withdrawn sats are now in the same agent wallet.
 - "One transaction instead of two" for swap-and-pay is a structural property; no fee saving is claimed.
+
+## Final report (spec §11), 30 Oct 2026, 18:05 Berlin
+
+**COMPLETED**
+- `bsv/` workspace in the team repo; no change outside `bsv/` (PR #2).
+- Vault script, owner-only exit, agent+watcher co-signing; gates (1) and (2) passed in order.
+- Read-only API3 adapter for vault 5 (chain check, tip − 1 read, judge/retired vaults excluded).
+- Watcher policy on the real transaction bytes, journal with fsync + rename + checksum.
+- Live loop: signed price → intent 2 on Base → co-signed vault withdrawal on BSV mainnet → `settle(2)` on Base, verified from both sides.
+- Sats HTTP 402 payment on mainnet; `executeSwap` safety wrapper with negative tests.
+- INTEGRATION, SAFETY_AND_TRUST, DEMO_RUNBOOK, RESULTS, SUBMISSION docs.
+
+**NOT_COMPLETED**
+- The signed-rate swap (`executeSwap`) has not run on mainnet; the mainnet swap `ee2a3896` used a fixed price.
+- The watcher does not run as a separate process or host.
+- No automatic intent subscription service: `tg withdraw --intent N` is one repeatable CLI cycle.
+- The 402 payment was not paid from the withdrawn sats specifically (same wallet, earlier coins).
+- Demo video and organizer confirmation of the pre-event code rules.
+
+**TESTED**: 54/54 offline tests, 2/2 live Base reads, `tsc` clean, gate (1) 12/12 on the exact mainnet script.
+
+**LIVE VERIFIED**: the eight transactions in the tables above, checked on WhatsOnChain and Basescan; `getIntent(2)` read back after `settle`.
+
+**BLOCKERS**: none for the BSV side. PR #1 (API3) must merge before PR #2 is retargeted to `main`.
+
+**RISK**: one watcher (liveness only, the owner exit is proven); the vault still holds 2,162 sats (change output `ae35d469…:1`), recoverable by the owner with `tg exit`; local `bsv/data/` (vault UTXO BEEF, journal) is not in git and should be backed up.
+
+**NEXT ACTION**: merge PR #1 → retarget PR #2; record the video; submit with `docs/SUBMISSION.md`; optionally `tg exit` after judging.
+
+**FILES**: `bsv/src/{vault,watcher,api3,agent,flow,swap/executeSwap.ts,merchant/{paidApi,signedInvoice}.ts,chain/wocUtxos.ts,wallet/originator.ts}`, `bsv/scripts/tg.ts`, `bsv/test/*.test.ts`, `bsv/docs/*`.
+
+**COMMANDS**: `npm ci && npm test && npm run typecheck`; `LIVE_BASE=1 npm test`; `npm run tg -- watcher-key|init|gate|fund|exit|status|withdraw|buy`.
+
+**TX LINKS**: see the tables above.

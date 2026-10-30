@@ -19,7 +19,8 @@ safety wrapper.
 | [`docs/INTEGRATION.md`](docs/INTEGRATION.md) | The API3 ↔ BSV contract: vault binding, recipient policy, who does what, exact checks |
 | [`docs/SAFETY_AND_TRUST.md`](docs/SAFETY_AND_TRUST.md) | Script, gates, watcher rules, what is trusted, what is not claimed |
 | [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md) | Commands, in order, for the live demo |
-| [`docs/evidence/RESULTS.md`](docs/evidence/RESULTS.md) | Transaction IDs, test results, what is live and what is mocked |
+| [`docs/evidence/RESULTS.md`](docs/evidence/RESULTS.md) | Transaction IDs, test results, what is live and what is mocked, final report |
+| [`docs/SUBMISSION.md`](docs/SUBMISSION.md) | Paste-ready Devfolio text |
 | [`docs/verified-facts.md`](docs/verified-facts.md) | Rail baseline facts (Chinese), incl. the first mainnet swap-and-pay |
 
 ## Run
