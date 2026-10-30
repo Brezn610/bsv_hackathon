@@ -346,7 +346,11 @@ const poll = async ({ baseline = false } = {}) => {
     return true;
   }
   const { id: postId } = parseTweetData(post.data);
-  if (state.handled.includes(postId)) return true;
+  if (state.handled.includes(postId)) {
+    // Quiet while polling, but a manual trigger should say why it did nothing.
+    if (values.once) log('post-known', { postId, note: 'already handled, nothing sent' });
+    return true;
+  }
   if (baseline) {
     markHandled(postId);
     log('baseline', { postId, note: 'present at start, not acted on' });
@@ -371,20 +375,26 @@ log('start', {
   cap: formatUsd(maxAusd),
 });
 
-if (values['settle-only']) {
-  await settleIntent(BigInt(values['settle-only']));
-} else if (values.once) {
-  await poll();
-} else {
-  const until = Date.now() + Number(values.minutes) * 60_000;
-  let keepGoing = await poll({ baseline: true });
-  while (keepGoing && Date.now() + Number(values.interval) * 1000 < until) {
-    await sleep(Number(values.interval) * 1000);
-    try {
-      keepGoing = await poll();
-    } catch (error) {
-      log('error', { reason: String(error).split('\n')[0] });
+// Any failure still ends with a stop line. After spend-created, recover with --settle-only <N>.
+try {
+  if (values['settle-only']) {
+    await settleIntent(BigInt(values['settle-only']));
+  } else if (values.once) {
+    await poll();
+  } else {
+    const until = Date.now() + Number(values.minutes) * 60_000;
+    let keepGoing = await poll({ baseline: true });
+    while (keepGoing && Date.now() + Number(values.interval) * 1000 < until) {
+      await sleep(Number(values.interval) * 1000);
+      try {
+        keepGoing = await poll();
+      } catch (error) {
+        log('error', { reason: String(error).split('\n')[0] });
+      }
     }
   }
+} catch (error) {
+  log('error', { reason: String(error).split('\n')[0] });
+  process.exitCode = 1;
 }
 log('stop', { ausdSpent: formatUsd(ausdSpent) });
