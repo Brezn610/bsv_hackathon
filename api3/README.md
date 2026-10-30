@@ -118,9 +118,18 @@ the [faucet](https://api3dao.github.io/airnodehub-hackathon/faucet/). Set `RPC_U
   the tamper cases above on real fixtures. The BSV side (vault, watcher, payments) runs on BSV mainnet with tiny amounts.
 - **Demo:** Base Sepolia, not Base mainnet (x402 in aUSD only exists there). The live vault runs a $1/day budget. The
   stablecoin on BSV is a demo token and not redeemable. One team-run watcher and LP. The team demo X account
-  @TreasuryGuardDe is labeled as a demo account. The circuit breaker firing is shown from a recorded real event: we never loosen thresholds to force it.
+  @TreasuryGuardDe is labeled as a demo account. The circuit breaker is not expected to fire live: a −5 % hour of BSV is rare, and we never loosen thresholds to
+  force it. Its logic is shown in Forge tests with a local test signer (−6.25 % in 1 h → `RISK_OFF` + 50 % hedge intent,
+  re-entry only after the cooldown, `forge test --match-test breaker`). Live, it fires only on a real crash.
 - The agent loop and the watcher are built by the BSV side of the team on top of the client in
   [`src/client/`](src/client/); they are not part of this folder.
+
+## Roadmap
+
+- **Stable-first mode.** The vault holds the stablecoin and swaps to sats only for each spend, so there is no price
+  risk to guard against. The trade-off: every payment becomes a swap (fees, needs live LP liquidity), and the risk moves
+  to the stablecoin issuer. The signed price stays necessary: each swap must fill inside the band around it. Today's
+  design is for owners who hold sats and hedge only on a verified crash.
 
 ---
 
