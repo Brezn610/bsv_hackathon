@@ -15,7 +15,7 @@
 //
 // Gate (2) is enforced here: no 'spend' funding before an owner exit has been proven on the same
 // script, and nothing on mainnet without CONFIRM_MAINNET=1. Keys are never printed.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { Beef, Hash, P2PKH, PrivateKey, ProtoWallet, Script, Transaction, Utils, WalletClient } from '@bsv/sdk'
 import { decidePurchase, type PaidOffer } from '../src/agent/brain'
@@ -29,6 +29,7 @@ import { openServerWallet, type ServerWallet } from '../src/chain/serverWallet'
 import { config } from '../src/config'
 import { DATA_DIR, loadEnv, RAIL_DIR, requireEnv, STATE_DIR, WATCHER_ENV_FILE } from '../src/env'
 import { EventBus } from '../src/events'
+import { runAutoCycle } from '../src/flow/autoCycle'
 import { withdrawForIntent } from '../src/flow/withdraw'
 import { Guardian } from '../src/guardian/guardian'
 import { RESEARCH_PATH, startPaidApi } from '../src/merchant/paidApi'
@@ -565,22 +566,11 @@ async function withdraw(intentIdArg?: bigint): Promise<void> {
 
 const AUTO_STATE_FILE = path.join(STATE_DIR, 'auto-state.json')
 const AUTO_LOG_FILE = path.join(STATE_DIR, 'auto-cycle.jsonl')
-const AUTO_POLL_MS = 10_000
-/** Failures that happened before anything was signed or sent, so the same intent may be tried again. */
-const AUTO_RETRYABLE = /independent verification failed|not reachable|fetch failed|ECONNREFUSED|ETIMEDOUT|does not exist at block/
-
-interface AutoState {
-  nextBlock: string
-  handled: Record<string, { status: 'started' | 'done' | 'done-unrecorded' | 'failed' | 'skipped:swap'; at: string; txid?: string; error?: string }>
-}
 
 /**
- * Unattended BSV half of the cycle: every new SPEND intent of the guarded vault on Base is withdrawn
- * through the separate watcher (and, with --buy, the agent then buys over HTTP 402). Nothing here
- * decides or signs on its own: each intent goes through exactly the `tg withdraw` path, so the
- * watcher's checks, its journal (one transaction per intent) and the pending-withdrawal guard all
- * apply. An intent is marked 'started' before its withdraw and is never started again; the first
- * failure that is not a clean pre-signing refusal stops the loop for a human.
+ * Unattended BSV half of the cycle (src/flow/autoCycle.ts): every new SPEND intent of the guarded
+ * vault goes through exactly the `tg withdraw` path over the separate watcher, then optionally
+ * `tg buy` (which reads --url/--price/--description/--item/--task from the same command line).
  */
 async function auto(): Promise<void> {
   requireMainnetConfirm('The automatic withdrawal loop')
@@ -588,114 +578,37 @@ async function auto(): Promise<void> {
   loadEnv()
   if (process.env.TG_INPROCESS_WATCHER === '1') throw new Error('tg auto only runs against the separate watcher (tg watcher-serve); unset TG_INPROCESS_WATCHER')
   const { binding } = loadStoredBinding()
-  const vaultId = binding.base.vaultId
   const withBuy = process.argv.includes('--buy')
   const maxIntents = Number(arg('max-intents') ?? 5)
   if (!Number.isSafeInteger(maxIntents) || maxIntents <= 0) throw new Error('--max-intents must be a positive integer')
-  // Most sats this run may move out of the vault, counted at each intent's maxSats before it is started.
   const maxSats = Number(arg('max-sats') ?? 15_000)
   if (!Number.isSafeInteger(maxSats) || maxSats <= 0) throw new Error('--max-sats must be a positive integer')
-  // --buy passes --url/--price/--description/--item/--task through to buy(), which reads the same argv.
   if (withBuy && arg('url') !== undefined && arg('description') === undefined) throw new Error('--description is required with --url')
-  const reader = createIntentReader({ binding: loadBinding(), rpcUrl: process.env.BASE_SEPOLIA_RPC })
-  const state: AutoState = existsSync(AUTO_STATE_FILE) ? readJson<AutoState>(AUTO_STATE_FILE) : { nextBlock: '0', handled: {} }
-  // Only intents created from now on, unless --from-block says otherwise: never old ones from a rehearsal.
   const fromArg = arg('from-block')
-  state.nextBlock = (fromArg !== undefined ? BigInt(fromArg) : await reader.latestBlock()).toString()
-  const firstBlock = BigInt(state.nextBlock)
-  const log = (entry: Record<string, unknown>): void => {
-    const line = { at: new Date().toISOString(), ...entry }
-    appendFileSync(AUTO_LOG_FILE, JSON.stringify(line) + '\n')
-    console.log(`[auto] ${JSON.stringify(line)}`)
-  }
-  const mark = (id: bigint, entry: Omit<AutoState['handled'][string], 'at'>): void => {
-    state.handled[id.toString()] = { ...entry, at: new Date().toISOString() }
-    writeJson(AUTO_STATE_FILE, state)
-  }
-  const stuck = Object.entries(state.handled).filter(([, h]) => h.status === 'started').map(([id]) => id)
-  if (stuck.length > 0) throw new Error(`Intent(s) ${stuck.join(', ')} were started and never finished (${AUTO_STATE_FILE}); check them by hand first`)
-
-  let stopping = false
+  const stop = { requested: false }
   process.once('SIGINT', () => {
-    stopping = true
+    stop.requested = true
     console.log('[auto] stopping after the current step')
   })
-  let withdrawn = 0
-  let spentSats = 0
-  const attempts = new Map<string, number>()
-  log({ event: 'start', vaultId: vaultId.toString(), fromBlock: state.nextBlock, buy: withBuy, buyUrl: arg('url') ?? 'local demo merchant', maxIntents, maxSats })
-
-  while (!stopping) {
-    try {
-      const to = (await reader.latestBlock()) - 1n // same one-block lag as readIntent
-      const from = BigInt(state.nextBlock)
-      // A small overlap: a lagging RPC node may have answered the last window without its newest logs.
-      const scanFrom = from - 20n > firstBlock ? from - 20n : firstBlock
-      let retryLater = false
-      for (const ev of scanFrom <= to ? await reader.intentEvents(scanFrom, to, vaultId) : []) {
-        const id = ev.intentId
-        if (stopping) break
-        if (state.handled[id.toString()] !== undefined) continue
-        if (ev.kind !== 0) {
-          log({ event: 'skip', intentId: id.toString(), reason: 'SWAP intent: the watcher never co-signs SWAP' })
-          mark(id, { status: 'skipped:swap' })
-          continue
-        }
-        if (withdrawn >= maxIntents) throw new Error(`--max-intents ${maxIntents} reached; intent ${id} left for a human`)
-        // An RPC error here is a tick error: nothing was started, the window is read again.
-        const intent = await reader.readIntent(id)
-        if (spentSats + Number(intent.maxSats) > maxSats) throw new Error(`--max-sats ${maxSats} would be exceeded (moved ${spentSats}, intent ${id} allows ${intent.maxSats}); left for a human`)
-        log({ event: 'withdraw', intentId: id.toString(), block: ev.blockNumber.toString() })
-        mark(id, { status: 'started' })
-        try {
-          await withdraw(id)
-        } catch (err) {
-          const message = (err as Error).message
-          const pending = existsSync(path.join(STATE_DIR, `pending-withdrawal-${id}.json`))
-          const tries = (attempts.get(id.toString()) ?? 0) + 1
-          attempts.set(id.toString(), tries)
-          if (!pending && tries < 6 && AUTO_RETRYABLE.test(message) && !/may still have signed/.test(message)) {
-            delete state.handled[id.toString()]
-            writeJson(AUTO_STATE_FILE, state)
-            log({ event: 'retry', intentId: id.toString(), attempt: tries, error: message })
-            retryLater = true
-            continue
-          }
-          mark(id, { status: 'failed', error: message })
-          throw new Error(`Intent ${id} failed: ${message}`)
-        }
-        withdrawn++
-        const evidence = path.join(EVIDENCE_DIR, `withdrawal-intent-${id}.json`)
-        const receipt = existsSync(evidence) ? readJson<{ bsvTxid: string; vaultOutflowSats?: number }>(evidence) : undefined
-        const txid = receipt?.bsvTxid
-        spentSats += receipt?.vaultOutflowSats ?? Number(intent.maxSats)
-        const unrecorded = existsSync(path.join(STATE_DIR, `pending-withdrawal-${id}.json`))
-        mark(id, { status: unrecorded ? 'done-unrecorded' : 'done', txid })
-        log({ event: unrecorded ? 'withdrawn-unrecorded' : 'withdrawn', intentId: id.toString(), txid })
-        process.exitCode = undefined
-        if (withBuy) {
-          await buy().then(
-            () => log({ event: 'bought', intentId: id.toString() }),
-            (err: Error) => log({ event: 'buy-failed', intentId: id.toString(), error: err.message })
-          )
-        }
-      }
-      if (!retryLater && !stopping) {
-        state.nextBlock = (to + 1n > from ? to + 1n : from).toString()
-        writeJson(AUTO_STATE_FILE, state)
-      }
-    } catch (err) {
-      const message = (err as Error).message
-      // A failed intent or the cap needs a human; an RPC hiccup while listing is retried next tick.
-      if (/^Intent \d+ failed|--max-intents|--max-sats/.test(message)) {
-        log({ event: 'halt', error: message })
-        throw err
-      }
-      log({ event: 'tick-error', error: message })
-    }
-    await new Promise(r => setTimeout(r, AUTO_POLL_MS))
-  }
-  log({ event: 'stop' })
+  const pendingFile = (id: bigint): string => path.join(STATE_DIR, `pending-withdrawal-${id}.json`)
+  await runAutoCycle({
+    reader: createIntentReader({ binding: loadBinding(), rpcUrl: process.env.BASE_SEPOLIA_RPC }),
+    vaultId: binding.base.vaultId,
+    withdraw: async id => {
+      await withdraw(id)
+      // An unrecorded broadcast is logged by the loop as done-unrecorded; it must not end the run.
+      process.exitCode = undefined
+    },
+    receipt: id => readJson<{ bsvTxid: string; vaultOutflowSats: number }>(path.join(EVIDENCE_DIR, `withdrawal-intent-${id}.json`)),
+    hasPending: id => existsSync(pendingFile(id)),
+    buy: withBuy ? buy : undefined,
+    stateFile: AUTO_STATE_FILE,
+    logFile: AUTO_LOG_FILE,
+    maxIntents,
+    maxSats,
+    fromBlock: fromArg === undefined ? undefined : BigInt(fromArg),
+    stop
+  })
 }
 
 /**
