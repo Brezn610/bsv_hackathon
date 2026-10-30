@@ -134,11 +134,15 @@ const expectReject = async (name: string, expected: string, run: () => Promise<u
 const skip = (name: string, expected: string, why: string) =>
   results.push({ name, expected, got: `skipped: ${why}`, pass: undefined });
 
-await expectReject('Edited value (one digit of the price)', 'SignerMismatch', () =>
-  guard.checkPrice(vaultId, editDigit(fresh))
+const edited = editDigit(fresh);
+const short = (value: number) => value.toFixed(2);
+await expectReject(
+  `Edited price ${short(price)} → ${short(parsePriceData(edited.data).price)}, same signature`,
+  'SignerMismatch',
+  () => guard.checkPrice(vaultId, edited)
 );
-const { response: localSigned } = await resignWithLocalKey(fresh);
-await expectReject('Signed by a local key, not the Airnode', 'SignerMismatch', () =>
+const { response: localSigned, signer: localSigner } = await resignWithLocalKey(fresh);
+await expectReject(`Re-signed by a local key ${localSigner.slice(0, 10)}…`, 'SignerMismatch', () =>
   guard.checkPrice(vaultId, localSigned)
 );
 await expectReject('Other request (BTC/USD instead of BSV/USD)', 'WrongRequest', () =>

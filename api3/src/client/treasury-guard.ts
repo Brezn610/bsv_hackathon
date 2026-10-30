@@ -65,12 +65,15 @@ export interface TreasuryGuardClientOptions {
   // Only needed to submit: the vault's agent key. Never logged.
   privateKey?: Hex;
   deployment?: Deployment;
+  // Most blocks per eth_getLogs call. 200 fits the public Base Sepolia RPC; a keyed RPC allows more.
+  logBlockRange?: bigint;
 }
 
 export const createTreasuryGuardClient = ({
   rpcUrl,
   privateKey,
   deployment = loadDeployment(),
+  logBlockRange = 200n,
 }: TreasuryGuardClientOptions) => {
   const address = requireTreasuryGuard(deployment);
   const publicClient = createPublicClient({ transport: http(rpcUrl) });
@@ -185,14 +188,25 @@ export const createTreasuryGuardClient = ({
     getVaultConfig: (vaultId: bigint) =>
       publicClient.readContract({ ...contract, functionName: 'getVaultConfig', args: [vaultId] }),
 
-    /** All intents of a vault since `fromBlock` (default: the deploy block), e.g. for a watcher catching up. */
-    getIntentEvents: (vaultId?: bigint, fromBlock = BigInt(deployment.deployBlock ?? 0)) =>
-      publicClient.getContractEvents({
-        ...contract,
-        eventName: 'IntentCreated',
-        args: vaultId === undefined ? undefined : { vaultId },
-        fromBlock,
-      }),
+    /** All intents of a vault since `fromBlock` (default: the deploy block), e.g. for a watcher catching up. Reads the
+     * logs in chunks of `logBlockRange` blocks, since public RPCs cap eth_getLogs (sepolia.base.org: 200 blocks). */
+    getIntentEvents: async (vaultId?: bigint, fromBlock = BigInt(deployment.deployBlock ?? 0)) => {
+      const latest = await publicClient.getBlockNumber();
+      const events = [];
+      for (let from = fromBlock; from <= latest; from += logBlockRange) {
+        const to = from + logBlockRange - 1n < latest ? from + logBlockRange - 1n : latest;
+        events.push(
+          ...(await publicClient.getContractEvents({
+            ...contract,
+            eventName: 'IntentCreated',
+            args: vaultId === undefined ? undefined : { vaultId },
+            fromBlock: from,
+            toBlock: to,
+          }))
+        );
+      }
+      return events;
+    },
     /** Calls `onIntent` for every new IntentCreated. Returns the function that stops watching. */
     watchIntents: (onIntent: (intentId: bigint, vaultId: bigint) => void, vaultId?: bigint) =>
       publicClient.watchContractEvent({

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { recoverSigner, type SignedResponse, verifySignedResponse } from '../airnode-v2.ts';
+import { treasuryGuardAbi } from './abi.ts';
 import { loadDeployment } from './deployments.ts';
 import {
   BSV_USD,
@@ -88,4 +89,11 @@ test('another request is rejected against the BSV/USD hash', async () => {
 
 test('measures the signature age', () => {
   assert.equal(signatureAge(bsvUsd, Number(bsvUsd.timestamp) + 301), 301);
+});
+
+// abi.ts is a snapshot of the forge build: after an interface change, run node src/client/export-abi.ts.
+const artifactUrl = new URL('../../out/TreasuryGuard.sol/TreasuryGuard.json', import.meta.url);
+test('abi.ts matches the current forge build', { skip: !existsSync(artifactUrl) && 'no forge build in out/' }, () => {
+  const { abi } = JSON.parse(readFileSync(artifactUrl, 'utf8')) as { abi: unknown[] };
+  assert.deepEqual(treasuryGuardAbi, abi);
 });
