@@ -1,0 +1,69 @@
+{
+  "vaultLockingScript": "63210234a28e17b594af1306af67ac7dc9e85e990473a83c9d99448438e96c71f3cb3fad210288c067ae286a2df2c2ec509f3c6898e99e2af18cdf0d434475d5a33669372790ac672102ec58ffef26378e84d5981a17a3f019f457f1d64f77a73770a2ae3c2616c2c242ac68",
+  "pass": true,
+  "at": "2026-10-30T16:18:40.556Z",
+  "results": [
+    {
+      "check": "keys still derive to the bound script",
+      "expected": "pass",
+      "ok": true
+    },
+    {
+      "check": "agent + watcher spend",
+      "expected": "pass",
+      "ok": true
+    },
+    {
+      "check": "agent only (agent signature twice)",
+      "expected": "fail",
+      "ok": true
+    },
+    {
+      "check": "watcher only (watcher signature twice)",
+      "expected": "fail",
+      "ok": true
+    },
+    {
+      "check": "agent on the owner branch",
+      "expected": "fail",
+      "ok": true
+    },
+    {
+      "check": "watcher on the owner branch",
+      "expected": "fail",
+      "ok": true
+    },
+    {
+      "check": "owner on the cosign branch",
+      "expected": "fail",
+      "ok": true
+    },
+    {
+      "check": "change goes back to the same vault script",
+      "expected": "pass",
+      "ok": true
+    },
+    {
+      "check": "watcher policy approves the in-bounds proposal",
+      "expected": "pass",
+      "ok": true
+    },
+    {
+      "check": "owner-only exit (interpreter)",
+      "expected": "pass",
+      "ok": true
+    },
+    {
+      "check": "mock chain accepts agent + watcher spend",
+      "expected": "pass",
+      "ok": true,
+      "detail": "success"
+    },
+    {
+      "check": "mock chain accepts owner-only exit of the vault change",
+      "expected": "pass",
+      "ok": true,
+      "detail": "success"
+    }
+  ]
+}

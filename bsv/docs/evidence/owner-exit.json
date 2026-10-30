@@ -1,0 +1,12 @@
+{
+  "txid": "db5ca41c82c4506f66614193b6c2ccf5b84f3d7afffcda4f1a588b09edf7d41e",
+  "url": "https://whatsonchain.com/tx/db5ca41c82c4506f66614193b6c2ccf5b84f3d7afffcda4f1a588b09edf7d41e",
+  "vaultLockingScript": "63210234a28e17b594af1306af67ac7dc9e85e990473a83c9d99448438e96c71f3cb3fad210288c067ae286a2df2c2ec509f3c6898e99e2af18cdf0d434475d5a33669372790ac672102ec58ffef26378e84d5981a17a3f019f457f1d64f77a73770a2ae3c2616c2c242ac68",
+  "inputs": [
+    "cdcbf706af70c65ecc04b65c3b9ddfecc6626a9cda3088a5312afcebc541e81f.0"
+  ],
+  "fee": 40,
+  "ms": 1676,
+  "note": "Owner key only (BSV Desktop). No agent, no watcher, no Base transaction. Broadcast state: as returned by BSV Desktop (0-conf until mined).",
+  "at": "2026-10-30T16:20:04.302Z"
+}
