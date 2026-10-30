@@ -1,0 +1,485 @@
+// Treasury Guard on BSV mainnet. Base Sepolia (testnet) decides; BSV mainnet moves the money.
+//
+//   npm run tg -- watcher-key            create .env.watcher (watcher root key), print its public key
+//   npm run tg -- init                   derive agent / watcher / owner (BSV Desktop) vault keys, write data/vault-binding.json
+//   npm run tg -- gate                   safety gate (1), offline: the EXACT mainnet script through the interpreter and the mock chain
+//   npm run tg -- fund --sats N          CONFIRM_MAINNET=1; owner (BSV Desktop) funds the vault, N <= 5000
+//   npm run tg -- exit                   CONFIRM_MAINNET=1; owner-only exit of every live vault UTXO, through BSV Desktop
+//   npm run tg -- status                 binding, vault UTXOs (checked on chain), journal
+//   npm run tg -- withdraw --intent N    CONFIRM_MAINNET=1; watcher checks intent N on Base and cosigns; agent broadcasts and takes it in
+//   npm run tg -- buy                    CONFIRM_MAINNET=1; Agent Float buys one paid answer over HTTP 402 (local merchant)
+//
+// Gate (2) is enforced here: no 'spend' funding before an owner exit has been proven on the same
+// script, and nothing on mainnet without CONFIRM_MAINNET=1. Keys are never printed.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
+import { Beef, P2PKH, PrivateKey, ProtoWallet, Script, Transaction, Utils, WalletClient } from '@bsv/sdk'
+import { buyResearch } from '../src/agent/buyResearch'
+import { floatLockingScript, internalizeWithdrawal } from '../src/agent/float'
+import { createIntentReader } from '../src/api3/intentReader'
+import { loadBinding, settleTxidArg } from '../src/api3/policyTypes'
+import { MockChain } from '../src/chain/mockChain'
+import { openServerWallet, type ServerWallet } from '../src/chain/serverWallet'
+import { DATA_DIR, loadEnv, requireEnv, STATE_DIR, WATCHER_ENV_FILE } from '../src/env'
+import { EventBus } from '../src/events'
+import { withdrawForIntent } from '../src/flow/withdraw'
+import { Guardian } from '../src/guardian/guardian'
+import { RESEARCH_PATH, startPaidApi } from '../src/merchant/paidApi'
+import { ownerExitRaw, ownerExitThroughWallet, signOwnerExit } from '../src/vault/ownerExit'
+import { agentSignatures, assembleCosigned, proposeSpend, receiptScript, type VaultUtxo } from '../src/vault/proposeSpend'
+import {
+  cosignUnlockingScript,
+  ownerUnlockingScript,
+  signVaultInput,
+  vaultLockingScript,
+  vaultPublicKey,
+  verifyInput,
+  type VaultSigner
+} from '../src/vault/template'
+import { evaluateWithdrawal, type VaultBinding } from '../src/watcher/policy'
+import { Watcher } from '../src/watcher/service'
+import { WatcherJournal } from '../src/watcher/state'
+import { bindOriginator, createGuardedWallet } from '../src/wallet/agentWallet'
+
+const OWNER_ORIGINATOR = process.env.OWNER_ORIGINATOR ?? 'owner.treasuryguard.dev'
+const KEY_ID = process.env.VAULT_KEY_ID ?? 'vault-5-v1'
+const MAX_FUND_SATS = 5_000
+const BINDING_FILE = path.join(STATE_DIR, 'vault-binding.json')
+const UTXO_FILE = path.join(STATE_DIR, 'vault-utxos.json')
+const GATE_FILE = path.join(STATE_DIR, 'gate1.json')
+const JOURNAL_FILE = path.join(STATE_DIR, 'watcher-journal.json')
+const EVIDENCE_DIR = path.join(STATE_DIR, 'evidence')
+const woc = (txid: string): string => `https://whatsonchain.com/tx/${txid}`
+
+interface StoredBinding {
+  version: string
+  network: 'main'
+  keyID: string
+  ownerOriginator: string
+  keys: { agent: string; watcher: string; owner: string }
+  vaultLockingScript: string
+  floatLockingScript: string
+  base: { chainId: number; contract: string; vaultId: string; excludedVaultIds: string[] }
+  maxFeeSats: number
+  expiryMarginSec: number
+  minChangeSats: number
+  createdAt: string
+}
+
+interface StoredUtxo {
+  outpoint: string
+  satoshis: number
+  /** Atomic BEEF of the transaction that created the output. */
+  beef: string
+  purpose: 'exit-proof' | 'spend' | 'change'
+  status: 'live' | 'spent'
+  spentBy?: string
+  fundedAt: string
+}
+
+const readJson = <T>(file: string): T => JSON.parse(readFileSync(file, 'utf8')) as T
+const writeJson = (file: string, data: unknown): void => {
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify(data, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2) + '\n')
+}
+const arg = (name: string): string | undefined => {
+  const i = process.argv.indexOf(`--${name}`)
+  return i === -1 ? undefined : process.argv[i + 1]
+}
+const requireMainnetConfirm = (what: string): void => {
+  if (process.env.CONFIRM_MAINNET !== '1') throw new Error(`${what} touches BSV mainnet. Rerun with CONFIRM_MAINNET=1 after the owner approved it.`)
+}
+
+function ownerSigner(): VaultSigner & { wallet: WalletClient } {
+  return { wallet: new WalletClient('auto', OWNER_ORIGINATOR), keyID: KEY_ID, originator: OWNER_ORIGINATOR }
+}
+
+function watcherSigner(): VaultSigner {
+  if (!existsSync(WATCHER_ENV_FILE)) throw new Error('No watcher key. Run: npm run tg -- watcher-key')
+  const env: Record<string, string> = {}
+  for (const line of readFileSync(WATCHER_ENV_FILE, 'utf8').split('\n')) {
+    const m = /^([A-Z_]+)=(.*)$/.exec(line.trim())
+    if (m !== null) env[m[1]] = m[2]
+  }
+  if (env.WATCHER_ROOT_KEY_HEX === undefined) throw new Error(`${WATCHER_ENV_FILE} has no WATCHER_ROOT_KEY_HEX`)
+  return { wallet: new ProtoWallet(PrivateKey.fromHex(env.WATCHER_ROOT_KEY_HEX)), keyID: KEY_ID }
+}
+
+async function agentWallet(): Promise<ServerWallet> {
+  loadEnv()
+  return await openServerWallet('agent', requireEnv('AGENT_ROOT_KEY_HEX'), DATA_DIR)
+}
+
+function loadStoredBinding(): { stored: StoredBinding; binding: VaultBinding } {
+  if (!existsSync(BINDING_FILE)) throw new Error('No vault binding. Run: npm run tg -- init')
+  const stored = readJson<StoredBinding>(BINDING_FILE)
+  if (vaultLockingScript(stored.keys).toHex() !== stored.vaultLockingScript) throw new Error('vault-binding.json: script does not match its keys')
+  return {
+    stored,
+    binding: {
+      version: stored.version,
+      bsvNetwork: 'main',
+      base: { chainId: stored.base.chainId, contract: stored.base.contract, vaultId: BigInt(stored.base.vaultId), excludedVaultIds: stored.base.excludedVaultIds.map(BigInt) },
+      vaultLockingScript: stored.vaultLockingScript,
+      floatLockingScript: stored.floatLockingScript,
+      maxFeeSats: stored.maxFeeSats,
+      expiryMarginSec: stored.expiryMarginSec,
+      minChangeSats: stored.minChangeSats
+    }
+  }
+}
+
+const loadUtxos = (): StoredUtxo[] => (existsSync(UTXO_FILE) ? readJson<StoredUtxo[]>(UTXO_FILE) : [])
+const toVaultUtxo = (u: StoredUtxo): VaultUtxo => ({
+  outpoint: u.outpoint,
+  satoshis: u.satoshis,
+  sourceTransaction: Transaction.fromAtomicBEEF(Utils.toArray(u.beef, 'hex'))
+})
+
+async function watcherKey(): Promise<void> {
+  if (existsSync(WATCHER_ENV_FILE)) {
+    console.log(`Watcher key already exists in ${WATCHER_ENV_FILE}; vault key ${await vaultPublicKey(watcherSigner())}`)
+    return
+  }
+  writeFileSync(WATCHER_ENV_FILE, `WATCHER_ROOT_KEY_HEX=${PrivateKey.fromRandom().toHex()}\n`, { mode: 0o600 })
+  console.log(`Watcher key created in ${WATCHER_ENV_FILE} (mode 600). Vault key ${await vaultPublicKey(watcherSigner())}`)
+  console.log('Never commit, paste or share that file.')
+}
+
+async function init(): Promise<void> {
+  if (existsSync(BINDING_FILE) && !process.argv.includes('--force')) {
+    throw new Error(`${BINDING_FILE} exists. The binding is fixed once funded; pass --force only for a new, unfunded version.`)
+  }
+  const base = loadBinding()
+  const agent = await agentWallet()
+  try {
+    console.log(`Asking BSV Desktop (as ${OWNER_ORIGINATOR}) for the owner's derived vault key; approve the prompt...`)
+    const keys = {
+      agent: await vaultPublicKey({ wallet: agent.wallet, keyID: KEY_ID }),
+      watcher: await vaultPublicKey(watcherSigner()),
+      owner: await vaultPublicKey(ownerSigner())
+    }
+    const stored: StoredBinding = {
+      version: `tg-vault-${KEY_ID}-${new Date().toISOString().slice(0, 10)}`,
+      network: 'main',
+      keyID: KEY_ID,
+      ownerOriginator: OWNER_ORIGINATOR,
+      keys,
+      vaultLockingScript: vaultLockingScript(keys).toHex(),
+      floatLockingScript: await floatLockingScript(agent.wallet),
+      base: { chainId: base.chainId, contract: base.contract, vaultId: base.vaultId.toString(), excludedVaultIds: base.excludedVaultIds.map(String) },
+      maxFeeSats: 200,
+      expiryMarginSec: 60,
+      minChangeSats: 1,
+      createdAt: new Date().toISOString()
+    }
+    writeJson(BINDING_FILE, stored)
+    console.log(`Binding written to ${BINDING_FILE}`)
+    console.log(`  Base: chain ${base.chainId}, ${base.contract}, vault ${base.vaultId} (never ${base.excludedVaultIds.join(', ')})`)
+    console.log(`  BSV vault script: ${stored.vaultLockingScript}`)
+    console.log(`  Agent Float script: ${stored.floatLockingScript}`)
+  } finally {
+    await agent.close()
+  }
+}
+
+/** Safety gate (1): the exact mainnet script, real key holders, no broadcast to mainnet. */
+async function gate(): Promise<void> {
+  const { stored, binding } = loadStoredBinding()
+  const agent = await agentWallet()
+  const results: Array<{ check: string; expected: string; ok: boolean; detail?: string }> = []
+  const record = (check: string, expected: 'pass' | 'fail', actual: boolean, detail?: string): void => {
+    results.push({ check, expected, ok: (expected === 'pass') === actual, detail })
+    console.log(`  ${(expected === 'pass') === actual ? 'OK  ' : 'FAIL'} ${check}: expected ${expected}, got ${actual ? 'pass' : 'fail'}${detail ? ` (${detail})` : ''}`)
+  }
+  try {
+    const agentS: VaultSigner = { wallet: agent.wallet, keyID: KEY_ID }
+    const watcherS = watcherSigner()
+    const ownerS = ownerSigner()
+    console.log('Gate (1) on the exact mainnet vault script. BSV Desktop will ask to sign as the owner.')
+    const derived = { agent: await vaultPublicKey(agentS), watcher: await vaultPublicKey(watcherS), owner: await vaultPublicKey(ownerS) }
+    record('keys still derive to the bound script', 'pass', vaultLockingScript(derived).toHex() === stored.vaultLockingScript)
+
+    // Interpreter: a synthetic funding transaction paying the exact script. Nothing is broadcast.
+    const vault = Script.fromHex(stored.vaultLockingScript)
+    const source = new Transaction(1, [], [{ satoshis: 5_000, lockingScript: vault }], 0)
+    const utxo: VaultUtxo = { outpoint: `${source.id('hex')}.0`, satoshis: 5_000, sourceTransaction: source }
+    const now = Math.floor(Date.now() / 1000)
+    const intent = {
+      chainId: binding.base.chainId, contract: binding.base.contract, intentId: 0n, vaultId: binding.base.vaultId, kind: 0, direction: 0, source: 0,
+      maxSats: 3_000n, maxBps: 0n, minOut: 0n, maxOut: 0n, expiry: BigInt(now + 900), price: 0n, priceSignedAt: 0n, settled: false,
+      bsvTxid: '0x', readAtBlock: 0n, latestBlock: 0n
+    }
+    const tx = proposeSpend({ utxos: [utxo], vaultLockingScript: stored.vaultLockingScript, floatLockingScript: stored.floatLockingScript, amountSats: 2_900, receiptScript: receiptScript(intent) })
+    const a = await signVaultInput(agentS, tx, 0)
+    const w = await signVaultInput(watcherS, tx, 0)
+    const o = await signVaultInput(ownerS, tx, 0)
+    const tryUnlock = (u: ReturnType<typeof ownerUnlockingScript>): { ok: boolean; error?: string } => {
+      tx.inputs[0].unlockingScript = u
+      return verifyInput(tx, 0)
+    }
+    record('agent + watcher spend', 'pass', tryUnlock(cosignUnlockingScript(a, w)).ok)
+    record('agent only (agent signature twice)', 'fail', tryUnlock(cosignUnlockingScript(a, a)).ok)
+    record('watcher only (watcher signature twice)', 'fail', tryUnlock(cosignUnlockingScript(w, w)).ok)
+    record('agent on the owner branch', 'fail', tryUnlock(ownerUnlockingScript(a)).ok)
+    record('watcher on the owner branch', 'fail', tryUnlock(ownerUnlockingScript(w)).ok)
+    record('owner on the cosign branch', 'fail', tryUnlock(cosignUnlockingScript(o, w)).ok)
+    record('change goes back to the same vault script', 'pass', tx.outputs[1]?.lockingScript.toHex() === stored.vaultLockingScript)
+    const policy = evaluateWithdrawal(binding, { intent, tx, ledger: 'new', vaultUtxos: new Map([[utxo.outpoint, 5_000]]), now, expectedReceipt: receiptScript(intent) })
+    record('watcher policy approves the in-bounds proposal', 'pass', policy.verdict === 'APPROVE', policy.verdict === 'DENY' ? policy.reasons.join('; ') : undefined)
+    const exitDest = new P2PKH().lock(PrivateKey.fromRandom().toPublicKey().toAddress()).toHex()
+    const ownerOnly = await signOwnerExit(ownerS, ownerExitRaw([utxo], exitDest)).then(() => true, () => false)
+    record('owner-only exit (interpreter)', 'pass', ownerOnly)
+
+    // Mock chain: the same exact script funded, cosign-spent and owner-exited through a miner's checks.
+    const chain = await MockChain.create()
+    try {
+      const funder = await chain.createWallet('funder', 20_000, 2)
+      const dep = await funder.wallet.createAction({
+        description: 'gate: fund exact script',
+        outputs: [{ lockingScript: stored.vaultLockingScript, satoshis: 5_000, outputDescription: 'vault' }],
+        options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
+      })
+      const depBeef = Array.from(dep.tx!)
+      const mockUtxo: VaultUtxo = { outpoint: `${dep.txid}.0`, satoshis: 5_000, sourceTransaction: Transaction.fromAtomicBEEF(depBeef) }
+      const spend = proposeSpend({ utxos: [mockUtxo], vaultLockingScript: stored.vaultLockingScript, floatLockingScript: stored.floatLockingScript, amountSats: 2_900 })
+      const signed = assembleCosigned(spend, await agentSignatures(agentS, spend), await agentSignatures(watcherS, spend))
+      const b1 = Beef.fromBinary(depBeef)
+      b1.mergeRawTx(signed.toBinary())
+      const [p1] = await chain.services.postBeef(b1, [signed.id('hex')])
+      record('mock chain accepts agent + watcher spend', 'pass', p1.status === 'success', p1.status)
+      const change: VaultUtxo = { outpoint: `${signed.id('hex')}.1`, satoshis: signed.outputs[1].satoshis!, sourceTransaction: signed }
+      const exit = await signOwnerExit(ownerS, ownerExitRaw([change], exitDest))
+      b1.mergeRawTx(exit.toBinary())
+      const [p2] = await chain.services.postBeef(b1, [exit.id('hex')])
+      record('mock chain accepts owner-only exit of the vault change', 'pass', p2.status === 'success', p2.status)
+    } finally {
+      await chain.destroy()
+    }
+  } finally {
+    await agent.close()
+  }
+  const pass = results.every(r => r.ok)
+  writeJson(GATE_FILE, { vaultLockingScript: stored.vaultLockingScript, pass, at: new Date().toISOString(), results })
+  console.log(`\nGate (1): ${pass ? 'PASS' : 'FAIL'} (${GATE_FILE})`)
+  if (!pass) {
+    console.log('STOP: do not fund the custom vault. Use fallback 3.')
+    process.exitCode = 1
+  }
+}
+
+function requireGate1(script: string): void {
+  if (!existsSync(GATE_FILE)) throw new Error('Gate (1) has not been run. Run: npm run tg -- gate')
+  const g = readJson<{ vaultLockingScript: string; pass: boolean }>(GATE_FILE)
+  if (!g.pass || g.vaultLockingScript !== script) throw new Error('Gate (1) did not pass for this exact script; the vault may not be funded')
+}
+
+async function fund(): Promise<void> {
+  const sats = Number(arg('sats'))
+  if (!Number.isSafeInteger(sats) || sats <= 0 || sats > MAX_FUND_SATS) throw new Error(`--sats must be 1..${MAX_FUND_SATS}`)
+  const { stored } = loadStoredBinding()
+  requireGate1(stored.vaultLockingScript)
+  const utxos = loadUtxos()
+  const exitProven = existsSync(path.join(EVIDENCE_DIR, 'owner-exit.json'))
+  const purpose: StoredUtxo['purpose'] = exitProven ? 'spend' : 'exit-proof'
+  if (purpose === 'exit-proof' && utxos.some(u => u.status === 'live')) throw new Error('Exit-proof funding is already live: run the owner exit first')
+  requireMainnetConfirm(`Funding the vault with ${sats} sats`)
+  console.log(`Owner (BSV Desktop) funds the vault with ${sats} sats for ${purpose === 'exit-proof' ? 'the owner-exit proof' : 'the agent+watcher spend'}. Approve the prompt...`)
+  const owner = ownerSigner()
+  const res = await owner.wallet.createAction(
+    {
+      description: `Treasury Guard vault deposit (${purpose})`,
+      outputs: [{ lockingScript: stored.vaultLockingScript, satoshis: sats, outputDescription: 'Treasury Guard vault' }],
+      options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
+    }
+  )
+  if (res.txid === undefined || res.tx === undefined) throw new Error('BSV Desktop did not return the funding transaction')
+  const tx = Transaction.fromAtomicBEEF(Array.from(res.tx))
+  const vout = tx.outputs.findIndex(o => o.lockingScript.toHex() === stored.vaultLockingScript)
+  utxos.push({ outpoint: `${res.txid}.${vout}`, satoshis: sats, beef: Utils.toHex(Array.from(res.tx)), purpose, status: 'live', fundedAt: new Date().toISOString() })
+  writeJson(UTXO_FILE, utxos)
+  console.log(`Funded: ${woc(res.txid)} (output ${vout})`)
+}
+
+async function exit(): Promise<void> {
+  const { stored } = loadStoredBinding()
+  const live = loadUtxos().filter(u => u.status === 'live')
+  if (live.length === 0) throw new Error('No live vault UTXO')
+  requireMainnetConfirm('The owner exit')
+  const owner = ownerSigner()
+  const beef = new Beef()
+  for (const u of live) beef.mergeBeef(Utils.toArray(u.beef, 'hex'))
+  console.log(`Owner exits ${live.length} vault UTXO(s), ${live.reduce((s, u) => s + u.satoshis, 0)} sats, with BSV Desktop alone. Approve the prompts...`)
+  const t0 = Date.now()
+  const result = await ownerExitThroughWallet(owner, live.map(toVaultUtxo), Array.from(beef.toBinary()))
+  const all = loadUtxos().map(u => (live.some(l => l.outpoint === u.outpoint) ? { ...u, status: 'spent' as const, spentBy: result.txid } : u))
+  writeJson(UTXO_FILE, all)
+  writeJson(path.join(EVIDENCE_DIR, 'owner-exit.json'), {
+    txid: result.txid,
+    url: woc(result.txid),
+    vaultLockingScript: stored.vaultLockingScript,
+    inputs: live.map(u => u.outpoint),
+    fee: result.tx.getFee(),
+    ms: Date.now() - t0,
+    note: 'Owner key only (BSV Desktop). No agent, no watcher, no Base transaction. Broadcast state: as returned by BSV Desktop (0-conf until mined).',
+    at: new Date().toISOString()
+  })
+  console.log(`Owner exit: ${woc(result.txid)}`)
+}
+
+async function status(): Promise<void> {
+  const { stored } = loadStoredBinding()
+  console.log(`Binding ${stored.version}: Base vault ${stored.base.vaultId} on ${stored.base.contract} (chain ${stored.base.chainId})`)
+  console.log(`Vault script ${stored.vaultLockingScript}`)
+  const agent = await agentWallet()
+  try {
+    for (const u of loadUtxos()) {
+      const s = await agent.services.getUtxoStatus(stored.vaultLockingScript, 'script', u.outpoint)
+      console.log(`  ${u.outpoint} ${u.satoshis} sats ${u.purpose} local=${u.status} chain=${s.status === 'success' ? (s.isUtxo ? 'unspent' : 'spent/unknown') : `error ${s.error?.message}`}`)
+    }
+    console.log(`Agent wallet balance: ${await agent.wallet.balance()} sats`)
+  } finally {
+    await agent.close()
+  }
+  if (existsSync(JOURNAL_FILE)) console.log(readFileSync(JOURNAL_FILE, 'utf8'))
+}
+
+async function withdraw(): Promise<void> {
+  const intentId = BigInt(arg('intent') ?? NaN)
+  const { stored, binding } = loadStoredBinding()
+  requireGate1(stored.vaultLockingScript)
+  if (!existsSync(path.join(EVIDENCE_DIR, 'owner-exit.json'))) throw new Error('Gate (2): the owner exit has not been proven on mainnet yet')
+  const live = loadUtxos().filter(u => u.status === 'live')
+  if (live.length === 0) throw new Error('No live vault UTXO; fund the vault first')
+  requireMainnetConfirm(`Withdrawing for intent ${intentId}`)
+  const reader = createIntentReader({ binding: loadBinding(), rpcUrl: process.env.BASE_SEPOLIA_RPC })
+  const agent = await agentWallet()
+  try {
+    const watcher = new Watcher({
+      binding,
+      reader,
+      journal: new WatcherJournal(JOURNAL_FILE),
+      signer: watcherSigner(),
+      // Independent check: each recorded vault UTXO must be unspent on chain right now.
+      unspentVaultUtxos: async () => {
+        const m = new Map<string, number>()
+        for (const u of live) {
+          const s = await agent.services.getUtxoStatus(stored.vaultLockingScript, 'script', u.outpoint)
+          if (s.status !== 'success') throw new Error(`UTXO status unavailable for ${u.outpoint}: ${s.error?.message}`)
+          if (s.isUtxo === true) m.set(u.outpoint, u.satoshis)
+        }
+        return m
+      }
+    })
+    const t0 = Date.now()
+    const intent = await reader.readIntent(intentId)
+    console.log(`Intent ${intentId}: vault ${intent.vaultId}, kind ${intent.kind}, maxSats ${intent.maxSats}, expires ${new Date(Number(intent.expiry) * 1000).toISOString()}, read at block ${intent.readAtBlock}`)
+    const ancestry = new Beef()
+    for (const u of live) ancestry.mergeBeef(Utils.toArray(u.beef, 'hex'))
+    const result = await withdrawForIntent({
+      intent,
+      agent: { wallet: agent.wallet, keyID: KEY_ID },
+      watcher,
+      utxos: live.map(toVaultUtxo),
+      vaultLockingScript: stored.vaultLockingScript,
+      floatLockingScript: stored.floatLockingScript,
+      feeReserveSats: 100,
+      broadcast: async tx => {
+        const b = Beef.fromBinary(ancestry.toBinary())
+        b.mergeRawTx(tx.toBinary())
+        const results = await agent.services.postBeef(b, [tx.id('hex')])
+        if (!results.some(r => r.status === 'success')) throw new Error(`Broadcast failed: ${JSON.stringify(results).slice(0, 400)}`)
+      }
+    })
+    const broadcastMs = Date.now() - t0
+    const utxos = loadUtxos().map(u => (live.some(l => l.outpoint === u.outpoint) ? { ...u, status: 'spent' as const, spentBy: result.txid } : u))
+    const changeIndex = result.tx.outputs.findIndex(o => o.lockingScript.toHex() === stored.vaultLockingScript)
+    if (changeIndex !== -1) {
+      const b = Beef.fromBinary(ancestry.toBinary())
+      b.mergeRawTx(result.tx.toBinary())
+      utxos.push({ outpoint: `${result.txid}.${changeIndex}`, satoshis: result.tx.outputs[changeIndex].satoshis!, beef: Utils.toHex(Array.from(b.toBinaryAtomic(result.txid))), purpose: 'change', status: 'live', fundedAt: new Date().toISOString() })
+    }
+    writeJson(UTXO_FILE, utxos)
+    await internalizeWithdrawal(agent.wallet, result.tx, Array.from(ancestry.toBinary()), stored.floatLockingScript)
+    const receipt = {
+      intentId: intentId.toString(),
+      base: { chainId: binding.base.chainId, contract: binding.base.contract, vaultId: intent.vaultId.toString(), readAtBlock: intent.readAtBlock.toString(), maxSats: intent.maxSats.toString(), expiry: intent.expiry.toString() },
+      bsvTxid: result.txid,
+      url: woc(result.txid),
+      settleArg: settleTxidArg(result.txid),
+      toFloatSats: result.amountSats,
+      feeSats: result.fee,
+      vaultOutflowSats: result.amountSats + result.fee,
+      decision: result.decision,
+      msIntentReadToBroadcast: broadcastMs,
+      state: 'broadcast (0-conf); not yet checked for a block',
+      at: new Date().toISOString()
+    }
+    writeJson(path.join(EVIDENCE_DIR, `withdrawal-intent-${intentId}.json`), receipt)
+    console.log(`Withdrawal broadcast: ${woc(result.txid)}`)
+    console.log(`  ${result.amountSats} sats to the Agent Float, fee ${result.fee}; agent balance ${await agent.wallet.balance()}`)
+    console.log(`  For the API3 owner: settle(${intentId}, ${receipt.settleArg})`)
+  } finally {
+    await agent.close()
+  }
+}
+
+async function buy(): Promise<void> {
+  requireMainnetConfirm('The HTTP 402 purchase')
+  loadEnv()
+  const price = Number(process.env.RESEARCH_PRICE_SATS ?? 1_000)
+  const agent = await agentWallet()
+  const merchant = await openServerWallet('merchant', requireEnv('MERCHANT_ROOT_KEY_HEX'), DATA_DIR)
+  const api = await startPaidApi(merchant.wallet, { priceSats: price })
+  const domain = 'research.treasuryguard.dev'
+  try {
+    const guarded = createGuardedWallet(agent.wallet)
+    const guardian = new Guardian({
+      manager: guarded,
+      wallet: agent.wallet,
+      events: new EventBus(),
+      limits: { maxPerPaymentSats: 2_000, dailyBudgetSats: 10_000, reserveSats: 0 },
+      issueAllowances: false,
+      merchants: [{ domain, label: 'Treasury Guard research API (local demo merchant)', trust: 'trusted' }],
+      useClaude: false
+    })
+    guardian.start()
+    await guardian.declareIntent({ merchant: domain, item: 'research note', why: 'Agent task: one paid research answer', expectedSats: price, source: 'self' })
+    const merchantBefore = await merchant.wallet.balance()
+    const t0 = Date.now()
+    const bought = await buyResearch(bindOriginator(guarded, domain), `${api.baseUrl}${RESEARCH_PATH}?topic=bsv-treasury`).finally(() => guardian.clearIntent(domain))
+    const ms = Date.now() - t0
+    const evidence = {
+      status: bought.status,
+      paymentTxid: bought.paymentTxid,
+      url: bought.paymentTxid === undefined ? undefined : woc(bought.paymentTxid),
+      priceSats: price,
+      merchantReceivedSats: (await merchant.wallet.balance()) - merchantBefore,
+      guardian: guardian.journal.at(-1)?.verdict,
+      body: bought.body,
+      msRequestToAnswer: ms,
+      note: 'Local demo merchant (localhost); the payment itself is a real BSV mainnet transaction.',
+      at: new Date().toISOString()
+    }
+    writeJson(path.join(EVIDENCE_DIR, `http402-${Date.now()}.json`), evidence)
+    console.log(`HTTP ${bought.status}; payment ${evidence.url ?? 'none'}; merchant +${evidence.merchantReceivedSats} sats`)
+  } finally {
+    await api.close()
+    await agent.close()
+    await merchant.close()
+  }
+}
+
+const commands: Record<string, () => Promise<void>> = { 'watcher-key': watcherKey, init, gate, fund, exit, status, withdraw, buy }
+
+const command = commands[process.argv[2] ?? '']
+if (command === undefined) {
+  console.log(`Commands: ${Object.keys(commands).join(', ')}`)
+  process.exitCode = 1
+} else {
+  command().catch(err => {
+    console.error(err instanceof Error ? err.message : err)
+    process.exit(1)
+  })
+}
+
