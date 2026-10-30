@@ -7,7 +7,7 @@ Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock c
 | Item | Value |
 | --- | --- |
 | API3 contract | `0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773` (Base Sepolia 84532), Base vault ID 5 |
-| Vault 5 on Base | budget $1/day, TTL 900 s; SPEND **intent 2** created by the API3 agent at ~17:37 Berlin: `maxSats` 2,896, expiry 16:52:17 UTC |
+| Vault 5 on Base | budget $1/day, TTL 900 s; SPEND **intent 2** created by the API3 agent at ~17:37 Berlin ([Base tx](https://sepolia.basescan.org/tx/0x0aa95a723942c63e0463ea8730e4cb2baf8f76ac272b98915c31b8f0130afc90)): `maxSats` 2,896, expiry 16:52:17 UTC |
 | Intents on the contract (read 30 Oct ~17:15) | only #1 (retired vault 2, 5,856,771 sats for $1): the watcher refuses it (live test) |
 | BSV vault script | `63210234a2…3fad` (`docs/evidence/gate1.json`), binding `tg-vault-vault-5-v1-2026-10-30` |
 | Agent Float script | `76a91419e272af3877858a136f6b5a9c67a390bb13b7e088ac` |
