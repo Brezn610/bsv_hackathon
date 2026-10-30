@@ -5,11 +5,12 @@ import {Script, console} from "forge-std/Script.sol";
 import {TreasuryGuard} from "../contracts/TreasuryGuard.sol";
 
 /// @notice Creates a new agent vault on the deployed TreasuryGuard that also whitelists the team demo X account.
-/// Vaults are immutable, so the demo account needs a new vault: it copies the config of the current agent vault
-/// (deployments.json → vaultId) 1:1 and whitelists its posts plus the demo account's request hash.
+/// Vaults are immutable, so the demo account needs a new vault: it copies the config of a source vault 1:1 and
+/// whitelists its posts plus the demo account's request hash. Source: SOURCE_VAULT, else deployments.json → vaultId
+/// (SOURCE_VAULT=2 copies the judge vault: agent = deployer, $100/day counter).
 /// DEMO_POST_REQUEST_HASH=0x… forge script script/CreateDemoVault.s.sol --rpc-url $RPC_URL [--broadcast]
 /// Env: PRIVATE_KEY (deployer, becomes the vault owner), DEMO_POST_REQUEST_HASH (userLastTweets of the demo
-/// account, projection {id: /data/tweets/0/id, text: /data/tweets/0/text}).
+/// account, projection {id: /data/tweets/0/id, text: /data/tweets/0/text}), optional SOURCE_VAULT.
 contract CreateDemoVault is Script {
     // @federalreserve, same projection: not in deployments.json, but whitelisted in every vault (StalePost fixture).
     bytes32 constant FEDERALRESERVE_REQUEST = 0xceecf6d2b5c25f57242052a0a59ca73222bf017e41a7ec13418fe1207b7b9ec6;
@@ -21,7 +22,7 @@ contract CreateDemoVault is Script {
 
         string memory json = vm.readFile("deployments.json");
         TreasuryGuard guard = TreasuryGuard(vm.parseJsonAddress(json, ".baseSepolia.treasuryGuard"));
-        uint256 sourceVault = vm.parseJsonUint(json, ".baseSepolia.vaultId");
+        uint256 sourceVault = vm.envOr("SOURCE_VAULT", vm.parseJsonUint(json, ".baseSepolia.vaultId"));
         bytes32 whiteHouse = vm.parseJsonBytes32(json, ".baseSepolia.feeds.tweets.WhiteHouse.requestHash");
 
         require(guard.isPostRequest(sourceVault, whiteHouse), "source vault lacks WhiteHouse");
