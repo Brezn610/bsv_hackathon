@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {JSONParserLib} from "solady/utils/JSONParserLib.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import {ProjectedJson} from "./ProjectedJson.sol";
 
@@ -175,8 +176,8 @@ contract TreasuryGuard {
     {
         if (
             config.agent == address(0) || config.priceAirnode == address(0) || config.priceRequestHash == bytes32(0)
-                || config.maxSignatureAge == 0 || config.maxDataAge == 0 || config.intentTtl == 0
-                || config.breakerHedgeBps > 10000 || config.eventHedgeBps > MAX_EVENT_HEDGE_BPS
+                || config.maxSignatureAge == 0 || config.maxDataAge == 0 || config.maxPostAge == 0
+                || config.intentTtl == 0 || config.breakerHedgeBps > 10000 || config.eventHedgeBps > MAX_EVENT_HEDGE_BPS
                 || config.slippageBps > 10000 || config.breakerBps >= config.reentryBps
         ) revert InvalidConfig();
 
@@ -239,7 +240,9 @@ contract TreasuryGuard {
             spendIntentId = createIntent(vaultId, Kind.SPEND, Direction.NONE, Source.BUDGET, maxSats, 0, price);
         }
 
-        // In cooldown the breaker is skipped, never reverted, so a SPEND still goes through during a crash.
+        // In cooldown the breaker is skipped, never reverted, so a SPEND still goes through during a crash. GUARDED (a
+        // post's partial hedge) moves to RISK_OFF on a crash, and leaves through the same re-entry as RISK_OFF, since
+        // the brief defines no other way out of it.
         if (block.timestamp < uint256(state.lastRegimeChange) + config.cooldown) return spendIntentId;
         if (state.regime != Regime.RISK_OFF && price.change1h <= config.breakerBps) {
             setRegime(vaultId, Regime.RISK_OFF);
@@ -296,7 +299,8 @@ contract TreasuryGuard {
         if (response.timestamp <= states[vaultId].lastPriceTimestamp) revert Replay();
     }
 
-    /// @notice Runs every check of submitEvent without acting on it, with the same errors
+    /// @notice Runs the checks of submitEvent on both responses without acting on them, with the same errors. The
+    /// verdict-dependent Cooldown check is not part of it.
     /// @dev The price only has to be fresh: replay protection for an event is the post id.
     function checkEvent(uint256 vaultId, SignedResponse calldata postResponse, SignedResponse calldata priceResponse)
         public
@@ -308,13 +312,14 @@ contract TreasuryGuard {
         if (!isPostRequest[vaultId][postResponse.requestHash]) revert WrongRequest(postResponse.requestHash);
         verifySignature(config.postAirnode, config.maxSignatureAge, postResponse.requestHash, postResponse);
 
+        // The id has to be a JSON string of digits: a bare number may have been rounded by the API's JSON encoder.
+        postId = JSONParserLib.parseUint(ProjectedJson.readString(postResponse.data, "id"));
+        if (isPostUsed[vaultId][postId]) revert Replay();
         // A post id is a Snowflake, so it carries the time it was posted.
-        postId = ProjectedJson.readUint(postResponse.data, "id", 0);
         postTime = ((postId >> 22) + TWITTER_EPOCH_MS) / 1000;
         if (postTime > block.timestamp + MAX_CLOCK_SKEW || postTime + config.maxPostAge < block.timestamp) {
             revert StalePost();
         }
-        if (isPostUsed[vaultId][postId]) revert Replay();
         if (LibString.startsWith(ProjectedJson.readString(postResponse.data, "text"), "RT @")) {
             revert NotOriginalPost();
         }

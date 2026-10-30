@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {JSONParserLib} from "solady/utils/JSONParserLib.sol";
 import {LibString} from "solady/utils/LibString.sol";
+import {ProjectedJson} from "../contracts/ProjectedJson.sol";
 import {TreasuryGuard} from "../contracts/TreasuryGuard.sol";
 import {AirnodeV2Test} from "./utils/AirnodeV2Test.sol";
 
@@ -271,7 +273,7 @@ contract TreasuryGuardTest is AirnodeV2Test {
     }
 
     function test_exponentNotationReverts() public {
-        vm.expectRevert();
+        vm.expectRevert(JSONParserLib.ParsingFailed.selector);
         submitPrice(testVault, testPrice("-1e-7", UPDATED_AT, T0 + 5), 0);
     }
 
@@ -433,5 +435,86 @@ contract TreasuryGuardTest is AirnodeV2Test {
     function test_createVault_ownerIsCaller() public view {
         assertEq(guard.getVaultConfig(realVault).owner, owner);
         assertEq(guard.getVaultConfig(realVault).agent, agent);
+    }
+
+    // ---------- review additions ----------
+
+    function test_postResponseAsPriceIsWrongRequest() public {
+        TreasuryGuard.SignedResponse memory post = load("twitterapi-whitehouse.json");
+        vm.expectRevert(abi.encodeWithSelector(TreasuryGuard.WrongRequest.selector, WHITEHOUSE_REQUEST));
+        submitPrice(realVault, post, 1e6);
+    }
+
+    function test_postSignedByPriceKeyIsSignerMismatch() public {
+        uint256 id = ((T0 - 120) * 1000 - TWITTER_EPOCH_MS) << 22;
+        bytes memory data = bytes(string.concat('{"id":"', vm.toString(id), '","text":"Statement"}'));
+        vm.expectRevert(abi.encodeWithSelector(TreasuryGuard.SignerMismatch.selector, vm.addr(PRICE_KEY)));
+        submitEvent(
+            testVault,
+            signed(PRICE_KEY, TEST_POST_REQUEST, T0 + 5, data),
+            testPrice("0.1", UPDATED_AT, T0 + 5),
+            TreasuryGuard.Verdict.RISK_OFF
+        );
+    }
+
+    function test_highSSignatureIsSignerMismatch() public {
+        TreasuryGuard.SignedResponse memory price = load("coinpaprika-bsv-usd.json");
+        bytes memory sig = price.signature;
+        bytes32 r;
+        bytes32 sValue;
+        assembly {
+            r := mload(add(sig, 32))
+            sValue := mload(add(sig, 64))
+        }
+        uint256 n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
+        uint8 v = uint8(sig[64]) == 27 ? 28 : 27;
+        price.signature = abi.encodePacked(r, bytes32(n - uint256(sValue)), v);
+        vm.expectRevert(abi.encodeWithSelector(TreasuryGuard.SignerMismatch.selector, address(0)));
+        submitPrice(realVault, price, 1e6);
+    }
+
+    function test_measuredAtAfterSigningIsStale() public {
+        // Observed 61 s after it was signed: more than the clock skew allows.
+        vm.expectRevert(TreasuryGuard.StaleSignature.selector);
+        submitPrice(testVault, testPrice("0.1", UPDATED_AT, UPDATED_AT_TS - 61), 0);
+    }
+
+    function test_postIdAsNumberReverts() public {
+        uint256 id = ((T0 - 120) * 1000 - TWITTER_EPOCH_MS) << 22;
+        bytes memory data = bytes(string.concat('{"id":', vm.toString(id), ',"text":"Statement"}'));
+        vm.expectRevert(abi.encodeWithSelector(ProjectedJson.UnexpectedValue.selector, "id"));
+        submitEvent(
+            testVault,
+            signed(POST_KEY, TEST_POST_REQUEST, T0 + 5, data),
+            testPrice("0.1", UPDATED_AT, T0 + 5),
+            TreasuryGuard.Verdict.RISK_OFF
+        );
+    }
+
+    function test_replayOfOldUsedPostIsReplay() public {
+        TreasuryGuard.SignedResponse memory post = testPost(T0 - 120, "Statement", T0 + 5);
+        submitEvent(testVault, post, testPrice("0.1", UPDATED_AT, T0 + 5), TreasuryGuard.Verdict.IGNORE);
+        // An hour later the post is also too old, but the replay is what gets reported.
+        uint256 later = T0 + 3600;
+        vm.warp(later);
+        TreasuryGuard.SignedResponse memory resigned = testPost(T0 - 120, "Statement", later);
+        vm.expectRevert(TreasuryGuard.Replay.selector);
+        submitEvent(testVault, resigned, testPrice("0.1", "2026-10-30T14:03:20Z", later), TreasuryGuard.Verdict.IGNORE);
+    }
+
+    function test_secondCrashWhileRiskOffAddsNoIntent() public {
+        submitPrice(testVault, testPrice("-6", UPDATED_AT, T0 + 1), 0);
+        uint256 later = T0 + 10 + 3600;
+        vm.warp(later);
+        submitPrice(testVault, testPrice("-8", "2026-10-30T14:03:20Z", later), 0);
+        assertEq(guard.intentCount(), 1);
+        assertEq(uint8(guard.regime(testVault)), uint8(TreasuryGuard.Regime.RISK_OFF));
+    }
+
+    function test_riskOffVerdictWhileRiskOffOnlyRecords() public {
+        submitPrice(testVault, testPrice("-6", UPDATED_AT, T0 + 1), 0);
+        TreasuryGuard.SignedResponse memory post = testPost(T0 - 120, "Statement", T0 + 5);
+        assertEq(submitEvent(testVault, post, testPrice("-6", UPDATED_AT, T0 + 5), TreasuryGuard.Verdict.RISK_OFF), 0);
+        assertEq(guard.intentCount(), 1);
     }
 }
