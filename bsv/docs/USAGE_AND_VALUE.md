@@ -49,6 +49,7 @@ At these fees, the network cost of thousands of agent payments is still below th
 
 ## Next steps (not built tonight)
 
-- Run the watcher as a separate service with its own host, and add a second, independent watcher.
-- Fund the vault from a USD stablecoin on Base through a bridge or a liquidity provider, so the money also comes from the other chain, not just the control.
+- Fund the vault from USDC on Base through a bridge or a liquidity provider, so the money also comes from the other chain, not just the control.
+- Run the watcher on its own host (it already runs as its own process), then k-of-n watchers run by different parties.
 - Live, signed-rate swap-and-pay against third-party liquidity providers instead of the team-run maker.
+- A BSV-backed pUSD (CDP) prototype exists and ran on mainnet, but it depends on a trusted watcher and is not part of the submission; see the root README, "Roadmap".

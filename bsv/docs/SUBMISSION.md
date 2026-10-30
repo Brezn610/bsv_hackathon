@@ -10,7 +10,7 @@ Treasury Guard
 
 ## Tagline
 
-A dollar budget for AI agents that pay in sats. Base Sepolia decides, BSV mainnet moves the money, and the owner can always exit alone.
+A non-custodial DeFi vault and payment rail for AI agents. Base Sepolia decides, BSV mainnet moves the money, and the owner can always exit alone.
 
 ## The problem it solves
 
@@ -25,6 +25,22 @@ Treasury Guard gives the agent freedom to act, but not unlimited freedom to spen
 - For merchants that want a token, the **atomic swap-and-pay** rail converts sats to a token and pays the merchant in **one** transaction, priced from the signed rate.
 
 The invariant: an API3 intent alone cannot move money, and no BSV transaction can move money out of the vault unless that intent authorises it or the owner is exiting.
+
+### Why this is DeFi
+
+The track asks for a DeFi product with a simple agent on top. Treasury Guard is three DeFi building blocks put together for agents:
+
+| DeFi building block | In Treasury Guard |
+| --- | --- |
+| **Non-custodial vault** with programmable spending rules | A BSV script: agent + watcher together, or the owner alone. No custodian, no bridge, and the owner's exit is proven on mainnet |
+| **Oracle-priced limit** | An API3 signed BSV/USD price turns a dollar budget into a hard sats limit (`maxSats`), checked on chain by `TreasuryGuard.sol` |
+| **Atomic swap** | Swap-and-pay: sats are exchanged for a token and the token goes straight to the merchant, in one transaction, all or nothing |
+
+The agent stays simple: its model decides whether a purchase serves its task, and the vault, the oracle and the watcher decide how much it may spend.
+
+### A concrete user
+
+A small team runs a research or trading agent whose control logic lives on Base. They give it **$1 a day**. When the agent needs data, it asks for budget with a signed price, the watcher releases exactly that much from the BSV vault, and the agent pays per call over HTTP 402. On mainnet a vault withdrawal cost 42–61 sats in fees and a 402 payment 23 sats (≈ $0.000004), and a co-signed withdrawal was broadcast about one second after the intent was read. If the agent is tricked, the worst case is that day's budget, and the owner can still take everything back alone.
 
 ## How it works (end to end, live on 30 Oct 2026)
 
@@ -64,6 +80,13 @@ A second withdrawal for intent 2 was refused live: `journal already holds this i
 - The watcher runs as its own local process (HTTP on 127.0.0.1, its own key and journal); intents 2 and 4 used the earlier in-process mode, intent 5 the separate process. A separate host is the production step.
 - The signed-rate version of the swap wrapper (`executeSwap`) is tested offline; the mainnet swap used a fixed price.
 - Part of the swap rail (BTMS issue/split, maker offer, fill, guardian) was prototyped before the event in [Brezn610/BSV_pet](https://github.com/Brezn610/BSV_pet). Provenance is in `bsv/README.md`.
+
+## Roadmap
+
+- **Bring the money across, not only the control:** fund the vault from USDC on Base through a bridge or a liquidity provider (for example a chain-key bridge), so a Base team can fund its agents without touching BSV first.
+- **Independent watchers:** run the watcher on its own host today, then k-of-n watchers run by different parties.
+- **Live, signed-rate swaps** with third-party liquidity providers; `executeSwap` already enforces the API3 rate, tested offline.
+- **Experimental: BSV-backed pUSD (CDP prototype, not part of this submission).** A teammate built a DAI-style stablecoin on BSV: lock BSV, mint pUSD up to 66% of its value, liquidate at 75%. It ran on mainnet ([issue](https://whatsonchain.com/tx/a0416e6aeff43172e8831c4ca0029ec5344991e1921480b9c872eae428896118), [lock](https://whatsonchain.com/tx/4d97d5486b09f4152e8fc40372d8b2110e7bed767d90f3752d027ae7f36003e5), [mint](https://whatsonchain.com/tx/704fb804577eda292e20e89022a5d01c60eaadbb80a3c734f3c996a31d7a8aca), [liquidation at a public 60% demo threshold](https://whatsonchain.com/tx/bd35aea0f246a738aa5f5e20c1602281ba9011e09bd0cbcda5a04b3e6f2146f1); code: [Brezn610/BSV_pet `yigit/cdp`](https://github.com/Brezn610/BSV_pet/tree/yigit/cdp), `rail/docs/stablecoin.md`). It is left out because it **depends on a trusted watcher**: BSV script cannot see the debt or the price and has no covenants, so every path of its collateral needs the watcher, and the team held the watcher and liquidator keys. That is custody, and this track requires non-custodial funds. It shows what BSV would need (covenants) for trust-minimised lending.
 
 ## Links
 

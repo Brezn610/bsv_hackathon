@@ -10,7 +10,8 @@
 //   npm run tg -- watcher-serve          run the watcher as its own process on 127.0.0.1:4810 (--port, --init-journal)
 //   npm run tg -- status                 binding, vault UTXOs (checked on chain), journal
 //   npm run tg -- withdraw --intent N    CONFIRM_MAINNET=1; watcher checks intent N on Base and cosigns; agent broadcasts and takes it in
-//   npm run tg -- buy                    CONFIRM_MAINNET=1; Agent Float buys one paid answer over HTTP 402 (local merchant)
+//   npm run tg -- buy                    CONFIRM_MAINNET=1; the agent's model decides, the float pays HTTP 402 (local demo merchant,
+//                                        or an external service: --url <https url> --price <sats> --description <text> [--item <name>])
 //
 // Gate (2) is enforced here: no 'spend' funding before an owner exit has been proven on the same
 // script, and nothing on mainnet without CONFIRM_MAINNET=1. Keys are never printed.
@@ -606,17 +607,26 @@ async function buy(): Promise<void> {
   // Model keys (DEEPSEEK_API_KEY or ANTHROPIC_API_KEY) live in their own gitignored file.
   const llmEnv = path.join(RAIL_DIR, '.env.llm')
   if (existsSync(llmEnv)) process.loadEnvFile(llmEnv)
-  const price = Number(process.env.RESEARCH_PRICE_SATS ?? 1_000)
   const task = arg('task') ?? 'Write a short note for the treasury owner on what BSV network fees look like for agent micropayments today.'
+  // An external 402 service (e.g. a teammate's Analyst): --url, --price, --description, optionally --item.
+  // Without --url, the local demo merchant is started and paid.
+  const externalUrl = arg('url')
+  const price = Number(arg('price') ?? process.env.RESEARCH_PRICE_SATS ?? 1_000)
+  if (!Number.isSafeInteger(price) || price <= 0) throw new Error('--price must be a positive whole number of sats')
+  if (externalUrl !== undefined && arg('description') === undefined) throw new Error('--description is required with --url: the agent model judges the offer by it')
   const { stored } = loadStoredBinding()
   const payer = await floatOwner(stored)
-  const merchant = await openServerWallet('merchant', requireEnv('MERCHANT_ROOT_KEY_HEX'), DATA_DIR)
-  const api = await startPaidApi(merchant.wallet, { priceSats: price })
-  const domain = 'research.treasuryguard.dev'
+  const merchant = externalUrl === undefined ? await openServerWallet('merchant', requireEnv('MERCHANT_ROOT_KEY_HEX'), DATA_DIR) : undefined
+  const api = merchant === undefined ? undefined : await startPaidApi(merchant.wallet, { priceSats: price })
+  const url = externalUrl ?? `${api!.baseUrl}${RESEARCH_PATH}?topic=bsv-fees`
+  // The guardian allowlists the merchant by host name; an external service is identified by its URL's host.
+  const domain = externalUrl === undefined ? 'research.treasuryguard.dev' : new URL(externalUrl).hostname
   const limits = { maxPerPaymentSats: 2_000, dailyBudgetSats: 10_000, reserveSats: 0 }
   try {
     const floatSats = await payer.wallet.balance()
-    const offer: PaidOffer = { merchant: domain, item: 'research note: bsv-fees', description: 'One short paid research note on the topic "BSV network fees for agent micropayments", from the team demo merchant (deterministic demo content)', priceSats: price }
+    const offer: PaidOffer = externalUrl === undefined
+      ? { merchant: domain, item: 'research note: bsv-fees', description: 'One short paid research note on the topic "BSV network fees for agent micropayments", from the team demo merchant (deterministic demo content)', priceSats: price }
+      : { merchant: domain, item: arg('item') ?? 'paid API call', description: arg('description')!, priceSats: price }
     const decision = await decidePurchase(offer, { task, floatSats, maxPerPaymentSats: limits.maxPerPaymentSats })
     console.log(`Agent (${decision.decidedBy}): ${decision.buy ? 'BUY' : 'SKIP'} - ${decision.reason}`)
     if (!decision.buy) {
@@ -630,14 +640,14 @@ async function buy(): Promise<void> {
       events: new EventBus(),
       limits,
       issueAllowances: false,
-      merchants: [{ domain, label: 'Treasury Guard research API (local demo merchant)', trust: 'trusted' }],
+      merchants: [{ domain, label: externalUrl === undefined ? 'Treasury Guard research API (local demo merchant)' : `External 402 service at ${domain}`, trust: 'trusted' }],
       useClaude: config.claude.enabled
     })
     guardian.start()
     await guardian.declareIntent({ merchant: domain, item: offer.item, why: decision.reason, expectedSats: price, source: 'self' })
-    const merchantBefore = await merchant.wallet.balance()
+    const merchantBefore = merchant === undefined ? undefined : await merchant.wallet.balance()
     const t0 = Date.now()
-    const bought = await buyResearch(bindOriginator(guarded, domain), `${api.baseUrl}${RESEARCH_PATH}?topic=bsv-fees`).finally(() => guardian.clearIntent(domain))
+    const bought = await buyResearch(bindOriginator(guarded, domain), url).finally(() => guardian.clearIntent(domain))
     const ms = Date.now() - t0
     const inputs = bought.paymentTxid === undefined ? undefined : await inputTxids(bought.paymentTxid)
     const fundedBy = inputs?.filter(t => withdrawalTxids().has(t)) ?? []
@@ -649,22 +659,23 @@ async function buy(): Promise<void> {
       paymentTxid: bought.paymentTxid,
       url: bought.paymentTxid === undefined ? undefined : woc(bought.paymentTxid),
       priceSats: price,
-      merchantReceivedSats: (await merchant.wallet.balance()) - merchantBefore,
+      merchant: externalUrl === undefined ? 'local demo merchant' : url,
+      merchantReceivedSats: merchant === undefined || merchantBefore === undefined ? 'external merchant: see the payment output on WhatsOnChain' : (await merchant.wallet.balance()) - merchantBefore,
       guardian: guardian.journal.at(-1)?.verdict,
       paymentInputsFrom: inputs ?? 'not yet indexed by WhatsOnChain',
       fundedByVaultWithdrawal: fundedBy,
       body: bought.body,
       msRequestToAnswer: ms,
-      note: 'Local demo merchant (localhost); the payment itself is a real BSV mainnet transaction.',
+      note: externalUrl === undefined ? 'Local demo merchant (localhost); the payment itself is a real BSV mainnet transaction.' : 'External 402 service; the payment is a real BSV mainnet transaction.',
       at: new Date().toISOString()
     }
     writeJson(path.join(EVIDENCE_DIR, `http402-${Date.now()}.json`), evidence)
-    console.log(`HTTP ${bought.status}; payment ${evidence.url ?? 'none'}; merchant +${evidence.merchantReceivedSats} sats`)
+    console.log(`HTTP ${bought.status}; payment ${evidence.url ?? 'none'}; merchant ${typeof evidence.merchantReceivedSats === 'number' ? `+${evidence.merchantReceivedSats} sats` : '(external)'}`)
     console.log(fundedBy.length > 0 ? `  Paid from vault withdrawal ${fundedBy.join(', ')}` : `  Payment inputs: ${JSON.stringify(inputs ?? 'unknown')}`)
   } finally {
-    await api.close()
+    await api?.close()
     await payer.close()
-    await merchant.close()
+    await merchant?.close()
   }
 }
 
