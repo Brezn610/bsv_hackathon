@@ -24,6 +24,21 @@ safety wrapper.
 | [`docs/USAGE_AND_VALUE.md`](docs/USAGE_AND_VALUE.md) | The one-page usage and value note the track asks for |
 | [`docs/verified-facts.md`](docs/verified-facts.md) | Rail baseline facts (Chinese), incl. the first mainnet swap-and-pay |
 
+## Dashboard
+
+`dashboard/` is a read-only live view for judges: static files, no build step, no dependencies. Open
+`dashboard/index.html` directly, or serve it (`python3 -m http.server -d dashboard 8765`, or `npx serve dashboard`).
+It reads the watcher's `GET /health` and `GET /decisions`, Base Sepolia (`eth_call`, `eth_getLogs` in 200-block
+pages) and WhatsOnChain. It never calls `/cosign` or `/broadcast`, never signs, and holds no key. Only responses from connected sources are shown; there are no bundled examples or fallback amounts.
+
+| Parameter | Default | Purpose |
+| --- | --- | --- |
+| `?watcher=` | `http://127.0.0.1:4810` | watcher base URL |
+| `?rpc=` | `https://sepolia.base.org` | Base Sepolia RPC |
+| `?theme=dark` / `light` | system | colour theme |
+
+End-to-end validation is pending your real transaction test. HTTP 402 purchases require a connected receipt source. Public deployment settings are in `dashboard/config.js`; verify them after merging.
+
 ## Run
 
 Node.js ≥ 22. Offline tests spend nothing.

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src http: https:; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Treasury Guard · bounded spending for AI agents</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <div class="top-row">
+      <div class="brand">
+        <h1>Treasury Guard</h1>
+        <ul class="chips" aria-label="Networks">
+          <li class="chip chip-base"><span class="dot" aria-hidden="true"></span>Base Sepolia · testnet · decides</li>
+          <li class="chip chip-bsv"><span class="dot" aria-hidden="true"></span>BSV · mainnet · moves the money</li>
+        </ul>
+      </div>
+      <div class="top-status">
+        <div id="watcher-pill" class="pill pill-loading" role="status" aria-live="polite">
+          <span class="dot" aria-hidden="true"></span><span class="pill-text">Watcher: checking…</span>
+        </div>
+        <div class="controls">
+          <button type="button" id="theme-toggle" class="btn btn-quiet" aria-pressed="false">Dark theme</button>
+        </div>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button type="button" role="tab" id="tab-btn-overview" aria-controls="tab-overview" aria-selected="true">Overview</button>
+      <button type="button" role="tab" id="tab-btn-agent" aria-controls="tab-agent" aria-selected="false" tabindex="-1">Autonomous agent · vault 8</button>
+      <button type="button" role="tab" id="tab-btn-hedges" aria-controls="tab-hedges" aria-selected="false" tabindex="-1">Event hedges</button>
+      <button type="button" role="tab" id="tab-btn-evidence" aria-controls="tab-evidence" aria-selected="false" tabindex="-1">All evidence</button>
+    </nav>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="main">
+    <!-- OVERVIEW -->
+    <section id="tab-overview" role="tabpanel" aria-labelledby="tab-btn-overview" tabindex="-1">
+      <section class="intro" aria-labelledby="product-title">
+        <div><p class="eyebrow">Treasury control for AI agents · vault 5</p>
+          <h2 id="product-title">Let your agent spend.<br><span>Keep control of the money.</span></h2>
+          <p class="intro-copy">Set a dollar budget. Signed price data determines the allowance; the watcher checks each withdrawal. Your agent buys the data it needs, and you retain an owner-only exit.</p>
+        </div>
+        <div class="intro-actions"><a class="btn btn-primary" href="#pipeline">View transaction activity <span aria-hidden="true">↗</span></a>
+          <a class="btn" href="#trust">View validation status</a>
+          <span class="muted small">Read-only dashboard · no wallet needed</span>
+        </div>
+      </section>
+      <div class="section-label"><h2>Live control room</h2><span class="muted small">Public chain data + local watcher · no example data</span></div>
+
+      <ol id="flow" class="flow" aria-label="How one payment travels"></ol>
+
+      <div class="lanes">
+        <section class="lane lane-base" aria-labelledby="lane-decide">
+          <h2 id="lane-decide" class="lane-title"><span class="lane-verb">Decide</span> Base Sepolia <span class="net-tag">testnet</span></h2>
+          <article class="card" id="price-card" aria-labelledby="price-title"></article>
+          <article class="card" id="budget-card" aria-labelledby="budget-title"></article>
+        </section>
+
+        <section class="lane lane-watcher" aria-labelledby="lane-enforce">
+          <h2 id="lane-enforce" class="lane-title"><span class="lane-verb">Enforce</span> Watcher</h2>
+          <article class="card card-feed" id="decisions-card" aria-labelledby="decisions-title"></article>
+        </section>
+
+        <section class="lane lane-bsv" aria-labelledby="lane-move">
+          <h2 id="lane-move" class="lane-title"><span class="lane-verb">Move</span> BSV <span class="net-tag">mainnet</span></h2>
+          <article class="card" id="vault-card" aria-labelledby="vault-title"></article>
+          <article class="card" id="flows-card" aria-labelledby="flows-title"></article>
+        </section>
+      </div>
+
+      <section class="card card-wide" id="pipeline" aria-labelledby="pipeline-title"></section>
+
+      <div class="bottom">
+        <section class="card" id="trust" aria-labelledby="trust-title"></section>
+      </div>
+    </section>
+
+    <!-- VAULT 8 -->
+    <section id="tab-agent" role="tabpanel" aria-labelledby="tab-btn-agent" tabindex="-1" hidden></section>
+
+    <!-- HEDGES -->
+    <section id="tab-hedges" role="tabpanel" aria-labelledby="tab-btn-hedges" tabindex="-1" hidden></section>
+
+    <!-- EVIDENCE -->
+    <section id="tab-evidence" role="tabpanel" aria-labelledby="tab-btn-evidence" tabindex="-1" hidden></section>
+  </main>
+
+  <footer id="footer" class="footer"></footer>
+
+  <noscript><p class="banner banner-warn">This read-only dashboard needs JavaScript to read the watcher, Base Sepolia and WhatsOnChain.</p></noscript>
+
+  <script src="config.js"></script>
+  <script src="chain.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
