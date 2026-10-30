@@ -202,15 +202,26 @@ if (values.dry) {
 
 // A stale post can't be forced live (it depends on when the account last posted); the Forge tests cover it with
 // vm.warp. Here the latest real post is checked and whatever the contract says is shown.
+let post: SignedResponse | undefined;
 if (values.post || values['post-file']) {
-  let post: SignedResponse;
   if (values['post-file']) {
     post = JSON.parse(readFileSync(values['post-file'], 'utf8')) as SignedResponse;
     console.log(`Post from ${values['post-file']}`);
   } else {
     console.log(`Fetching the latest post of @${values.post} from the TwitterAPI.io Airnode...`);
-    post = await guard.fetchPost(values.post!, payingFetch());
+    // An account without any post answers 400 "no value at /data/tweets/0/id": shown as info, not a crash.
+    post = await guard.fetchPost(values.post!, payingFetch()).catch((error: Error) => {
+      results.push({
+        name: `Latest @${values.post} post (info)`,
+        expected: 'any',
+        got: error.message,
+        pass: undefined,
+      });
+      return undefined;
+    });
   }
+}
+if (post) {
   console.log(`  data: ${post.data}`);
   const got = await outcome(() => guard.checkEvent(vaultId, post, fresh));
   if (got !== 'accepted' || values.dry) {
