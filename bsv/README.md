@@ -21,6 +21,7 @@ safety wrapper.
 | [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md) | Commands, in order, for the live demo |
 | [`docs/evidence/RESULTS.md`](docs/evidence/RESULTS.md) | Transaction IDs, test results, what is live and what is mocked, final report |
 | [`docs/SUBMISSION.md`](docs/SUBMISSION.md) | Paste-ready Devfolio text |
+| [`docs/USAGE_AND_VALUE.md`](docs/USAGE_AND_VALUE.md) | The one-page usage and value note the track asks for |
 | [`docs/verified-facts.md`](docs/verified-facts.md) | Rail baseline facts (Chinese), incl. the first mainnet swap-and-pay |
 
 ## Run
@@ -30,7 +31,7 @@ Node.js ≥ 22. Offline tests spend nothing.
 ```sh
 cd bsv
 npm ci
-npm test                 # 54 offline tests pass (mock chain, real keys/signatures/BEEF); 2 live tests skipped
+npm test                 # 58 offline tests pass (mock chain, real keys/signatures/BEEF); 2 live tests skipped
 LIVE_BASE=1 npm test     # + read-only checks against the deployed contract on Base Sepolia
 npm run typecheck
 npm run sync:api3        # after an API3 interface change: re-copy the ABI (a test fails on drift)
@@ -83,7 +84,8 @@ scripts/tg.ts  mainnet CLI; other scripts/ are the rail's mainnet scripts
 
 `src/{chain,guardian,merchant/invoice.ts,registry,swap/offer.ts,swap/fill.ts,token,wallet/agentWallet.ts}`,
 `test/{swap,issue,guardian}.test.ts`, the rail `scripts/` and `docs/verified-facts.md` come
-unchanged from [Brezn610/BSV_pet](https://github.com/Brezn610/BSV_pet) branch
-`claude/handover-docs-sjdxvf` @ `b9ce773` (commit `8cbf4770c` here). That is pre-event prototype
-code. Everything else under `bsv/` was written on 30 Oct 2026; see `git log -- bsv`.
+from [Brezn610/BSV_pet](https://github.com/Brezn610/BSV_pet) branch
+`claude/handover-docs-sjdxvf` @ `b9ce773` (imported unchanged in commit `8cbf4770c`). That is
+pre-event prototype code. During the event it was only renamed from the earlier "AI pet" wording
+to "agent" (`761385576`) and the event bus types were trimmed. Everything else under `bsv/` was written on 30 Oct 2026; see `git log -- bsv`.
 `withHostOriginator` is copied from the BSV stack guide §10.4.

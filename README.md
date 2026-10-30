@@ -1,264 +1,84 @@
-# ts-stack
+# Treasury Guard
 
-BSV TypeScript monorepo for the SDK, wallet tooling, overlays, messaging, middleware, helpers, infra services, docs, and cross-language conformance vectors.
+**A dollar budget for AI agents that pay in sats. Base Sepolia decides, BSV mainnet moves the money, and the owner can always exit alone.**
 
-[![Build and Test](https://github.com/bsv-blockchain/ts-stack/actions/workflows/ci.yml/badge.svg?label=build%20%2B%20test)](https://github.com/bsv-blockchain/ts-stack/actions/workflows/ci.yml)
-[![Conformance](https://github.com/bsv-blockchain/ts-stack/actions/workflows/conformance.yml/badge.svg)](https://github.com/bsv-blockchain/ts-stack/actions/workflows/conformance.yml)
-[![codecov](https://codecov.io/gh/bsv-blockchain/ts-stack/branch/main/graph/badge.svg)](https://codecov.io/gh/bsv-blockchain/ts-stack)
-[![Security](https://sonarcloud.io/api/project_badges/measure?project=bsv-blockchain_ts-stack&metric=security_rating)](https://sonarcloud.io/component_measures?metric=security_rating&id=bsv-blockchain_ts-stack)
-[![Reliability](https://sonarcloud.io/api/project_badges/measure?project=bsv-blockchain_ts-stack&metric=reliability_rating)](https://sonarcloud.io/component_measures?metric=reliability_rating&id=bsv-blockchain_ts-stack)
-[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=bsv-blockchain_ts-stack&metric=sqale_rating)](https://sonarcloud.io/component_measures?metric=sqale_rating&id=bsv-blockchain_ts-stack)
+TUM Blockchain & AI Hackathon 2026, BSV track ("DeFi Rails for Agentic Payments") and API3 track.
 
-## What Lives Here
+AI agents are starting to pay for APIs, data and compute themselves. Giving an agent a wallet key is a blank cheque: one prompt injection or bug, and the wallet is empty. Treasury Guard gives the agent freedom to act, but not unlimited freedom to spend:
 
-| Area        | Path                   | Purpose                                                                                                |
-| ----------- | ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| SDK         | `packages/sdk/`        | Zero-dependency crypto, Script, transactions, BEEF, Merkle paths, BRC-100 types                        |
-| Wallet      | `packages/wallet/`     | BRC-100 wallet implementation tooling, relay, token modules, examples                                  |
-| Network     | `packages/network/`    | Teranode P2P topic listener                                                                            |
-| Overlays    | `packages/overlays/`   | Overlay framework, HTTP server, topics, discovery, GASP, BTMS backend                                  |
-| Messaging   | `packages/messaging/`  | Message Box client, Authsocket, Paymail, Paymail examples                                              |
-| Middleware  | `packages/middleware/` | Express authentication, payment middleware, HTTP 402 payments                                          |
-| Helpers     | `packages/helpers/`    | Application entry points, templates, DID, wallet utilities, amount conversion                          |
-| Conformance | `conformance/`         | Language-neutral JSON vectors and runners for SDK, wallet, overlay, messaging, payments, storage, sync |
-| Docs        | `docs/`, `docs-site/`  | Source docs and the Vite/React documentation site                                                      |
-| Infra       | `infra/`               | Deployable servers kept outside the pnpm workspace                                                     |
+1. The owner's sats sit in a **BSV vault script** that only **agent + watcher together** can spend, and that the **owner can always spend alone**.
+2. A **daily USD budget** lives in `TreasuryGuard.sol` on **Base Sepolia**. The contract turns a **signed API3 BSV/USD price** into a SPEND intent with a hard `maxSats`.
+3. An independent **watcher** reads the intent and co-signs **one** BSV withdrawal for it. It signs only if the real transaction pays the registered Agent Float no more than `maxSats`, fee included, and returns the rest to the vault.
+4. The agent's model (Claude or DeepSeek) decides what to buy. A **guardian** in the float wallet enforces the merchant allowlist, the declared price and the caps. The agent then pays an **HTTP 402** API in sats.
+5. DeFi rail: **atomic swap-and-pay** turns sats into a token and pays a token-only merchant in **one** BSV transaction.
 
-Most applications should start with `@bsv/simple` or `@bsv/sdk`. Wallet builders usually start with `@bsv/wallet-toolbox`. Service operators usually start with the overlay, messaging, middleware, or infra packages.
+> An API3 intent alone cannot move money. No BSV transaction can move money out of the vault unless that intent authorises it, or the owner is exiting.
 
-## Wallet recovery resources
-
-Wallet builders need both recoverable root key material and wallet records,
-including derivation metadata. Start with [Wallet backup and recovery](docs/guides/wallet-backup-recovery.md),
-then use the [BRC-38/39 integration guide](docs/guides/wallet-data-portability.md),
-[recovery drill](docs/guides/wallet-recovery-drill.md) and
-[AI-agent implementation brief](docs/guides/wallet-recovery-agent-brief.md).
-
-## Contributing
-
-The entire stack follows one [contribution policy](./CONTRIBUTING.md), one
-[agent doctrine](./AGENTS.md), one [code of conduct](./CODE_OF_CONDUCT.md), and
-the root [security policy](./.github/SECURITY.md). Package-level `AGENTS.md`
-files point back to these root rules; packages do not define competing
-conventions.
-
-Use the root issue and pull request templates. Run strict local checks before
-using hosted CI, then keep a pull request in draft and remain responsible for
-its exact head until all applicable checks pass with zero new Sonar or CodeQL
-findings.
-
-## Quick Start
-
-Prerequisites:
-
-- Node.js >= 24.11 for repository development (published packages support Node.js >= 22)
-- pnpm >= 10; this repo is pinned to `pnpm@10.33.2`
-
-```sh
-pnpm install
-pnpm build
-pnpm test
+```mermaid
+flowchart LR
+  P[API3 Airnode<br/>signed BSV/USD] -- x402 --> A[Agent]
+  A -- submitPrice --> TG[TreasuryGuard.sol<br/>Base Sepolia testnet]
+  TG -- getIntent --> W[Watcher]
+  A -- proposed tx --> W
+  W -- co-signature --> V[(BSV vault<br/>agent AND watcher<br/>OR owner)]
+  V -- withdrawal --> F[Agent Float wallet]
+  F -- HTTP 402 sats --> M[Paid API]
+  A -- settle(intent, txid) --> TG
+  O[Owner<br/>BSV Desktop] -. exits alone .-> V
 ```
 
-Useful root commands:
+## Live, end to end (30 Oct 2026)
 
-| Command                | What it does                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------- |
-| `pnpm build`           | Builds every workspace package except the private root package                        |
-| `pnpm test`            | Runs every workspace package test script                                              |
-| `pnpm lint`            | Lints every authored JS/TS file with a repository-wide zero-warning gate              |
-| `pnpm format:check`    | Verifies repository and workspace formatting without changing files                   |
-| `pnpm health:check`    | Enforces repository profiles, package metadata, licensing, and policy synchronization |
-| `pnpm test:governance` | Verifies required skips, manual/live suites, empty-test policy, and conformance gaps  |
-| `pnpm test:property`   | Builds once and fuzzes all governed parser, codec, integrity, and trust boundaries    |
-| `pnpm check-versions`  | Verifies cross-package dependency references                                          |
-| `pnpm sync-versions`   | Updates stale cross-package dependency references                                     |
-| `pnpm conformance`     | Runs the structural conformance vector runner                                         |
-| `pnpm docs:dev`        | Starts the documentation site                                                         |
-| `pnpm docs:build`      | Builds and validates the documentation site                                           |
-| `pnpm docs:asyncapi`   | Regenerates bundled AsyncAPI HTML assets                                              |
+| Step | Network | Transaction |
+| --- | --- | --- |
+| Owner funds the vault, then **exits alone** (safety gate before anything else) | BSV mainnet | [cdcbf706…](https://whatsonchain.com/tx/cdcbf706af70c65ecc04b65c3b9ddfecc6626a9cda3088a5312afcebc541e81f) → [db5ca41c…](https://whatsonchain.com/tx/db5ca41c82c4506f66614193b6c2ccf5b84f3d7afffcda4f1a588b09edf7d41e) |
+| Owner funds the vault with 5,000 sats | BSV mainnet | [c1f97102…](https://whatsonchain.com/tx/c1f971027a2f0015a19c5945a48adf1282d5b1bb9cf8ab3f4e16d7574e246ad4) |
+| Signed BSV/USD → SPEND **intent 2** (`maxSats` 2,896) | Base Sepolia | [0x0aa95a72…](https://sepolia.basescan.org/tx/0x0aa95a723942c63e0463ea8730e4cb2baf8f76ac272b98915c31b8f0130afc90) |
+| Watcher checks the raw tx and co-signs: 2,796 sats → Agent Float, 2,162 back to the vault, fee 42 | BSV mainnet | [ae35d469…](https://whatsonchain.com/tx/ae35d46939d7fd7f79ff32aab1d6bdc906d28a18da93cce3950c013ccc91dcf5) |
+| `settle(2, txid)`, read back as `settled = true` | Base Sepolia | [0xc1a8c9bb…](https://sepolia.basescan.org/tx/0xc1a8c9bb236698e05a51293e337369ab9ea6284b97d863e0a66257c2844de5b8) |
+| Agent pays an HTTP 402 API: 1,000 sats, HTTP 200 in 857 ms | BSV mainnet | [43c8255e…](https://whatsonchain.com/tx/43c8255e63ab363f9d3641a601e74aee5ea95b5d53b747fcc86c40d71e959b77) |
+| Atomic swap-and-pay: 1,000 sats to the maker, 1 pUSD to the merchant, one tx | BSV mainnet | [ee2a3896…](https://whatsonchain.com/tx/ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c) |
 
-To work on one package:
+A second withdrawal for intent 2 was refused live (`journal already holds this intent as broadcast`). The full record, including what is live and what is mocked, is in [`bsv/docs/evidence/RESULTS.md`](bsv/docs/evidence/RESULTS.md).
 
-```sh
-pnpm --filter @bsv/sdk build
-pnpm --filter @bsv/sdk test
-pnpm --filter @bsv/sdk run test:coverage
-```
+## Usage and value
 
-Required tests exclude governed manual, live-network, and resource-intensive
-suites. See [Test Quality and Skip Governance](docs/reference/test-quality-governance.md)
-before running one of those suites.
+**Who it is for.** Teams that run AI agents and want them to buy things on their own (paid APIs, data feeds, compute), and agent platforms that hold money for many agents. Many of them build on EVM chains today.
 
-## Package Map
+**How they use it.**
+1. The owner creates a vault on Base (daily USD budget, agent key) and funds a BSV vault from their own wallet (BSV Desktop).
+2. The agent asks for budget with a signed price. The watcher releases sats to the agent's float wallet only within that budget.
+3. The agent spends the float on HTTP 402 APIs, or through swap-and-pay for merchants that want a token. The guardian checks every payment.
+4. The owner can take everything back at any time with one transaction, without asking anyone.
 
-### SDK
+**Why BSV.** Agents pay in tiny amounts and often. On BSV the vault withdrawal paid a 42-sat network fee and the 402 payment a 23-sat fee, both under $0.00001 at ~$17/BSV. A payment was answered in under one second. Scripts let the vault rules live in the coin itself, so no custodian is needed.
 
-| Path                           | Package                                              | Role                                                                                       |
-| ------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [`packages/sdk`](packages/sdk) | [`@bsv/sdk`](https://www.npmjs.com/package/@bsv/sdk) | Core primitives: keys, signatures, Script, transactions, BEEF, Merkle paths, BRC-100 types |
+**What it brings to BSV.** Budgets are set in dollars on an EVM chain that agent teams already use, so an EVM agent team can start paying on BSV without moving its control logic. Every such agent becomes a BSV user with real transaction volume. The DeFi rail lets a merchant ask for a token while the agent holds only sats. More: [`bsv/docs/USAGE_AND_VALUE.md`](bsv/docs/USAGE_AND_VALUE.md).
 
-### Wallet
+## Run it
 
-| Path                                                                                 | Package                                                                                      | Role                                                          |
-| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| [`packages/wallet/wallet-toolbox`](packages/wallet/wallet-toolbox)                   | [`@bsv/wallet-toolbox`](https://www.npmjs.com/package/@bsv/wallet-toolbox)                   | BRC-100 wallet storage, signer, services, and builder toolkit |
-| [`packages/wallet/wallet-toolbox/client`](packages/wallet/wallet-toolbox/client)     | [`@bsv/wallet-toolbox-client`](https://www.npmjs.com/package/@bsv/wallet-toolbox-client)     | Client-only wallet storage                                    |
-| [`packages/wallet/wallet-toolbox/mobile`](packages/wallet/wallet-toolbox/mobile)     | [`@bsv/wallet-toolbox-mobile`](https://www.npmjs.com/package/@bsv/wallet-toolbox-mobile)     | Mobile/client wallet storage                                  |
-| [`packages/wallet/wallet-toolbox-examples`](packages/wallet/wallet-toolbox-examples) | [`@bsv/wallet-toolbox-examples`](https://www.npmjs.com/package/@bsv/wallet-toolbox-examples) | Wallet toolbox examples                                       |
-| [`packages/wallet/ts-wallet-relay`](packages/wallet/ts-wallet-relay)                 | [`@bsv/wallet-relay`](https://www.npmjs.com/package/@bsv/wallet-relay)                       | Mobile-to-desktop wallet pairing relay                        |
-| [`packages/wallet/btms`](packages/wallet/btms)                                       | [`@bsv/btms`](https://www.npmjs.com/package/@bsv/btms)                                       | Basic Token Management System                                 |
-| [`packages/wallet/btms-permission-module`](packages/wallet/btms-permission-module)   | [`@bsv/btms-permission-module`](https://www.npmjs.com/package/@bsv/btms-permission-module)   | Token permission display and checks                           |
+| Part | Where | Commands |
+| --- | --- | --- |
+| BSV side: vault, watcher, Agent Float, HTTP 402, swap-and-pay | [`bsv/`](bsv/README.md) | `cd bsv && npm ci && npm test && npm run typecheck` (58 offline tests), `LIVE_BASE=1 npm test` (adds live Base reads) |
+| API3 side: contract, client, judge script | [`api3/`](api3/README.md) | `cd api3 && pnpm install && forge test && pnpm test`; live judge: `node --env-file=.env src/judge.ts --dry` |
 
-### Network
+The mainnet runbook (the `tg` CLI) is in [`bsv/docs/DEMO_RUNBOOK.md`](bsv/docs/DEMO_RUNBOOK.md). The design and checks are in [`bsv/docs/INTEGRATION.md`](bsv/docs/INTEGRATION.md) and [`bsv/docs/SAFETY_AND_TRUST.md`](bsv/docs/SAFETY_AND_TRUST.md).
 
-| Path                                                 | Package                                                                          | Role                                   |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------- |
-| [`packages/network/ts-p2p`](packages/network/ts-p2p) | [`@bsv/teranode-listener`](https://www.npmjs.com/package/@bsv/teranode-listener) | Teranode P2P topic subscription client |
+## Trust assumptions, and what we do not claim
 
-### Overlays
+- Base does not verify BSV. `settle` is a record written by the agent, not a cross-chain proof. Enforcement lives in the BSV script and the watcher.
+- The watcher can block but cannot take funds. If it goes offline, the owner exits alone (proven on mainnet).
+- API3 signatures prove origin, integrity and time, not economic correctness.
+- pUSD is an unbacked demo token, not a stablecoin. There is no CDP, liquidation, peg or bridge.
+- In the demo, watcher and agent run in one process with separate keys. The signed-rate swap wrapper is tested offline only.
 
-| Path                                                                                           | Package                                                                                            | Role                                             |
-| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| [`packages/overlays/overlay`](packages/overlays/overlay)                                       | [`@bsv/overlay`](https://www.npmjs.com/package/@bsv/overlay)                                       | Core overlay services and transaction validation |
-| [`packages/overlays/overlay-express`](packages/overlays/overlay-express)                       | [`@bsv/overlay-express`](https://www.npmjs.com/package/@bsv/overlay-express)                       | Express HTTP server for overlay services         |
-| [`packages/overlays/overlay-discovery-services`](packages/overlays/overlay-discovery-services) | [`@bsv/overlay-discovery-services`](https://www.npmjs.com/package/@bsv/overlay-discovery-services) | Overlay service discovery                        |
-| [`packages/overlays/topics`](packages/overlays/topics)                                         | [`@bsv/overlay-topics`](https://www.npmjs.com/package/@bsv/overlay-topics)                         | Canonical topic managers and lookup services     |
-| [`packages/overlays/gasp-core`](packages/overlays/gasp-core)                                   | [`@bsv/gasp`](https://www.npmjs.com/package/@bsv/gasp)                                             | Graph Aware Sync Protocol                        |
-| [`packages/overlays/btms-backend`](packages/overlays/btms-backend)                             | `@bsv/btms-backend` private                                                                        | BTMS overlay backend                             |
+## Repository layout
 
-### Messaging
+This repository is a fork of [bsv-blockchain/ts-stack](https://github.com/bsv-blockchain/ts-stack). The hackathon work is in two folders:
 
-| Path                                                                                         | Package                                                                            | Role                                         |
-| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------- |
-| [`packages/messaging/message-box-client`](packages/messaging/message-box-client)             | [`@bsv/message-box-client`](https://www.npmjs.com/package/@bsv/message-box-client) | P2P message box client                       |
-| [`packages/messaging/authsocket`](packages/messaging/authsocket)                             | [`@bsv/authsocket`](https://www.npmjs.com/package/@bsv/authsocket)                 | Server-side authenticated WebSocket protocol |
-| [`packages/messaging/authsocket-client`](packages/messaging/authsocket-client)               | [`@bsv/authsocket-client`](https://www.npmjs.com/package/@bsv/authsocket-client)   | Authenticated WebSocket client               |
-| [`packages/messaging/ts-paymail`](packages/messaging/ts-paymail)                             | [`@bsv/paymail`](https://www.npmjs.com/package/@bsv/paymail)                       | Paymail protocol library                     |
-| [`packages/messaging/ts-paymail/docs/examples`](packages/messaging/ts-paymail/docs/examples) | `example-paymail` workspace example                                                | Paymail documentation examples               |
+| Folder | What | Owner |
+| --- | --- | --- |
+| [`api3/`](api3/README.md) | `TreasuryGuard.sol`, API3 signed data, x402, TypeScript client, judge script | API3 side |
+| [`bsv/`](bsv/README.md) | Vault script, watcher, Agent Float, guardian, HTTP 402, swap-and-pay, mainnet CLI | BSV side |
 
-### Middleware
-
-| Path                                                                                               | Package                                                                                            | Role                                          |
-| -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| [`packages/middleware/auth-express-middleware`](packages/middleware/auth-express-middleware)       | [`@bsv/auth-express-middleware`](https://www.npmjs.com/package/@bsv/auth-express-middleware)       | Mutual-authentication middleware for Express  |
-| [`packages/middleware/payment-express-middleware`](packages/middleware/payment-express-middleware) | [`@bsv/payment-express-middleware`](https://www.npmjs.com/package/@bsv/payment-express-middleware) | Payment-gated Express routes                  |
-| [`packages/middleware/402-pay`](packages/middleware/402-pay)                                       | [`@bsv/402-pay`](https://www.npmjs.com/package/@bsv/402-pay)                                       | BRC-121 HTTP 402 server middleware and client |
-
-### Helpers
-
-| Path                                                                       | Package                                                                  | Role                                                  |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------- |
-| [`packages/helpers/simple`](packages/helpers/simple)                       | [`@bsv/simple`](https://www.npmjs.com/package/@bsv/simple)               | Recommended high-level browser/server application API |
-| [`packages/helpers/bsv-wallet-helper`](packages/helpers/bsv-wallet-helper) | [`@bsv/wallet-helper`](https://www.npmjs.com/package/@bsv/wallet-helper) | Wallet helper functions                               |
-| [`packages/helpers/ts-templates`](packages/helpers/ts-templates)           | [`@bsv/templates`](https://www.npmjs.com/package/@bsv/templates)         | Script templates                                      |
-| [`packages/helpers/amountinator`](packages/helpers/amountinator)           | [`@bsv/amountinator`](https://www.npmjs.com/package/@bsv/amountinator)   | Satoshi/BSV conversion and formatting                 |
-| [`packages/helpers/fund-wallet`](packages/helpers/fund-wallet)             | [`@bsv/fund-wallet`](https://www.npmjs.com/package/@bsv/fund-wallet)     | Testnet/devnet wallet funding helper                  |
-
-### Infra
-
-These deployable projects are not included in `pnpm-workspace.yaml`; they keep their original server layout under `infra/`.
-
-| Path                                                               | Package                                                                              | Role                                                                     |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| [`infra/chaintracks-server`](infra/chaintracks-server)             | `chaintracks-server` private                                                         | Block header service exposing v1 + v2 REST API over `ChaintracksService` |
-| [`infra/message-box-server`](infra/message-box-server)             | `@bsv/messagebox-server` private                                                     | Message box server                                                       |
-| [`infra/overlay-server`](infra/overlay-server)                     | `@bsv/overlay-express-examples` private                                              | Overlay server deployment                                                |
-| [`infra/uhrp-server-basic`](infra/uhrp-server-basic)               | [`@bsv/uhrp-lite`](https://www.npmjs.com/package/@bsv/uhrp-lite)                     | Basic UHRP storage host                                                  |
-| [`infra/uhrp-server-cloud-bucket`](infra/uhrp-server-cloud-bucket) | [`@bsv/uhrp-storage-server`](https://www.npmjs.com/package/@bsv/uhrp-storage-server) | UHRP storage server for cloud bucket deployments                         |
-| [`infra/wallet-infra`](infra/wallet-infra)                         | `@bsv/wallet-infra` private                                                          | UTXO management server                                                   |
-| [`infra/wab`](infra/wab)                                           | `@bsv/wab-server` private                                                            | Wallet Authentication Backend                                            |
-| [`infra/webrtpay-relay`](infra/webrtpay-relay)                     | `@bsv/webrtpay-relay` private                                                        | WebRTPay signalling relay for direct WebRTC payments                     |
-
-## Conformance Vectors
-
-The conformance corpus is the portable contract for other BSV libraries and nodes to test against. Vectors live under [`conformance/vectors`](conformance/vectors), use [`conformance/schema/vector.schema.json`](conformance/schema/vector.schema.json), and are indexed by [`conformance/META.json`](conformance/META.json).
-
-Important entry points:
-
-| Path or command                                                | Purpose                                                   |
-| -------------------------------------------------------------- | --------------------------------------------------------- |
-| `pnpm conformance`                                             | Runs the structural vector runner                         |
-| `pnpm conformance --validate-only`                             | Validates vector files without executing behavior         |
-| `pnpm --filter @bsv/conformance-runner-ts test`                | Runs the TypeScript/Jest dispatcher for supported vectors |
-| [`conformance/VECTOR-FORMAT.md`](conformance/VECTOR-FORMAT.md) | Vector envelope and field rules                           |
-| [`docs/conformance`](docs/conformance)                         | User-facing conformance docs                              |
-
-CI publishes the `conformance-vectors` artifact from `main` so downstream SDKs can consume the same vector set.
-
-## Documentation
-
-Documentation source lives in [`docs`](docs). The local site lives in [`docs-site`](docs-site).
-
-```sh
-pnpm docs:dev
-pnpm docs:build
-pnpm docs:preview
-```
-
-Package-level docs start at [`docs/packages/index.md`](docs/packages/index.md). Architecture docs start at [`docs/architecture/index.md`](docs/architecture/index.md).
-
-## Quality Gates
-
-For this repository, **quality gate passed** means that every required check
-has passed on the current pull-request head, including the repository-owned
-exact-head Sonar check with zero new issue findings and zero unreviewed
-security hotspots. SonarCloud's aggregate `Quality Gate passed` verdict alone
-does not authorize a merge; accepted or false-positive reclassification of a
-new issue does not satisfy the repository gate.
-
-The main CI workflow performs one frozen install and full package build, then
-runs non-coverage tests and the SDK, DID, wallet-toolbox, VeriFast, and other
-affected coverage suites in parallel. Wallet-toolbox coverage is split into
-four deterministic Jest shards, while its formerly network-sensitive monitor
-suite runs in a fifth isolated lane. The remaining coverage-capable packages
-are split across two deterministic lanes. Coverage artifacts are normalized
-and aggregated before one Codecov upload and the optional SonarCloud scan. Packages with a
-`test:coverage` script execute their assertions in a coverage lane; packages
-without one are selected dynamically by
-[`scripts/run-ci-tests.mjs`](scripts/run-ci-tests.mjs), so each affected suite
-runs once without losing assertions or coverage.
-
-The docs build, infrastructure matrix, dependency review, structural
-conformance runner, and dedicated TypeScript conformance runner remain
-independent gates. Superseded runs on the same PR are canceled so runner
-capacity is spent on the newest commit. The workflow expects the organization
-secrets already used by the BSV repositories:
-
-- `CODECOV_TOKEN`
-- `SONAR_TOKEN`
-
-Every LCOV report is normalized to repo-root paths by
-[`scripts/normalize-lcov-paths.mjs`](scripts/normalize-lcov-paths.mjs). Root
-configuration lives in [`codecov.yml`](codecov.yml) and
-[`sonar-project.properties`](sonar-project.properties).
-
-## Releases
-
-Releases use GitHub Actions with npm OIDC provenance; no static npm token is required. Push a tag matching `<package-path>/v*` for a package release, or `v*` for a rare monorepo-wide release. Package tags publish the package at the tagged path; monorepo-wide tags publish packages changed since `origin/main`.
-
-Each published package must be configured as an npm trusted publisher:
-
-- Owner: `bsv-blockchain`
-- Repository: `ts-stack`
-- Workflow: `release.yaml`
-- Environment: leave blank
-
-## Updating Imported Packages
-
-Many packages were imported with `git subtree` and retain their upstream history. When pulling upstream changes, use the actual prefix from the package map:
-
-```sh
-git subtree pull --prefix=packages/sdk <remote> <branch>
-```
-
-Keep unrelated package history and generated artifacts out of the same change when possible.
-
-## License
-
-Current TS Stack first-party contributions are licensed under the
-[Open BSV License Version 6](./LICENSE.txt). Historical grants and incorporated
-material remain under the scoped terms in
-[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) and
-[LICENSES/](./LICENSES/). The repository copies those payloads into each
-affected artifact; see the [licensing policy](./docs/reference/licensing.md).
+Everything else is the upstream ts-stack monorepo, unchanged. Its README is [`README.ts-stack.md`](README.ts-stack.md). Part of the swap rail was prototyped before the event in [Brezn610/BSV_pet](https://github.com/Brezn610/BSV_pet); provenance is in [`bsv/README.md`](bsv/README.md#provenance).
