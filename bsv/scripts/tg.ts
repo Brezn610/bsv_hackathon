@@ -19,6 +19,7 @@ import { floatLockingScript, internalizeWithdrawal } from '../src/agent/float'
 import { createIntentReader } from '../src/api3/intentReader'
 import { loadBinding, settleTxidArg } from '../src/api3/policyTypes'
 import { MockChain } from '../src/chain/mockChain'
+import { unspentByScript } from '../src/chain/wocUtxos'
 import { openServerWallet, type ServerWallet } from '../src/chain/serverWallet'
 import { DATA_DIR, loadEnv, requireEnv, STATE_DIR, WATCHER_ENV_FILE } from '../src/env'
 import { EventBus } from '../src/events'
@@ -331,12 +332,13 @@ async function status(): Promise<void> {
   const { stored } = loadStoredBinding()
   console.log(`Binding ${stored.version}: Base vault ${stored.base.vaultId} on ${stored.base.contract} (chain ${stored.base.chainId})`)
   console.log(`Vault script ${stored.vaultLockingScript}`)
+  const onChain = await unspentByScript(stored.vaultLockingScript).catch((err: Error) => err)
+  for (const u of loadUtxos()) {
+    const chain = onChain instanceof Error ? `error ${onChain.message}` : onChain.has(u.outpoint) ? 'unspent' : 'spent'
+    console.log(`  ${u.outpoint} ${u.satoshis} sats ${u.purpose} local=${u.status} chain=${chain}`)
+  }
   const agent = await agentWallet()
   try {
-    for (const u of loadUtxos()) {
-      const s = await agent.services.getUtxoStatus(stored.vaultLockingScript, 'script', u.outpoint)
-      console.log(`  ${u.outpoint} ${u.satoshis} sats ${u.purpose} local=${u.status} chain=${s.status === 'success' ? (s.isUtxo ? 'unspent' : 'spent/unknown') : `error ${s.error?.message}`}`)
-    }
     console.log(`Agent wallet balance: ${await agent.wallet.balance()} sats`)
   } finally {
     await agent.close()
@@ -361,15 +363,7 @@ async function withdraw(): Promise<void> {
       journal: new WatcherJournal(JOURNAL_FILE),
       signer: watcherSigner(),
       // Independent check: each recorded vault UTXO must be unspent on chain right now.
-      unspentVaultUtxos: async () => {
-        const m = new Map<string, number>()
-        for (const u of live) {
-          const s = await agent.services.getUtxoStatus(stored.vaultLockingScript, 'script', u.outpoint)
-          if (s.status !== 'success') throw new Error(`UTXO status unavailable for ${u.outpoint}: ${s.error?.message}`)
-          if (s.isUtxo === true) m.set(u.outpoint, u.satoshis)
-        }
-        return m
-      }
+      unspentVaultUtxos: async () => await unspentByScript(stored.vaultLockingScript)
     })
     const t0 = Date.now()
     const intent = await reader.readIntent(intentId)
