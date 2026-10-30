@@ -25,6 +25,7 @@ Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock c
 | **Vault withdrawal for Base intent 2** | [`ae35d469…dcf5`](https://whatsonchain.com/tx/ae35d46939d7fd7f79ff32aab1d6bdc906d28a18da93cce3950c013ccc91dcf5) | watcher re-read intent 2 at Base block 52281922 and APPROVED; spends vault UTXO `c1f97102…:0` (5,000) with agent + watcher signatures: 2,796 to the Agent Float, 2,162 change back to the same vault script, `OP_RETURN "TGv1 84532 0x8e38… 5 2"`; fee 42; vault outflow 2,838 ≤ maxSats 2,896; 1,045 ms from intent read to broadcast; the float took it in (agent balance 20,707); mined in block 973334. A second `withdraw --intent 2` was refused: "journal already holds this intent as broadcast" |
 | **`settle(2, 0xae35d469…dcf5)` on Base Sepolia** | [`0xc1a8c9bb…e5b8`](https://sepolia.basescan.org/tx/0xc1a8c9bb236698e05a51293e337369ab9ea6284b97d863e0a66257c2844de5b8) | sent by the vault-5 agent `0x0310dCF1…4cf0`, block 52283537, status success; `Settled(intentId 2, bsvTxid 0xae35d469…dcf5)`. Independently re-read by the BSV side: `getIntent(2).settled = true`, `bsvTxid` equals the BSV withdrawal txid. A recorded claim by the agent, not a cross-chain proof |
 | **Vault withdrawal for Base intent 4** (float wallet) | [`452a42b4…a31f`](https://whatsonchain.com/tx/452a42b4bf518451c9c4f48a270af892b5b2adb74b64ac8a76bbd5319285a31f) | intent 4 (`maxSats` 2,902; [created on Base](https://sepolia.basescan.org/tx/0xca48d1b12f24c7a093002e6ed465ec9ceb823b659b929aa3e1e26f57c6eaaca8)) re-read at Base block 52298837 and APPROVED; spends the vault change `ae35d469…:1` (2,162): 2,062 to the dedicated float wallet, 58 back to the same vault script, receipt `TGv1 84532 … 5 4`; fee 42; outflow 2,104 ≤ 2,902. (Intent 3 was created on vault 8, the API3 runner, and was ignored.) |
+| **`settle(4, 0x452a42b4…a31f)` on Base Sepolia** | [`0x793e7f26…c980`](https://sepolia.basescan.org/tx/0x793e7f26270e8a688239a42128cfa4916842d27c6309f5beaf6bb9dca3ffc980) | sent by the vault-5 agent, block 52301453, status success; `Settled(4, 0x452a42b4…)`; re-read by the BSV side: `getIntent(4).settled = true`, `bsvTxid` equals the withdrawal txid |
 | **Agent pays HTTP 402 with the withdrawn sats** | [`54082a71…b320`](https://whatsonchain.com/tx/54082a714816ce2e9b2a67c23c5e04da67c2f93b8df30136b7126b715802b320) | DeepSeek decided BUY ("the offer directly matches the task topic and its 1000-sat price is within both the float balance and the per-payment cap"); guardian (rules) approved; the only input is `452a42b4…:0`, the float output of the intent-4 withdrawal; 1,000 sats to the merchant, 1,039 change to the float, fee 23; HTTP 200 in 1,002 ms |
 | Atomic swap-and-pay | [`ee2a3896…8e8c`](https://whatsonchain.com/tx/ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c) | rail baseline, earlier on 30 Oct: 1,000 sats to the maker, 1 pUSD to the merchant, fee 66, one tx. Price was a fixed 1,000 sats; the signed-rate `executeSwap` wrapper is **offline only** |
 
@@ -51,7 +52,7 @@ insufficient sats.
   values as `getIntent` returns them); the swap's signed rate ($20.00 fixture) in `execute-swap.test.ts`.
 - The paid API is a local demo merchant serving a deterministic note, not external data.
 - Watcher and agent ran in one CLI process with separate keys (see SAFETY_AND_TRUST.md).
-- Blocks: `cdcbf706`, `db5ca41c`, `c1f97102` in 973333; `43c8255e`, `ae35d469` in 973334 (checked 18:01 Berlin).
+- Blocks: `cdcbf706`, `db5ca41c`, `c1f97102` in 973333; `43c8255e`, `ae35d469` in 973334 (checked 18:01 Berlin); `452a42b4`, `54082a71` in 973339 (checked 18:55 Berlin).
 - The first HTTP 402 payment `43c8255e` came from the agent's existing balance. The second, `54082a71`, spends the intent-4 withdrawal output directly (dedicated float wallet).
 - "One transaction instead of two" for swap-and-pay is a structural property; no fee saving is claimed.
 
@@ -63,7 +64,7 @@ insufficient sats.
 - Read-only API3 adapter for vault 5 (chain check, tip − 1 read, judge/retired vaults excluded).
 - Watcher policy on the real transaction bytes, journal with fsync + rename + checksum.
 - Live loop: signed price → intent 2 on Base → co-signed vault withdrawal on BSV mainnet → `settle(2)` on Base, verified from both sides.
-- Live loop with the agent's model: intent 4 → withdrawal `452a42b4` into the float wallet → DeepSeek BUY → guardian → HTTP 402 `54082a71`, whose only input is the withdrawal's float output.
+- Live loop with the agent's model: intent 4 → withdrawal `452a42b4` into the float wallet → DeepSeek BUY → guardian → HTTP 402 `54082a71`, whose only input is the withdrawal's float output → `settle(4)` on Base, verified from both sides.
 - Sats HTTP 402 payment on mainnet; `executeSwap` safety wrapper with negative tests.
 - INTEGRATION, SAFETY_AND_TRUST, DEMO_RUNBOOK, RESULTS, SUBMISSION docs.
 
