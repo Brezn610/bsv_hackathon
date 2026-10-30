@@ -17,6 +17,8 @@ export interface Deployment {
   // A second vault whose agent is the deployer, only for the judge script, so it never shares a key, budget or
   // last price with the agent loop on vaultId.
   judgeVaultId: number | null;
+  // A second judge vault kept fresh for the one real hedge at live judging (a hedge leaves a vault GUARDED).
+  liveJudgeVaultId?: number | null;
   // Vault configs are immutable, so every change made a new vault. These hold no funds and are never co-signed.
   retiredVaults?: Record<string, string>;
   deployTx: Hex | null;

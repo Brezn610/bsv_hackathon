@@ -5,6 +5,7 @@
     "treasuryGuard": "0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773",
     "vaultId": 5,
     "judgeVaultId": 6,
+    "liveJudgeVaultId": 7,
     "retiredVaults": {
       "1": "first agent vault (WhiteHouse, federalreserve), superseded by 3",
       "2": "first judge vault, superseded by 4",
