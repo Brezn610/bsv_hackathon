@@ -33,6 +33,8 @@ export interface IntentReader {
   readIntent: (intentId: bigint) => Promise<ConfirmedIntent>
   vaultConfig: (vaultId: bigint) => Promise<Record<string, unknown>>
   remainingUsdToday: (vaultId: bigint) => Promise<bigint>
+  /** The last signed BSV/USD price the vault accepted (8 decimals) and when it was signed. */
+  lastPrice: (vaultId: bigint) => Promise<{ price: bigint; change1h: bigint; updatedAt: bigint; signedAt: bigint }>
   /** IntentCreated logs of `vaultId` (default: the guarded vault) in [fromBlock, toBlock]. */
   intentEvents: (fromBlock: bigint, toBlock?: bigint, vaultId?: bigint) => Promise<Array<{ intentId: bigint; vaultId: bigint; kind: number; blockNumber: bigint; txHash: string }>>
 }
@@ -87,6 +89,15 @@ export function createIntentReader(opts: { binding: Api3Binding; rpcUrl?: string
     async remainingUsdToday(vaultId) {
       await checkChain()
       return (await client.readContract({ ...contract, functionName: 'remainingUsdToday', args: [vaultId] })) as bigint
+    },
+    async lastPrice(vaultId) {
+      await checkChain()
+      return (await client.readContract({ ...contract, functionName: 'lastPrice', args: [vaultId] })) as {
+        price: bigint
+        change1h: bigint
+        updatedAt: bigint
+        signedAt: bigint
+      }
     },
     async intentEvents(fromBlock, toBlock, vaultId = binding.vaultId) {
       await checkChain()

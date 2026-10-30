@@ -3,8 +3,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { Transaction } from '@bsv/sdk'
 import { createIntentReader } from '../src/api3/intentReader'
 import { loadBinding, settleTxidArg } from '../src/api3/policyTypes'
+import { evaluateWithdrawal } from '../src/watcher/policy'
 import { ABI_FILE, api3Abi } from '../scripts/sync-api3'
 
 test('the ABI copy is exactly the entries of api3/src/client/abi.ts (run npm run sync:api3 on drift)', async () => {
@@ -34,4 +36,20 @@ test('live Base Sepolia: vault 5 config, budget, and an unknown intent fails clo
   assert.ok(Number(cfg.intentTtl) > 0)
   assert.ok((await reader.remainingUsdToday(5n)) <= 1_000_000n)
   await assert.rejects(reader.readIntent(10n ** 12n), /does not exist/)
+})
+
+test('live Base Sepolia: the one real intent so far (id 1, retired vault 2) is refused by the watcher', { skip: process.env.LIVE_BASE !== '1' && 'set LIVE_BASE=1' }, async () => {
+  const binding = loadBinding()
+  const intent = await createIntentReader({ binding, rpcUrl: process.env.BASE_SEPOLIA_RPC }).readIntent(1n)
+  assert.equal(intent.vaultId, 2n)
+  const decision = evaluateWithdrawal(
+    {
+      version: 'live-read', bsvNetwork: 'main',
+      base: { chainId: binding.chainId, contract: binding.contract, vaultId: binding.vaultId, excludedVaultIds: binding.excludedVaultIds },
+      vaultLockingScript: '51', floatLockingScript: '52', maxFeeSats: 200, expiryMarginSec: 60, minChangeSats: 1
+    },
+    { intent, tx: new Transaction(), ledger: 'new', vaultUtxos: new Map(), now: Math.floor(Date.now() / 1000) }
+  )
+  assert.equal(decision.verdict, 'DENY')
+  if (decision.verdict === 'DENY') assert.ok(decision.reasons.some(r => /judge or retired/.test(r)))
 })

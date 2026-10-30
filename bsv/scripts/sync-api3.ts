@@ -5,7 +5,7 @@
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-export const ABI_ENTRIES = ['getIntent', 'getVaultConfig', 'remainingUsdToday', 'regime', 'IntentCreated', 'Settled']
+export const ABI_ENTRIES = ['getIntent', 'getVaultConfig', 'remainingUsdToday', 'regime', 'lastPrice', 'IntentCreated', 'Settled']
 export const ABI_FILE = path.join(__dirname, '..', 'src', 'api3', 'treasuryGuard.abi.json')
 
 export async function api3Abi(): Promise<unknown[]> {
