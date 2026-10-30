@@ -1,0 +1,31 @@
+{
+  "name": "airnodehub-hackathon-starter",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify signed AirnodeHub data in a smart contract and read the fields of its projected JSON",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@11.5.2",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "fetch-response": "node --env-file-if-exists=.env src/fetch-response.ts",
+    "prettier:check": "prettier --check .",
+    "prettier:fix": "prettier --write .",
+    "request-hash": "node src/request-hash.ts",
+    "submit-response": "node --env-file-if-exists=.env src/submit-response.ts",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "tsc": "tsc"
+  },
+  "dependencies": {
+    "@x402/evm": "^2.28.0",
+    "@x402/fetch": "^2.28.0",
+    "viem": "^2.57.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "prettier": "^3.9.9",
+    "typescript": "~6.0.3"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
+  "requestHash": "0xceecf6d2b5c25f57242052a0a59ca73222bf017e41a7ec13418fe1207b7b9ec6",
+  "timestamp": "1793365888",
+  "data": "{\"id\":\"2115904746666053883\",\"text\":\"Approval of application by The Bank of Nova Scotia: https://t.co/RTW11jrYJS\"}",
+  "signature": "0x2442873b42be45b524dc81572543a58d6786f40d902928788c2534fa3fe2894673fa47b3086977ed5c3ef8ddeb07a644f64afaa4b4d78cfa2cdba54fc43fc95b1b"
+}

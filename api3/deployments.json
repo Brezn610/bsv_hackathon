@@ -1,0 +1,43 @@
+{
+  "baseSepolia": {
+    "chainId": 84532,
+    "explorer": "https://sepolia.basescan.org",
+    "treasuryGuard": "0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773",
+    "vaultId": 5,
+    "judgeVaultId": 6,
+    "liveJudgeVaultId": 7,
+    "runnerVaultId": 8,
+    "retiredVaults": {
+      "1": "first agent vault (WhiteHouse, federalreserve), superseded by 3",
+      "2": "first judge vault, superseded by 4",
+      "3": "agent vault with @TreasuryGuardDe, superseded by 5: TwitterAPI.io does not index that new account",
+      "4": "judge vault with @TreasuryGuardDe, superseded by 6 for the same reason"
+    },
+    "deployTx": "0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884",
+    "deployBlock": 52226250,
+    "feeds": {
+      "bsvUsd": {
+        "airnode": "0xB8b7816a39A0bF55eF2ae9A282A1502ce35ff732",
+        "requestHash": "0x18b782163c79529c7bbe757343b930284f3aef690e45560f0aa771b629399480"
+      },
+      "tweets": {
+        "WhiteHouse": {
+          "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
+          "requestHash": "0x783a61a36250c7dfdf26d9ea96ca3cc5894a286c9f4b4139798345cb4d9395e9"
+        },
+        "federalreserve": {
+          "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
+          "requestHash": "0xceecf6d2b5c25f57242052a0a59ca73222bf017e41a7ec13418fe1207b7b9ec6"
+        },
+        "TreasuryGuardDe": {
+          "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
+          "requestHash": "0x2e867a28c43c9781e1e8c9d139c9be65dca7b111033071859af3104c971839d3"
+        },
+        "956_kakashi": {
+          "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
+          "requestHash": "0x2aa759a5578bd4b6f7e18cb12821e2aa4d5d27ef609c1332e961accc56985a12"
+        }
+      }
+    }
+  }
+}

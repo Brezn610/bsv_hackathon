@@ -1,0 +1,12 @@
+# Foundry
+/out
+/cache
+/broadcast
+
+# Node
+node_modules
+
+.env
+
+# Keep the agent env template (root .gitignore ignores .env.*)
+!.env.agent.example
