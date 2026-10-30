@@ -1,0 +1,63 @@
+{
+  "task": "Decide whether the BSV treasury should go risk-off today, based on the newest official Federal Reserve post.",
+  "decision": {
+    "buy": true,
+    "reason": "The offer directly provides the newest official Federal Reserve post with a risk verdict needed for the task, and 100 sats is well within both the float and per-payment cap.",
+    "decidedBy": "deepseek"
+  },
+  "payer": "float",
+  "status": 200,
+  "paymentTxid": "2eebf6bc06bc1f2d9a0f365d6a5577e6843c94b0958aa5cd184fb3d9ad850028",
+  "url": "https://whatsonchain.com/tx/2eebf6bc06bc1f2d9a0f365d6a5577e6843c94b0958aa5cd184fb3d9ad850028",
+  "priceSats": 100,
+  "merchant": "https://show-story-try-agents.trycloudflare.com/verdict/federalreserve",
+  "merchantReceivedSats": "external merchant: see the payment output on WhatsOnChain",
+  "guardian": {
+    "decision": "approve",
+    "mode": "once",
+    "risk": 10,
+    "reasons": [
+      "100 sats for \"Analyst verdict: federalreserve\" passes every rule."
+    ],
+    "judge": "rules",
+    "findings": [
+      {
+        "rule": "declared-intent",
+        "severity": "ok",
+        "detail": "Agent says: \"The offer directly provides the newest official Federal Reserve post with a risk verdict needed for the task, and 100 sats is well within both the float and per-payment cap.\""
+      },
+      {
+        "rule": "merchant",
+        "severity": "ok",
+        "detail": "External 402 service at show-story-try-agents.trycloudflare.com is trusted."
+      }
+    ]
+  },
+  "paymentInputsFrom": [
+    "54082a714816ce2e9b2a67c23c5e04da67c2f93b8df30136b7126b715802b320",
+    "6cf0ff26409e0173d663ad2893a4e3d24306defd9fa81a01882d64de3d2a6134"
+  ],
+  "fundedByVaultWithdrawal": [],
+  "body": {
+    "account": "federalreserve",
+    "tweetId": "2116262960511467533",
+    "text": "Now available: Weekly data on the H.8 release, Assets and Liabilities of Commercial Banks in the United States #FedData https://t.co/WeJhdaARrt",
+    "postedAt": 1793391382,
+    "retweet": false,
+    "verdict": 0,
+    "label": "ignore",
+    "reason": "Routine weekly Fed banking data release with no policy signal, so it is unlikely to move crypto or BSV prices.",
+    "judgedBy": "deepseek",
+    "paidSats": 100,
+    "txid": "2eebf6bc06bc1f2d9a0f365d6a5577e6843c94b0958aa5cd184fb3d9ad850028",
+    "signedBy": {
+      "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
+      "requestHash": "0xceecf6d2b5c25f57242052a0a59ca73222bf017e41a7ec13418fe1207b7b9ec6",
+      "timestamp": "1793391899",
+      "signature": "0xcbc5121b0c434e1f136eba2b065f8d66d987db5995d3f2367d3ed6bd9686669c4db617594dd3917580f9690e64011448a01d5a0f2e086123a9b49c72262340a91b"
+    }
+  },
+  "msRequestToAnswer": 5850,
+  "note": "External 402 service; the payment is a real BSV mainnet transaction.",
+  "at": "2026-10-30T20:24:59.866Z"
+}
