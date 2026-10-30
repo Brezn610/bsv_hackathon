@@ -13,7 +13,7 @@ remappings = [
   "forge-std/=lib/forge-std/src/",
   "solady/=lib/solady/src/",
 ]
-fs_permissions = [{ access = "read", path = "./test/fixtures" }]
+fs_permissions = [{ access = "read", path = "./test/fixtures" }, { access = "read", path = "./deployments.json" }]
 # Leaves out the compiler warnings of the dependencies.
 ignored_warnings_from = ["lib"]
 
