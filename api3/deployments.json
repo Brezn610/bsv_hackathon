@@ -5,6 +5,12 @@
     "treasuryGuard": "0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773",
     "vaultId": 5,
     "judgeVaultId": 6,
+    "retiredVaults": {
+      "1": "first agent vault (WhiteHouse, federalreserve), superseded by 3",
+      "2": "first judge vault, superseded by 4",
+      "3": "agent vault with @TreasuryGuardDe, superseded by 5: TwitterAPI.io does not index that new account",
+      "4": "judge vault with @TreasuryGuardDe, superseded by 6 for the same reason"
+    },
     "deployTx": "0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884",
     "deployBlock": 52226250,
     "feeds": {

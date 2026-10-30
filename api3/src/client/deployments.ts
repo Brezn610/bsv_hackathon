@@ -17,6 +17,8 @@ export interface Deployment {
   // A second vault whose agent is the deployer, only for the judge script, so it never shares a key, budget or
   // last price with the agent loop on vaultId.
   judgeVaultId: number | null;
+  // Vault configs are immutable, so every change made a new vault. These hold no funds and are never co-signed.
+  retiredVaults?: Record<string, string>;
   deployTx: Hex | null;
   deployBlock: number | null;
   feeds: { bsvUsd: FeedConfig; tweets: Record<string, FeedConfig> };
