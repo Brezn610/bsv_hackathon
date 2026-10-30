@@ -2,10 +2,11 @@
   "baseSepolia": {
     "chainId": 84532,
     "explorer": "https://sepolia.basescan.org",
-    "treasuryGuard": null,
-    "vaultId": null,
-    "deployTx": null,
-    "deployBlock": null,
+    "treasuryGuard": "0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773",
+    "vaultId": 1,
+    "judgeVaultId": 2,
+    "deployTx": "0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884",
+    "deployBlock": 52226250,
     "feeds": {
       "bsvUsd": {
         "airnode": "0xB8b7816a39A0bF55eF2ae9A282A1502ce35ff732",
@@ -15,6 +16,10 @@
         "WhiteHouse": {
           "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
           "requestHash": "0x783a61a36250c7dfdf26d9ea96ca3cc5894a286c9f4b4139798345cb4d9395e9"
+        },
+        "federalreserve": {
+          "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
+          "requestHash": "0xceecf6d2b5c25f57242052a0a59ca73222bf017e41a7ec13418fe1207b7b9ec6"
         }
       }
     }

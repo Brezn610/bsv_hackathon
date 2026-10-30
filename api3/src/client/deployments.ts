@@ -14,6 +14,9 @@ export interface Deployment {
   treasuryGuard: Address | null;
   // The demo vault the deploy script creates; the agent and the judge script use it.
   vaultId: number | null;
+  // A second vault whose agent is the deployer, only for the judge script, so it never shares a key, budget or
+  // last price with the agent loop on vaultId.
+  judgeVaultId: number | null;
   deployTx: Hex | null;
   deployBlock: number | null;
   feeds: { bsvUsd: FeedConfig; tweets: Record<string, FeedConfig> };

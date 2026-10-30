@@ -85,6 +85,6 @@ Other views: `remainingUsdToday(vaultId)`, `regime(vaultId)` (`'NORMAL' | 'RISK_
 
 ## Judge script (API3 standalone, no BSV needed)
 
-`node --env-file=.env.agent src/judge.ts` buys one fresh BSV/USD price (0.001 aUSD), runs every rejected case as a free
+`node --env-file=.env src/judge.ts` (judge vault `judgeVaultId`, deployer key; x402 paid by the agent key) buys one fresh BSV/USD price (0.001 aUSD), runs every rejected case as a free
 `eth_call` (edited digit, local key, BTC/USD request, too old, over budget), sends one valid SPEND, then shows `Replay`.
 `--dry` sends nothing, `--post WhiteHouse` also checks the latest post.

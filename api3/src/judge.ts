@@ -1,14 +1,16 @@
 // Judge script: one fresh signed BSV/USD price, then the tamper test against the deployed TreasuryGuard.
 // Every rejected case runs as eth_call (checkPrice / a simulated submitPrice), so it costs nothing and shows the error the
 // contract reverts with. Only the valid case sends a transaction, and it creates a real SPEND intent.
+// It runs on the judge vault (deployments.json → judgeVaultId) with the deployer key, never on the agent's vault.
+// x402 is paid by the agent key: only PAYER_PRIVATE_KEY is read from .env.agent.
 //
-//   node --env-file=.env.agent src/judge.ts                 fetch a fresh price via x402 (0.001 aUSD) and run all cases
-//   node --env-file=.env.agent src/judge.ts --file r.json   use a saved response instead (it must still be fresh)
-//   options: --vault <id> (default: deployments.json) --usd <dollars> (default 1) --dry (no transaction)
+//   node --env-file=.env src/judge.ts                 fetch a fresh price via x402 (0.001 aUSD) and run all cases
+//   node --env-file=.env src/judge.ts --file r.json   use a saved response instead (it must still be fresh)
+//   options: --dry (no transaction) --usd <dollars> (default 1) --vault <id> (default: judgeVaultId)
 //            --post <account> (also buy that account's latest post, 0.01 aUSD, and show what checkEvent says)
 //            --network <name> --deployments <path> (default baseSepolia, deployments.json)
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { parseArgs } from 'node:util';
+import { parseArgs, parseEnv } from 'node:util';
 import { type Hex, isHex } from 'viem';
 import { type SignedResponse, verifySignedResponse } from './airnode-v2.ts';
 import { DEPLOYMENTS_URL, loadDeployment } from './client/deployments.ts';
@@ -38,25 +40,34 @@ const { values } = parseArgs({
   },
 });
 
-const readHexEnv = (name: string): Hex => {
-  const value = process.env[name];
-  if (!value || !isHex(value)) throw new Error(`Set ${name} (0x-prefixed) in .env.agent`);
+const readHexEnv = (name: string, env: Record<string, string | undefined> = process.env, file = '.env'): Hex => {
+  const value = env[name];
+  if (!value || !isHex(value)) throw new Error(`Set ${name} (0x-prefixed) in ${file}`);
   return value;
 };
 const rpcUrl = process.env.RPC_URL;
-if (!rpcUrl) throw new Error('Set RPC_URL in .env.agent');
+if (!rpcUrl) throw new Error('Set RPC_URL in .env');
+const readPayerKey = () =>
+  process.env.PAYER_PRIVATE_KEY
+    ? readHexEnv('PAYER_PRIVATE_KEY')
+    : readHexEnv('PAYER_PRIVATE_KEY', parseEnv(readFileSync('.env.agent', 'utf8')), '.env.agent');
 
 const readFixture = (name: string) =>
   JSON.parse(readFileSync(new URL(`../test/fixtures/${name}`, import.meta.url), 'utf8')) as SignedResponse;
 
 const deployment = loadDeployment(values.network, values.deployments ?? DEPLOYMENTS_URL);
-const vaultId = BigInt(values.vault ?? deployment.vaultId ?? 0);
-if (vaultId === 0n) throw new Error('No vault: pass --vault <id> or set vaultId in deployments.json');
+const vaultId = BigInt(values.vault ?? deployment.judgeVaultId ?? 0);
+if (vaultId === 0n) throw new Error('No vault: pass --vault <id> or set judgeVaultId in deployments.json');
+if (deployment.vaultId !== null && vaultId === BigInt(deployment.vaultId)) {
+  throw new Error(
+    `Vault ${vaultId} is the agent's: the judge would use up its budget and last price. Use the judge vault`
+  );
+}
 const guard = createTreasuryGuardClient({ rpcUrl, privateKey: readHexEnv('PRIVATE_KEY'), deployment });
 const explorerTx = (hash: string) => (deployment.explorer ? `${deployment.explorer}/tx/${hash}` : hash);
 
 const payingFetch = (): typeof fetch => {
-  const paying = createPayingFetch(readHexEnv('PAYER_PRIVATE_KEY'));
+  const paying = createPayingFetch(readPayerKey());
   return async (input, init) => {
     const response = await paying(input, init);
     const settlement = readPaymentSettlement(response);
@@ -83,6 +94,9 @@ if (values.file) {
 const { price, change1h, updatedAt } = parsePriceData(fresh.data);
 const now = Number((await guard.publicClient.getBlock()).timestamp);
 const config = await guard.getVaultConfig(vaultId);
+if (config.agent.toLowerCase() !== guard.agent?.toLowerCase()) {
+  throw new Error(`PRIVATE_KEY is not the agent of vault ${vaultId} (${config.agent}): run with --env-file=.env`);
+}
 console.log(`  data: ${fresh.data}`);
 console.log(`  BSV = ${price} USD, 1h change ${change1h} %, measured ${updatedAt}`);
 console.log(

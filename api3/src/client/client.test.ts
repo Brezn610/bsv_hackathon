@@ -43,6 +43,7 @@ test('deployments.json matches the feeds', () => {
   assert.equal(feeds.bsvUsd.requestHash, feedRequestHash(BSV_USD));
   assert.equal(feeds.tweets.WhiteHouse?.airnode, whiteHouseFeed.airnode);
   assert.equal(feeds.tweets.WhiteHouse?.requestHash, feedRequestHash(whiteHouseFeed));
+  assert.equal(feeds.tweets.federalreserve?.requestHash, feedRequestHash(tweetFeed('federalreserve')));
 });
 
 test('parses price and tweet data', () => {
