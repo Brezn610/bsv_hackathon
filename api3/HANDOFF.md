@@ -3,11 +3,11 @@
 Read this first in a new chat.
 
 - **Project:** Treasury Guard (approved by the team 30.10.). Design: `docs/TEAM-BRIEF.md`, simple version: `docs/OVERVIEW.md`, decisions and basics: `API3-NOTES.md`.
-- **Works:** starter vendored (upstream `52933ae`). Hour-0 spike done (results in `API3-NOTES.md` → "Hour-0 spike results"): signed CoinPaprika BSV/USD + BTC/USD and TwitterAPI.io WhiteHouse fixtures cached in `test/fixtures/`, read on-chain in `test/Spike.t.sol`. `forge test` 82/82, `pnpm test` 13/13. No TreasuryGuard code yet.
+- **Works:** starter vendored (upstream `52933ae`). Hour-0 spike done (results in `API3-NOTES.md` → "Hour-0 spike results"): signed CoinPaprika BSV/USD + BTC/USD and TwitterAPI.io WhiteHouse fixtures cached in `test/fixtures/`, read on-chain in `test/Spike.t.sol`. `contracts/TreasuryGuard.sol` built (plan + Opus pre-check applied), `test/TreasuryGuard.t.sol` covers every tamper case with real fixtures. Interface: `API3-NOTES.md` → "TreasuryGuard interface (v1)". `forge test` 114/114.
 - **Not deployed yet:** no project contract on Base Sepolia. `CONSUMER_ADDRESS` in `.env` is not a project contract yet.
 - **Next:**
-  1. ~~Hour-0 spike~~ done. Open team question: do retweets count as a post (`tweets[0]` is often a retweet)?
-  2. Write the plan for `TreasuryGuard.sol` and get it approved.
-  3. Opus pre-check of the plan.
-  4. Build with tests for all tamper cases.
+  1. ~~Hour-0 spike~~, ~~plan~~, ~~Opus pre-check~~, ~~build + tests~~ done. Retweets are rejected.
+  2. Opus post-build review, fix findings.
+  3. Agree the interface with the BSV side (note: `vaultId` argument, not in the brief), then deploy script + deploy to Base Sepolia.
+  4. Parallel chat owns `src/client/**`, `src/judge.ts`, `deployments.json`, `docs/INTERFACE.md`.
 - **Last demo-ok:** none yet.

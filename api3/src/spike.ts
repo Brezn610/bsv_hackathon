@@ -53,6 +53,17 @@ const TARGETS: Record<string, { url: string; airnode: Address; request: AirnodeV
     },
     file: 'twitterapi-whitehouse.json',
   },
+  // An account that posts rarely, so the newest post is hours old at signing: the real StalePost fixture.
+  federalreserve: {
+    url: TWITTERAPI_URL,
+    airnode: TWITTERAPI_ADDRESS,
+    request: {
+      operation: 'userLastTweets',
+      parameters: { userName: 'federalreserve' },
+      responseProjection: { id: '/data/tweets/0/id', text: '/data/tweets/0/text' },
+    },
+    file: 'twitterapi-federalreserve.json',
+  },
 };
 
 const target = TARGETS[process.argv[2] ?? ''];

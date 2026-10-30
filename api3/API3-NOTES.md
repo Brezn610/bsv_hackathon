@@ -77,13 +77,19 @@ REQUEST_HASH=$(pnpm --silent request-hash) forge script script/DeployNodaryPrice
 Signature = EIP-191 over `keccak256(abi.encodePacked(requestHash, timestamp, data))`. Send `data` as the bytes of the original string, never re-serialize it. POST / and passthrough give different hashes. If the contract builds the hash, use POST /.
 
 ## Tamper test (pass/fail, must be in the video)
-| Case | How | Expected revert |
-|---|---|---|
-| Valid + fresh | normal submit | action happens |
-| Edited value | change a digit in `data` | `NotSignedByAirnode` (unknown signer) |
-| Too old | wait past the max age, then submit | `ResponseTooOld` |
-| Other request | e.g. BTC/USD response to an ETH/USD contract | `NotSignedByAirnode` (unknown signer) |
-| Wrong key | re-sign with an ad-hoc key | `NotSignedByAirnode` (that key's address) |
+Errors of `TreasuryGuard.sol` (the starter's `NotSignedByAirnode`/`ResponseTooOld` are not used). Check order: request → signer → signature age → replay, so a cached fixture still shows its own error.
+
+| Case | How | Expected revert | Forge test |
+|---|---|---|---|
+| Valid + fresh | fresh BSV/USD price, `usdAmount` ≤ budget | SPEND intent created | `test_valid_freshPriceCreatesSpendIntent` |
+| Edited value | change a digit in `data` | `SignerMismatch(recovered)` | `test_tamper_editedValue` |
+| Too old | submit > 5 min after signing | `StaleSignature` | `test_tamper_tooOld` |
+| Other request | CoinPaprika BTC/USD response (same signer) | `WrongRequest(0xcadca27a…)` | `test_tamper_wrongRequest_btcInsteadOfBsv` |
+| Wrong key | re-sign with an ad-hoc key | `SignerMismatch(that key's address)` | `test_tamper_wrongKey` |
+| Replay | same response twice | `Replay` | `test_tamper_replay` |
+| Budget | `usdAmount` > remaining today | `BudgetExceeded(remaining)` | `test_tamper_budgetExceeded` |
+| Old post, fresh signature | @federalreserve fixture (post 16.6 h old) | `StalePost` | `test_tamper_stalePost_oldPostFreshSignature` |
+| Retweet | WhiteHouse fixture ("RT @CENTCOM") | `NotOriginalPost` | `test_realRetweetIsNotOriginalPost` |
 
 Re-sign with another key:
 ```bash
@@ -172,9 +178,35 @@ Fixtures bought once with the agent key via x402 in aUSD and cached in `test/fix
 - `id` is a JSON **string** (`"2116153357064888354"`) → `readUint(data, "id", 0)` reads it. Snowflake `((id >> 22) + 1288834974657) / 1000` = 1793365251 = `createdAt` "Fri Oct 30 13:00:51 +0000 2026" (Twitter format, not ISO, so Snowflake is the way).
 - Projection used: `{id: /data/tweets/0/id, text: /data/tweets/0/text}` → `{"id":"2116153357064888354","text":"RT @CENTCOM: ..."}`. Retweet check on-chain: `LibString.startsWith(text, "RT @")`. Projecting `retweeted_tweet` would carry ~3.8 KB; projecting `/retweeted_tweet/id` gives a 400 when it is null.
 - **Request hash WhiteHouse (with that projection): `0x783a61a36250c7dfdf26d9ea96ca3cc5894a286c9f4b4139798345cb4d9395e9`**
-- Open (team): do retweets count as the account's post? Signed-at minus post time was ~3 min here.
+- Decided 30.10.: retweets are rejected (`NotOriginalPost`). Signed-at minus post time was ~3 min here.
+- @federalreserve (`0xceecf6d2b5c25f57242052a0a59ca73222bf017e41a7ec13418fe1207b7b9ec6`, same projection): newest post 16.6 h old at signing → real `StalePost` fixture.
 
 x402 payments (Base Sepolia, agent key): [BSV/USD](https://sepolia.basescan.org/tx/0x71b12c9ead04e0891898547b6a1206e4c77dfb6aac73eaa31c716e64a2b1e4c7) · [BTC/USD](https://sepolia.basescan.org/tx/0x3f4c886be0237229c8d381a14b30fd5c699dded5bd283c85af7eac896663998d) · [WhiteHouse raw](https://sepolia.basescan.org/tx/0xc3df16c290178a7f50b40f4405535835604a93adf702ef9f4ad54f11a6322e8d) · [WhiteHouse projected](https://sepolia.basescan.org/tx/0x1abcf93642393d2ac66cc21413436aa8c42165525e622dafdb804c1b097e0a8a)
+
+## TreasuryGuard interface (v1, 30.10., shared with the client/judge chat)
+ABI: `out/TreasuryGuard.sol/TreasuryGuard.json`. Units: USD 6 decimals, price 8 decimals (USD per BSV), `change1h` and all bps in hundredths of a percent (int), sats 1e-8 BSV.
+
+A signed response is passed as a tuple `SignedResponse(bytes32 requestHash, uint256 timestamp, bytes data, bytes signature)`, `data` = UTF-8 bytes of the exact signed string, `timestamp` = the Airnode's string as uint. `requestHash` in the tuple is only compared with stored hashes, recovery always uses the stored one. The Airnode address is never passed.
+
+Write (only the vault's agent, else `NotAgent`):
+- `createVault(VaultConfig config, bytes32[] postRequestHashes) → vaultId` (anyone; caller becomes owner; immutable). `VaultConfig(owner, agent, priceAirnode, priceRequestHash, postAirnode, dailyBudgetUsd, maxSignatureAge, maxDataAge, maxPostAge, cooldown, intentTtl, breakerBps, reentryBps, breakerHedgeBps, eventHedgeBps, slippageBps)`, `owner` is ignored.
+- `submitPrice(uint256 vaultId, SignedResponse price, uint256 usdAmount) → spendIntentId` (0 if `usdAmount` = 0). May also create a breaker/re-entry SWAP intent (read `IntentCreated` events).
+- `submitEvent(uint256 vaultId, SignedResponse post, SignedResponse price, uint8 verdict, bytes analystSig) → hedgeIntentId` (0 = recorded only). `verdict`: 0 IGNORE, 1 RISK_OFF, 2 RISK_ON.
+- `settle(uint256 intentId, bytes32 bsvTxid)` once per intent.
+
+Read / judge path (anyone, eth_call, same errors as the writes):
+- `checkPrice(vaultId, SignedResponse) → Price(price, change1h, updatedAt, signedAt)`
+- `checkEvent(vaultId, SignedResponse post, SignedResponse price) → (postId, postTime, Price)`
+- `getIntent(intentId) → Intent(vaultId, kind, direction, source, maxSats, maxBps, minOut, maxOut, expiry, price, priceSignedAt, settled, bsvTxid)`, `remainingUsdToday(vaultId)`, `regime(vaultId)`, `lastPrice(vaultId)`, `getVaultConfig(vaultId)`, `isPostRequest(vaultId, hash)`, `isPostUsed(vaultId, postId)`, `vaultCount()`, `intentCount()`
+- Enums: Regime 0 NORMAL, 1 RISK_OFF, 2 GUARDED · Kind 0 SPEND, 1 SWAP · Direction 0 NONE, 1 SATS_TO_DUSD, 2 DUSD_TO_SATS · Source 0 BUDGET, 1 BREAKER, 2 REENTRY, 3 EVENT
+- SWAP band: `minOut`/`maxOut` = signed price ∓ slippage (USD per BSV, 8 decimals). SWAP size = `maxBps` of the vault (DUSD_TO_SATS: of its dUSD). SPEND: `maxSats`, `maxBps` 0.
+
+Events: `VaultCreated(vaultId, owner, agent)`, `PriceVerified(vaultId, price, change1h, updatedAt, signedAt, requestHash)`, `PostVerified(vaultId, postId, postTime, signedAt, requestHash, verdict, analystSigHash)`, `IntentCreated(intentId, vaultId, kind, direction, maxSats, maxBps, minOut, maxOut, expiry, price, priceSignedAt, source)`, `RegimeChanged(vaultId, regime)`, `Settled(intentId, bsvTxid)`.
+
+Errors: `WrongRequest(bytes32)`, `SignerMismatch(address)`, `StaleSignature()` (signature age, future > 60 s, or measured-at too old), `Replay()`, `StalePost()`, `NotOriginalPost()`, `BudgetExceeded(uint256 remaining)`, `Cooldown()`, `NotAgent()`, `InvalidAmount()`, `InvalidConfig()`, `AlreadySettled()`.
+Check order price: WrongRequest → SignerMismatch → StaleSignature → Replay → (BudgetExceeded). Post: WrongRequest → SignerMismatch → StaleSignature → StalePost → Replay → NotOriginalPost → price checks (no replay) → Cooldown.
+
+Behaviour: budget debited at intent creation, never reset by a price, no refund on expiry, UTC daily reset. Breaker: NORMAL/GUARDED → RISK_OFF on `change1h ≤ breakerBps`; RISK_OFF/GUARDED → NORMAL on `change1h ≥ reentryBps`; both only after `cooldown` since the last regime change (skipped silently in `submitPrice`). A RISK_OFF verdict hedges only from NORMAL (→ GUARDED), reverts `Cooldown` inside the cooldown. Changing this interface after deploy = big change, agree with the team first.
 
 ## Team decisions
 - 30.10.: ~~BSV testnet~~ → **BSV side runs on BSV MAINNET** (tiny real amounts; scripts tested on testnet first). API3 stays on Base Sepolia (x402/aUSD only exists there); no value crosses chains, the contract only verifies data and creates intents
