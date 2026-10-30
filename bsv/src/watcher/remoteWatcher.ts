@@ -13,7 +13,8 @@ export class RemoteWatcher {
   constructor(
     private readonly url: string,
     private readonly agent: VaultSigner,
-    private readonly timeoutMs = 60_000
+    // Long: the watcher re-reads Base and WhatsOnChain, and giving up early does not stop it from signing.
+    private readonly timeoutMs = 300_000
   ) {}
 
   async health(): Promise<Record<string, unknown>> {
@@ -33,7 +34,8 @@ export class RemoteWatcher {
         signal: AbortSignal.timeout(this.timeoutMs)
       })
     } catch (err) {
-      return { decision: { verdict: 'DENY', reasons: [`watcher unreachable: ${(err as Error).message}`] } }
+      // The watcher may have finished and journaled 'signed' after the connection was lost: not a safe retry.
+      return { decision: { verdict: 'DENY', reasons: [`watcher unreachable: ${(err as Error).message}. It may still have signed: check ${this.url}/decisions before retrying; if this intent is there as APPROVE, its vault outpoints are claimed`] } }
     }
     const answer = (await res.json().catch(() => undefined)) as { decision?: CosignResult['decision']; signatures?: string[]; error?: string } | undefined
     if (res.status === 200 && answer?.decision?.verdict === 'APPROVE' && Array.isArray(answer.signatures)) {

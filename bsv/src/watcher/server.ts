@@ -85,7 +85,12 @@ export async function startWatcherServer(o: WatcherServerOptions): Promise<Runni
   const record = (d: DecisionRecord): void => {
     decisions.push(d)
     if (decisions.length > 200) decisions.shift()
-    if (o.decisionsFile !== undefined) appendFileSync(o.decisionsFile, JSON.stringify(d) + '\n')
+    // The log must never turn a finished cosign into an error: the intent would be signed but the signatures lost.
+    try {
+      if (o.decisionsFile !== undefined) appendFileSync(o.decisionsFile, JSON.stringify(d) + '\n')
+    } catch (err) {
+      console.error(`decision log not written: ${(err as Error).message}`)
+    }
   }
   const fromDecision = (intentId: string, status: number, d: Decision): DecisionRecord =>
     d.verdict === 'DENY'

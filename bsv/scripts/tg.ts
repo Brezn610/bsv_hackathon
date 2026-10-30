@@ -15,7 +15,7 @@
 //
 // Gate (2) is enforced here: no 'spend' funding before an owner exit has been proven on the same
 // script, and nothing on mainnet without CONFIRM_MAINNET=1. Keys are never printed.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { Beef, Hash, P2PKH, PrivateKey, ProtoWallet, Script, Transaction, Utils, WalletClient } from '@bsv/sdk'
 import { decidePurchase, type PaidOffer } from '../src/agent/brain'
@@ -464,6 +464,25 @@ async function withdraw(): Promise<void> {
       watcher = remote
       console.log(`Watcher: separate process at ${process.env.TG_WATCHER_URL ?? DEFAULT_WATCHER_URL} (binding ${String(health.binding)})`)
     }
+    // After a real broadcast, a failed record must not skip the bookkeeping below (UTXO file, float,
+    // evidence). The journal then stays 'signed', which still blocks a second transaction.
+    let recordError: Error | undefined
+    const recording: Pick<Watcher, 'cosign' | 'recordBroadcast'> = {
+      cosign: async (id, tx) => await watcher.cosign(id, tx),
+      recordBroadcast: async (id, tx) => {
+        for (const wait of [0, 1_000, 3_000]) {
+          await new Promise(r => setTimeout(r, wait))
+          try {
+            await watcher.recordBroadcast(id, tx)
+            recordError = undefined
+            return
+          } catch (err) {
+            recordError = err as Error
+          }
+        }
+      }
+    }
+    const pendingFile = path.join(STATE_DIR, `pending-withdrawal-${intentId}.json`)
     const t0 = Date.now()
     const intent = await reader.readIntent(intentId)
     console.log(`Intent ${intentId}: vault ${intent.vaultId}, kind ${intent.kind}, maxSats ${intent.maxSats}, expires ${new Date(Number(intent.expiry) * 1000).toISOString()}, read at block ${intent.readAtBlock}`)
@@ -472,7 +491,7 @@ async function withdraw(): Promise<void> {
     const result = await withdrawForIntent({
       intent,
       agent: agentSigner,
-      watcher,
+      watcher: recording,
       utxos: live.map(toVaultUtxo),
       vaultLockingScript: stored.vaultLockingScript,
       floatLockingScript: stored.floatLockingScript,
@@ -480,11 +499,15 @@ async function withdraw(): Promise<void> {
       broadcast: async tx => {
         const b = Beef.fromBinary(ancestry.toBinary())
         b.mergeRawTx(tx.toBinary())
+        // Kept before the broadcast, so the signed transaction survives any later failure.
+        writeJson(pendingFile, { intentId: intentId.toString(), txid: tx.id('hex'), tx: tx.toHex(), ancestryBeef: Utils.toHex(b.toBinary()), at: new Date().toISOString() })
         const results = await agent.services.postBeef(b, [tx.id('hex')])
         if (!results.some(r => r.status === 'success')) throw new Error(`Broadcast failed: ${JSON.stringify(results).slice(0, 400)}`)
       }
     })
     const broadcastMs = Date.now() - t0
+    // Printed first, so a later bookkeeping error cannot hide them.
+    console.log(`Broadcast ${woc(result.txid)}; for the API3 owner: settle(${intentId}, ${settleTxidArg(result.txid)})`)
     const utxos = loadUtxos().map(u => (live.some(l => l.outpoint === u.outpoint) ? { ...u, status: 'spent' as const, spentBy: result.txid } : u))
     const changeIndex = result.tx.outputs.findIndex(o => o.lockingScript.toHex() === stored.vaultLockingScript)
     if (changeIndex !== -1) {
@@ -518,7 +541,13 @@ async function withdraw(): Promise<void> {
     writeJson(path.join(EVIDENCE_DIR, `withdrawal-intent-${intentId}.json`), receipt)
     console.log(`Withdrawal broadcast: ${woc(result.txid)}`)
     console.log(`  ${result.amountSats} sats to the Agent Float, fee ${result.fee}; float wallet balance ${floatBalance}`)
-    console.log(`  For the API3 owner: settle(${intentId}, ${receipt.settleArg})`)
+    if (recordError !== undefined) {
+      console.error(`\nWARNING: the watcher did not record broadcast ${result.txid} (${recordError.message}).`)
+      console.error(`  The withdrawal is broadcast and booked locally; the journal still says 'signed'. Kept ${pendingFile}; retry: POST /broadcast {intentId, tx}.`)
+      process.exitCode = 1
+    } else {
+      unlinkSync(pendingFile)
+    }
   } finally {
     lock?.release()
     await agent.close()

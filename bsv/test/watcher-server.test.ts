@@ -130,3 +130,11 @@ test('only one process may own the journal; a stale lock is taken over', () => {
   const again = lockJournal(file)
   again.release()
 })
+
+test('a lost connection during cosign is a DENY that warns the watcher may still have signed', async () => {
+  const lost = new RemoteWatcher('http://127.0.0.1:1', agent)
+  const { decision, signatures } = await lost.cosign(7n, proposal(7n))
+  assert.equal(signatures, undefined)
+  assert.equal(decision.verdict, 'DENY')
+  if (decision.verdict === 'DENY') assert.match(decision.reasons.join(' | '), /watcher unreachable: .*may still have signed: check http:\/\/127\.0\.0\.1:1\/decisions/)
+})
