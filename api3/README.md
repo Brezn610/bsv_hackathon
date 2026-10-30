@@ -1,3 +1,125 @@
+# Treasury Guard (API3 part)
+
+AI agents pay in sats, but their owners think in dollars and fear volatility and runaway spending. Treasury Guard keeps
+the agent's money in a vault on BSV that the agent can only move together with a watcher, and the owner can always exit
+alone. The watcher co-signs only what `TreasuryGuard.sol` on Base Sepolia allowed, and the contract allows something
+only after it verified signed AirnodeHub data: a BSV/USD price (CoinPaprika) or a post of a whitelisted X account
+(TwitterAPI.io). This folder is the API3 part: the contract, its tests, a TypeScript client and the judge script. It does
+not depend on BSV. Design: [`docs/TEAM-BRIEF.md`](docs/TEAM-BRIEF.md), interface for the BSV side:
+[`docs/INTERFACE.md`](docs/INTERFACE.md), all details: [`API3-NOTES.md`](API3-NOTES.md).
+
+What the contract does with the signed data:
+
+1. **Dollar budget, paid in sats.** The owner sets a daily budget in USD (e.g. $5/day). `submitPrice` turns a USD amount
+   into a SPEND intent with `maxSats = usdAmount / signed price` and debits the budget.
+2. **Circuit breaker.** The same signed price carries the 1h change. At or below the owner's threshold the vault goes
+   `RISK_OFF` and a SWAP intent (sats → stablecoin) is created inside a band around the signed price. No LLM in this path.
+3. **News guard.** A signed post of a whitelisted account plus a signed price plus an analyst verdict can create a hedge
+   intent capped at 25 % of the vault.
+
+## Who relies on the data, and what goes wrong if it is forged
+
+| Who                 | Relies on                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Owner               | the USD budget is converted to sats at a price nobody could pick                                             |
+| Watcher (BSV side)  | it co-signs a BSV tx only if it matches an intent on Base (`maxSats`, `maxBps`, band, expiry)                |
+| Liquidity providers | a swap only fills inside `minOut`/`maxOut`, the signed price ∓ slippage                                      |
+| Auditors, anyone    | every intent stores the price and when it was signed, every accepted value is an event with its request hash |
+
+If the data could be forged:
+
+- **Forged low price** → `maxSats` grows → the agent overspends in sats while staying "within" its dollar budget.
+- **Forged 1h change** → a needless hedge (swap fees, wrong position), or a real crash that never trips the breaker.
+- **Forged price in a swap** → the band moves and the LP or the vault trades at a wrong rate.
+- **Forged, old or retweeted post** → a hedge on news the account never posted, or posted hours ago (capped at 25 %).
+
+So the contract checks, for every response: the request hash against the one stored per vault (never the one in the
+response), the signer against the stored Airnode address, the signature age (5 min), the age of the measured value
+(10 min) and of the post (30 min), and replay (a price must be newer than the last one, a post id counts once).
+
+**What a signature does not prove.** An API3 signature proves who said what, and when, and that the data was not changed.
+It does not prove the content is true. That is why the uncapped rules use only price data, and the post-driven rule is
+capped at 25 %. The analyst verdict is signed off-chain and only its hash is stored, not verified on-chain.
+
+## Data we could not find on AirnodeHub
+
+- **No BSV/USD on Nodary** (155 feeds, checked 29 Oct). We buy BSV/USD from the CoinPaprika Airnode via x402
+  (`getTickersById`, `coin_id: bsv-bitcoin-sv`, $0.001 per call in aUSD).
+- **No retweet flag in TwitterAPI.io `userLastTweets`.** A retweet only has a `retweeted_tweet` object. Projecting it
+  costs ~3.8 KB per response, and projecting `/retweeted_tweet/id` returns HTTP 400 when it is null. We project
+  `{id, text}` of `/data/tweets/0` and reject text starting with `RT @` (`NotOriginalPost`). In our sample, 13 of the 20
+  newest @WhiteHouse posts were retweets.
+- **No machine-readable post time.** `createdAt` comes as `Fri Oct 30 13:00:51 +0000 2026`, not ISO 8601, so the
+  contract derives the post time from the tweet id (Snowflake).
+- Limitation, not missing data: a value in exponent notation (`-1e-7`) reverts in `ProjectedJson`. Unlikely for a
+  percentage; the agent then skips the cycle.
+
+## For judges
+
+|                     |                                                                                                                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Contract            | TreasuryGuard [`0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773`](https://sepolia.basescan.org/address/0x8e38cc6b1bd1f0d25357066cd0036f28fd1f7773), Base Sepolia (84532), verified |
+| Deploy              | tx [`0xfc0219e4…`](https://sepolia.basescan.org/tx/0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884), block 52226250                                        |
+| Vault 1             | the team's agent loop, $1/day                                                                                                                                                 |
+| Vault 2             | judge vault, $100/day counter, holds no funds; its agent is the team's deployer key                                                                                           |
+| Feeds               | CoinPaprika BSV/USD `0x18b78216…399480`, TwitterAPI.io @WhiteHouse and @federalreserve, full hashes in [`deployments.json`](deployments.json)                                 |
+| Last live judge run | _pending_                                                                                                                                                                     |
+
+**Tamper test.** Check order for a price: request → signer → signature age → replay → budget, so a cached fixture still
+shows its own error. All fixtures in [`test/fixtures/`](test/fixtures/) are real signed responses, bought once via x402.
+
+| Case                      | Input                                        | Expected revert                          | Fixture                          | Forge test                                    | Live in judge script   |
+| ------------------------- | -------------------------------------------- | ---------------------------------------- | -------------------------------- | --------------------------------------------- | ---------------------- |
+| Valid + fresh             | fresh BSV/USD price, amount ≤ budget         | none, SPEND intent created               | `coinpaprika-bsv-usd.json`¹      | `test_valid_freshPriceCreatesSpendIntent`     | yes (sends a tx)       |
+| Edited value              | one digit of `data` changed                  | `SignerMismatch(recovered)` `0x64fd0fbe` | `coinpaprika-bsv-usd.json`       | `test_tamper_editedValue`                     | yes                    |
+| Wrong key                 | re-signed with a local key                   | `SignerMismatch(that key)` `0x64fd0fbe`  | none (`vm.sign`)                 | `test_tamper_wrongKey`                        | yes                    |
+| Other request             | CoinPaprika BTC/USD, same signer             | `WrongRequest(0xcadca27a…)` `0x4a161c51` | `coinpaprika-btc-usd.json`       | `test_tamper_wrongRequest_btcInsteadOfBsv`    | yes                    |
+| Too old                   | signature older than 5 min                   | `StaleSignature()` `0x480cfdff`          | `coinpaprika-bsv-usd.json`       | `test_tamper_tooOld`                          | yes                    |
+| Replay                    | the same response twice                      | `Replay()` `0xb5a78004`                  | `coinpaprika-bsv-usd.json`       | `test_tamper_replay`                          | yes (not with `--dry`) |
+| Over budget               | amount > remaining today                     | `BudgetExceeded(remaining)` `0x19af843d` | `coinpaprika-bsv-usd.json`       | `test_tamper_budgetExceeded`                  | yes (simulated)        |
+| Old post, fresh signature | @federalreserve, post 16.6 h old when signed | `StalePost()` `0x7f1d2c82`               | `twitterapi-federalreserve.json` | `test_tamper_stalePost_oldPostFreshSignature` | Forge only             |
+| Retweet                   | @WhiteHouse, text `RT @CENTCOM: ...`         | `NotOriginalPost()` `0x579354d1`         | `twitterapi-whitehouse.json`     | `test_realRetweetIsNotOriginalPost`           | Forge only²            |
+
+¹ In Forge the valid case uses `vm.warp` to the fixture's signing time. On the live contract a cached fixture is stale;
+the valid case needs a freshly bought price. ² `--post <account>` buys the latest real post and shows what
+`checkEvent` says about it, which depends on what the account posted last.
+
+Run it locally: `forge test` (all cases, no network needed).
+
+**Check any response yourself, no key and no gas.** `checkPrice` and `checkEvent` run the same checks as the writes and
+can be called by anyone via `eth_call`. Example with a cached fixture against the live contract:
+
+```bash
+TG=0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773
+F=test/fixtures/coinpaprika-btc-usd.json   # or coinpaprika-bsv-usd.json → StaleSignature, or your own response
+cast call $TG 'checkPrice(uint256,(bytes32,uint256,bytes,bytes))((uint256,int256,uint256,uint256))' 2 \
+  "($(jq -r .requestHash $F),$(jq -r .timestamp $F),$(cast from-utf8 "$(jq -r .data $F)"),$(jq -r .signature $F))" \
+  --rpc-url https://sepolia.base.org
+# execution reverted, data 0x4a161c51cadca27a… = WrongRequest(0xcadca27a…)
+```
+
+Edit a digit of `data`, swap the signature or bring a fresh price, and the revert tells you which check stopped it.
+
+**Judge script.** [`src/judge.ts`](src/judge.ts) buys one fresh signed BSV/USD price via x402 (0.001 aUSD), runs every
+price case above against the live contract as a free `eth_call`, sends one valid `submitPrice` that creates a real SPEND
+intent, then shows `Replay`: `node --env-file=.env src/judge.ts [--dry] [--post WhiteHouse]`. It needs the key of the
+vault's agent, so we run it live on vault 2. To run it yourself, create your own vault with `createVault` (anyone can;
+you become its owner, set yourself as agent) and pass `--vault <id>`; your key then needs Base Sepolia ETH and aUSD from
+the [faucet](https://api3dao.github.io/airnodehub-hackathon/faucet/).
+
+## Real vs demo
+
+- **Real:** the verified contract on Base Sepolia, the Airnode signatures, the x402 payments in aUSD (e.g. the
+  [BSV/USD purchase](https://sepolia.basescan.org/tx/0x71b12c9ead04e0891898547b6a1206e4c77dfb6aac73eaa31c716e64a2b1e4c7)),
+  the tamper cases above on real fixtures. The BSV side (vault, watcher, payments) runs on BSV mainnet with tiny amounts.
+- **Demo:** Base Sepolia, not Base mainnet (x402 in aUSD only exists there). The live vault runs a $1/day budget. The
+  stablecoin on BSV is a demo token and not redeemable. One team-run watcher and LP. The team demo X account is labeled
+  as such. The circuit breaker firing is shown from a recorded real event: we never loosen thresholds to force it.
+- The agent loop and the watcher are built by the BSV side of the team on top of the client in
+  [`src/client/`](src/client/); they are not part of this folder.
+
+---
+
 # AirnodeHub hackathon starter template
 
 Bring signed API data into your contract. This template fetches an ETH/USD price that the
@@ -6,9 +128,6 @@ price out of the signed JSON. Copy the libraries in `contracts/` into your proje
 `NodaryPriceConsumer`.
 
 Everything here is for Airnode v2, the version of Airnode that serves the APIs on AirnodeHub.
-
-## Treasury Guard deployment (this team's project)
-TreasuryGuard on Base Sepolia: [`0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773`](https://sepolia.basescan.org/address/0x8e38cc6b1bd1f0d25357066cd0036f28fd1f7773) (verified). Vault 1 = agent loop, vault 2 = judges. Deploy tx [`0xfc0219e4…`](https://sepolia.basescan.org/tx/0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884), block 52226250. Details: `API3-NOTES.md` → "Deployments", interface: `docs/INTERFACE.md`.
 
 ## How it works
 
