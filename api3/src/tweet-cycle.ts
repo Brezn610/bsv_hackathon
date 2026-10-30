@@ -11,6 +11,9 @@
 //   options: --account <name> (default 956_kakashi) --max-ausd <aUSD per run> (default 1) --spend-usd (default 0.001)
 //            --verdict risk_off|ignore (default risk_off). IGNORE verifies the post on-chain (PostVerified) but never
 //            hedges or changes the regime: a repeatable rehearsal of the whole cycle that keeps the one-shot hedge.
+//            --event-vault <N> (default: vaultId, 5): the vault the post is verified and hedged on. Each vault hedges
+//            once, so extra vaults with vault 5's config and agent (9–12, created for the demos) give fresh hedges.
+//            The SPEND, the BSV receipt and settle always stay on vaultId: the BSV watcher only serves that vault.
 //
 // RISK_OFF hedges once per vault: the first verified post moves vault 5 from NORMAL to GUARDED for good, later posts
 // only verify. Each poll buys the post (0.01 aUSD), a new post also a price (0.001 aUSD), paid by the agent key. This is
@@ -20,6 +23,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { parseArgs } from 'node:util';
 import { erc20Abi, type Hex, isHex } from 'viem';
 import type { SignedResponse } from './airnode-v2.ts';
+import { treasuryGuardAbi } from './client/abi.ts';
 import { DEPLOYMENTS_URL, loadDeployment } from './client/deployments.ts';
 import { parseTweetData } from './client/feeds.ts';
 import {
@@ -61,6 +65,7 @@ const { values } = parseArgs({
     network: { type: 'string', default: 'baseSepolia' },
     deployments: { type: 'string' },
     verdict: { type: 'string', default: 'risk_off' },
+    'event-vault': { type: 'string' },
   },
 });
 const verdicts = { risk_off: Verdict.RISK_OFF, ignore: Verdict.IGNORE } as const;
@@ -85,6 +90,48 @@ const config = await guard.getVaultConfig(vaultId);
 if (config.agent.toLowerCase() !== guard.agent?.toLowerCase()) {
   throw new Error(`This key is not the agent of vault ${vaultId} (${config.agent}): run with --env-file=.env.agent`);
 }
+
+// The vault the post goes to. Never a judge, runner or retired vault, and only one this key is the agent of and that
+// whitelists the account.
+const eventVaultId = values['event-vault'] === undefined ? vaultId : BigInt(values['event-vault']);
+const otherVaults = [
+  deployment.judgeVaultId,
+  deployment.liveJudgeVaultId,
+  deployment.runnerVaultId,
+  ...Object.keys(deployment.retiredVaults ?? {}).map(Number),
+].filter((id): id is number => typeof id === 'number');
+if (otherVaults.map(BigInt).includes(eventVaultId)) {
+  throw new Error(`--event-vault ${eventVaultId} is a judge, runner or retired vault (deployments.json)`);
+}
+const readGuard = <T>(functionName: string, args: unknown[]) =>
+  guard.publicClient.readContract({
+    address: guard.address,
+    abi: treasuryGuardAbi,
+    functionName,
+    args,
+  } as never) as Promise<T>;
+if (eventVaultId <= 0n || eventVaultId > (await readGuard<bigint>('vaultCount', []))) {
+  throw new Error(`--event-vault ${eventVaultId} does not exist`);
+}
+if (eventVaultId !== vaultId) {
+  const eventConfig = await guard.getVaultConfig(eventVaultId);
+  if (eventConfig.agent.toLowerCase() !== guard.agent?.toLowerCase()) {
+    throw new Error(`This key is not the agent of vault ${eventVaultId} (${eventConfig.agent})`);
+  }
+}
+const accountFeed = deployment.feeds.tweets[values.account];
+if (!accountFeed) throw new Error(`deployments.json has no tweet feed for ${values.account}`);
+if (!(await readGuard<boolean>('isPostRequest', [eventVaultId, accountFeed.requestHash]))) {
+  throw new Error(`Vault ${eventVaultId} does not whitelist ${values.account}`);
+}
+// A live RISK_OFF run is meant to hedge: refuse a vault whose one-shot hedge is already used.
+const eventRegime = await guard.regime(eventVaultId);
+if (live && verdict === Verdict.RISK_OFF && !values['settle-only'] && eventRegime !== 'NORMAL') {
+  throw new Error(
+    `Vault ${eventVaultId} is ${eventRegime}: a RISK_OFF post would not hedge. Pick a NORMAL --event-vault`
+  );
+}
+
 const contractLower = guard.address.toLowerCase();
 const receiptText = (intentId: bigint) => `TGv1 ${deployment.chainId} ${contractLower} ${vaultId} ${intentId}`;
 const explorerTx = (hash: string) => `${deployment.explorer}/tx/${hash}`;
@@ -92,7 +139,14 @@ const explorerTx = (hash: string) => `${deployment.explorer}/tx/${hash}`;
 // ---- log and state
 mkdirSync('logs', { recursive: true });
 const log = (event: string, fields: Record<string, unknown> = {}) => {
-  const entry = { at: new Date().toISOString(), event, vaultId: String(vaultId), live, ...fields };
+  const entry = {
+    at: new Date().toISOString(),
+    event,
+    vaultId: String(vaultId),
+    eventVaultId: String(eventVaultId),
+    live,
+    ...fields,
+  };
   appendFileSync(
     LOG_FILE,
     `${JSON.stringify(entry, (_, value) => (typeof value === 'bigint' ? String(value) : value))}\n`
@@ -276,11 +330,14 @@ const handlePost = async (post: SignedResponse) => {
 
   if (!live) {
     try {
-      await guard.checkEvent(vaultId, post, price);
+      await guard.checkEvent(eventVaultId, post, price);
+      const regimeNow = await guard.regime(eventVaultId);
       log('dry-accepted', {
         postId,
-        regime: await guard.regime(vaultId),
+        eventVaultId,
+        regime: regimeNow,
         would: `submitEvent ${verdictName.toUpperCase()}`,
+        hedge: verdict === Verdict.RISK_OFF && regimeNow === 'NORMAL' ? 'would hedge' : 'would not hedge',
       });
     } catch (error) {
       const reason = rejection(error);
@@ -298,17 +355,18 @@ const handlePost = async (post: SignedResponse) => {
     return;
   }
 
-  const regimeBefore = await guard.regime(vaultId);
+  const regimeBefore = await guard.regime(eventVaultId);
   try {
-    const { hash, receipt, intents } = await guard.submitEvent(vaultId, post, price, verdict, '0x');
+    const { hash, receipt, intents } = await guard.submitEvent(eventVaultId, post, price, verdict, '0x');
     const hedge = intents.find(({ args }) => Kind[args.kind] === 'SWAP');
     log('post-verified', {
       postId,
       eventTx: explorerTx(hash),
-      regime: `${regimeBefore} → ${await guard.regime(vaultId, receipt.blockNumber)}`,
+      eventVaultId,
+      regime: `${regimeBefore} → ${await guard.regime(eventVaultId, receipt.blockNumber)}`,
       verdict: verdictName.toUpperCase(),
       hedge: hedge
-        ? `SWAP #${hedge.args.intentId} ${hedge.args.maxBps / 100} %`
+        ? `SWAP #${hedge.args.intentId} on vault ${eventVaultId}, ${hedge.args.maxBps / 100} %`
         : verdict === Verdict.IGNORE
           ? 'none (verdict IGNORE)'
           : 'none (one-shot already used)',
@@ -387,6 +445,7 @@ log('start', {
       ? 'once'
       : `poll ${values.interval} s × ${values.minutes} min`,
   regime: await guard.regime(vaultId),
+  eventVault: `${eventVaultId} (${eventRegime})`,
   verdict: verdictName.toUpperCase(),
   ausd: formatUsd(startBalance),
   cap: formatUsd(maxAusd),

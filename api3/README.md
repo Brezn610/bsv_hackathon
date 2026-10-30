@@ -134,10 +134,23 @@ node --env-file=.env.agent src/tweet-cycle.ts --once                          # 
 caffeinate -is node --env-file=.env.agent src/tweet-cycle.ts --live --minutes 20 --interval 30
 node --env-file=.env.agent src/tweet-cycle.ts --live --once                   # act on the latest post now
 node --env-file=.env.agent src/tweet-cycle.ts --live --settle-only <N>        # settle a SPEND made elsewhere
-# options: --verdict risk_off|ignore, --max-ausd <per run, default 1>; it stops before the wallet drops below 3 aUSD
+# options: --verdict risk_off|ignore, --event-vault <N> (default 5), --max-ausd <per run, default 1>;
+#          it stops before the wallet drops below 3 aUSD
 ```
 
 Each poll buys the post (0.01 aUSD), a new post also one price (0.001 aUSD). Keep the window short.
+
+**Hedge vaults 9–12.** A hedge happens once per vault, but the team needs a fresh one for each video and live pitch.
+Vaults 9, 10, 11 and 12 are copies of vault 5's config (same agent `0x0310…4cf0`, same whitelist, same limits), created
+on 31 Oct ([9](https://sepolia.basescan.org/tx/0xd501a2cacff8b00dae529c17725ce68c7281057fbd762c17d12cc601a0cdc1bb),
+[10](https://sepolia.basescan.org/tx/0x1e736f880ce1c5dcd5e95ab750ebc762e5276e9a9487cf10c7b8bc303d8f0daf),
+[11](https://sepolia.basescan.org/tx/0x27e2ef435cf8592f5c042f1acdc8144d6ed93adb73f11fa6c12a9aae21b5710a),
+[12](https://sepolia.basescan.org/tx/0x5f96aabcc391a2b5d8b839c44140e2d8f83b351a6681b6fea4343572da0c6506)).
+`--event-vault N` verifies and hedges the post on vault N, while the SPEND, the BSV receipt and `settle` stay on vault
+5, the only vault the BSV watcher serves. A live RISK_OFF run refuses an event vault that is no longer `NORMAL`.
+They are deliberately **not** in `deployments.json`: the BSV watcher's startup check requires its binding to exclude every
+vault named there. The watcher refuses them anyway (only vault 5). Each run needs a fresh post (< 30 min): a post is
+used up on its vault by a verified run, a rejection or an IGNORE rehearsal.
 
 **Rehearsal, 30 Oct, 46 s from post to settle** (`--verdict ignore`, log
 [`logs/tweet-cycle-rehearsal-intent-6.jsonl`](logs/tweet-cycle-rehearsal-intent-6.jsonl), BSV side's log
@@ -295,7 +308,8 @@ The demo shows the API3 part end to end in about 4 minutes: a real signed price 
 forgery rejected, and the news guard hedging on a real signed post.
 
 **Vault rule.** A real hedge leaves its vault `GUARDED`, so it works once per vault. **Vault 6 is for the video, vault
-7 (`--live`) for live judging, vault 5 for the full cycle to BSV** ([tweet-triggered cycle](#the-tweet-triggered-cycle-srctweet-cyclets-vault-5)).
+7 (`--live`) for live judging (judge.ts). The full cycle to BSV always spends from vault 5 and hedges on a fresh vault:
+5 itself, or one of the hedge vaults 9–12 (`--event-vault N`)** ([tweet-triggered cycle](#the-tweet-triggered-cycle-srctweet-cyclets-vault-5)).
 Rehearse only with `--dry` or `--verdict ignore`.
 
 ### 30 minutes before
@@ -311,16 +325,17 @@ Rehearse only with `--dry` or `--verdict ignore`.
 3. Rehearse: `node --env-file=.env src/judge.ts --live --dry`. All cases must pass. If the RPC is rate-limited, set a
    keyed `RPC_URL`.
 4. Full cycle to BSV: on the BSV machine, the watcher (`watcher-serve`) and `tg auto` must be running. `tg auto` only
-   acts on intents created after it starts. Check vault 5 is still `NORMAL`:
-   `cast call 0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773 'regime(uint256)(uint8)' 5 --rpc-url https://sepolia.base.org`
-   → `0`.
+   acts on intents created after it starts. Check the event vault you will hedge on (5, or 9–12) is still `NORMAL`:
+   `cast call 0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773 'regime(uint256)(uint8)' <N> --rpc-url https://sepolia.base.org`
+   → `0` (tweet-cycle also refuses a non-`NORMAL` event vault for a live RISK_OFF run).
 5. Open in the browser: the [contract on Basescan](https://sepolia.basescan.org/address/0x8e38cc6b1bd1f0d25357066cd0036f28fd1f7773#events)
    (Events tab), and `deployments.json` on GitHub.
 
 ### 5–10 minutes before
 
 6. Arm the full cycle **before** posting (a post that already exists at start is not acted on):
-   `caffeinate -is node --env-file=.env.agent src/tweet-cycle.ts --live --minutes 20 --interval 30`
+   `caffeinate -is node --env-file=.env.agent src/tweet-cycle.ts --live --minutes 20 --interval 30 --event-vault <N>`
+   (`<N>` = the still-`NORMAL` vault you picked in step 4)
 7. Post on **@956_kakashi** (original post: no retweet, no reply, no quote), e.g.
    `[DEMO] Treasury Guard test signal: simulated emergency tariff announcement. Risk-off scenario for our hackathon agent. Not real news.`
    From now on you have 30 minutes. The same post serves vault 5 (tweet cycle) and vault 7 (judge script), since each
