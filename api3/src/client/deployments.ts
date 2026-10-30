@@ -12,6 +12,8 @@ export interface Deployment {
   chainId: number;
   explorer: string;
   treasuryGuard: Address | null;
+  // The demo vault the deploy script creates; the agent and the judge script use it.
+  vaultId: number | null;
   deployTx: Hex | null;
   deployBlock: number | null;
   feeds: { bsvUsd: FeedConfig; tweets: Record<string, FeedConfig> };

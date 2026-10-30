@@ -3,6 +3,7 @@
     "chainId": 84532,
     "explorer": "https://sepolia.basescan.org",
     "treasuryGuard": null,
+    "vaultId": null,
     "deployTx": null,
     "deployBlock": null,
     "feeds": {
