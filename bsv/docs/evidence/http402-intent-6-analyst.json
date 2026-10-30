@@ -1,0 +1,64 @@
+{
+  "task": "Decide whether the BSV treasury should go risk-off, based on the newest official post of @956_kakashi.",
+  "decision": {
+    "buy": true,
+    "reason": "The offer directly provides the newest post of @956_kakashi with an analyst verdict needed for the task, and at 100 sats it is well within the float and per-payment cap.",
+    "decidedBy": "deepseek"
+  },
+  "payer": "float",
+  "status": 200,
+  "paymentTxid": "abe8f2e90f4c4a52920f467abeb5797ec36d52836d6768c3bf1d1f0da12170d5",
+  "url": "https://whatsonchain.com/tx/abe8f2e90f4c4a52920f467abeb5797ec36d52836d6768c3bf1d1f0da12170d5",
+  "priceSats": 100,
+  "merchant": "https://show-story-try-agents.trycloudflare.com/verdict/956_kakashi",
+  "merchantReceivedSats": "external merchant: see the payment output on WhatsOnChain",
+  "guardian": {
+    "decision": "approve",
+    "mode": "once",
+    "risk": 10,
+    "reasons": [
+      "100 sats for \"Analyst verdict: 956_kakashi\" passes every rule."
+    ],
+    "judge": "rules",
+    "findings": [
+      {
+        "rule": "declared-intent",
+        "severity": "ok",
+        "detail": "Agent says: \"The offer directly provides the newest post of @956_kakashi with an analyst verdict needed for the task, and at 100 sats it is well within the float and per-payment cap.\""
+      },
+      {
+        "rule": "merchant",
+        "severity": "ok",
+        "detail": "External 402 service at show-story-try-agents.trycloudflare.com is trusted."
+      }
+    ]
+  },
+  "paymentInputsFrom": [
+    "bbbd9137a1275ebbac968aa277c289cf775635d0bc9942f7145e7c88f37552ec"
+  ],
+  "fundedByVaultWithdrawal": [
+    "bbbd9137a1275ebbac968aa277c289cf775635d0bc9942f7145e7c88f37552ec"
+  ],
+  "body": {
+    "account": "956_kakashi",
+    "tweetId": "2116295879288311875",
+    "text": "Treasury Guard rehearsal – risk check",
+    "postedAt": 1793399231,
+    "retweet": false,
+    "verdict": 0,
+    "label": "ignore",
+    "reason": "This is a vague rehearsal/risk-check announcement with no concrete policy or market-moving content.",
+    "judgedBy": "deepseek",
+    "paidSats": 100,
+    "txid": "abe8f2e90f4c4a52920f467abeb5797ec36d52836d6768c3bf1d1f0da12170d5",
+    "signedBy": {
+      "airnode": "0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB",
+      "requestHash": "0x2aa759a5578bd4b6f7e18cb12821e2aa4d5d27ef609c1332e961accc56985a12",
+      "timestamp": "1793399288",
+      "signature": "0x63974969ae4018f419f4ebc7ccf9326aea780ee9b95a9d8eff7b67a1f9822ed8285bcb79c744660df5ff18246d3356d0c5967c6f0ff33243705cd60695f92c061c"
+    }
+  },
+  "msRequestToAnswer": 6650,
+  "note": "External 402 service; the payment is a real BSV mainnet transaction.",
+  "at": "2026-10-30T22:28:10.968Z"
+}

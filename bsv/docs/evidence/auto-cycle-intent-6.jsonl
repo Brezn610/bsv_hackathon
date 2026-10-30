@@ -1,0 +1,5 @@
+{"at":"2026-10-30T22:23:42.481Z","event":"start","vaultId":"5","fromBlock":"52385768","buy":true,"maxIntents":1,"maxSats":7000}
+{"at":"2026-10-30T22:27:40.245Z","event":"withdraw","intentId":"6","block":"52386930","committedSats":5807}
+{"at":"2026-10-30T22:28:03.306Z","event":"withdrawn","intentId":"6","txid":"bbbd9137a1275ebbac968aa277c289cf775635d0bc9942f7145e7c88f37552ec","committedSats":5807}
+{"at":"2026-10-30T22:28:10.969Z","event":"bought","intentId":"6"}
+{"at":"2026-10-30T22:31:47.520Z","event":"stop"}
