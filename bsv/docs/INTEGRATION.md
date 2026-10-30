@@ -33,7 +33,7 @@ addresses read from `api3/deployments.json` itself. No EVM key exists on the BSV
 2. **Recipient policy.** A SPEND intent carries `maxSats` but no destination. The watcher allows
    exactly one recipient: the pre-registered Agent Float. Merchants are paid later, from the
    float, under the guardian. Base never certified a recipient, and we do not say it did.
-3. **Who does what.** API3 owner/agent: signed price, `submitPrice`, `settle`. BSV side: watcher
+3. **Who does what.** API3 side (the vault-5 agent key; `settle` reverts `NotAgent` for anyone else): signed price, `submitPrice`, `settle`. BSV side: watcher
    verification, BSV signing and broadcast, and the receipt (intentId, BSV txid, amount, fee).
    The EVM agent key is never requested.
 

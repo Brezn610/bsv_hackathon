@@ -4,15 +4,15 @@
 
 Revision: see `git log -- bsv` (branch `feat/bsv-treasury-guard`), checked 2026-10-30, Europe/Berlin.
 Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock chain for offline tests.
-"Mined" means seen in a block on WhatsOnChain. Every BSV mainnet transaction below was mined by 18:01 Berlin.
+"Mined" means seen in a block on WhatsOnChain. Every BSV mainnet transaction below is mined (intent 2 in block 973334, intent 4 in 973339, intent 5 in 973355; checked 30 Oct).
 
 | Item | Value |
 | --- | --- |
 | API3 contract | `0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773` (Base Sepolia 84532), Base vault ID 5 |
 | Vault 5 on Base | budget $1/day, TTL 900 s; SPEND **intent 2** created by the API3 agent at ~17:37 Berlin ([Base tx](https://sepolia.basescan.org/tx/0x0aa95a723942c63e0463ea8730e4cb2baf8f76ac272b98915c31b8f0130afc90)): `maxSats` 2,896, expiry 16:52:17 UTC |
-| Intents on the contract (read 30 Oct ~17:15) | only #1 (retired vault 2, 5,856,771 sats for $1): the watcher refuses it (live test) |
+| Intents on the contract | #1 (retired vault 2) and #3 (the API3 runner's vault 8): never withdrawn, refused by the watcher (#3 live over HTTP with 422); #2, #4, #5 on vault 5: withdrawn and settled |
 | BSV vault script | `63210234a2…3fad` (`docs/evidence/gate1.json`), binding `tg-vault-vault-5-v1-2026-10-30` |
-| Agent Float script | `76a91419e272af3877858a136f6b5a9c67a390bb13b7e088ac` |
+| Agent Float script | intent 2: `76a91419e272af3877858a136f6b5a9c67a390bb13b7e088ac` (agent wallet, binding `tg-vault-vault-5-v1-2026-10-30`); intents 4 and 5: `76a914000d3c59311f64d8806fb5bf5a1daaf0dd15b27988ac` (dedicated float wallet, binding `…+float-wallet` after `tg rebind-float`; vault script unchanged) |
 
 ## Live on BSV mainnet
 
@@ -78,7 +78,7 @@ insufficient sats.
 **NOT_COMPLETED**
 - The signed-rate swap (`executeSwap`) has not run on mainnet; the mainnet swap `ee2a3896` used a fixed price.
 - The separate watcher process runs on the same machine as the agent, not on a separate host.
-- No automatic intent subscription service: `tg withdraw --intent N` and `tg buy` are one repeatable CLI cycle, and the API3 owner calls `settle` by hand.
+- No automatic intent subscription service: `tg withdraw --intent N` and `tg buy` are one repeatable CLI cycle, and the API3 side calls `settle` by hand.
 - Agent and watcher keys are on one machine run by one operator; the owner exit protects the owner, but the two spending keys are not yet held by independent parties.
 - Demo video and organizer confirmation of the pre-event code rules.
 

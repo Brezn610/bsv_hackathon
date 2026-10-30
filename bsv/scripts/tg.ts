@@ -516,7 +516,7 @@ async function withdraw(): Promise<void> {
     })
     const broadcastMs = Date.now() - t0
     // Printed first, so a later bookkeeping error cannot hide them.
-    console.log(`Broadcast ${woc(result.txid)}; for the API3 owner: settle(${intentId}, ${settleTxidArg(result.txid)})`)
+    console.log(`Broadcast ${woc(result.txid)}; for the API3 side (vault-5 agent key): settle(${intentId}, ${settleTxidArg(result.txid)})`)
     const utxos = loadUtxos().map(u => (live.some(l => l.outpoint === u.outpoint) ? { ...u, status: 'spent' as const, spentBy: result.txid } : u))
     const changeIndex = result.tx.outputs.findIndex(o => o.lockingScript.toHex() === stored.vaultLockingScript)
     if (changeIndex !== -1) {

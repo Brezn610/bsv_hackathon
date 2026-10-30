@@ -10,7 +10,7 @@ npm test                    # 65 offline tests (2 live ones skipped)
 LIVE_BASE=1 npx tsx --test test/api3-readonly.test.ts   # live reads of vault 5; intent #1 (vault 2) refused
 ```
 
-## 1. Base Sepolia testnet decides (API3 owner)
+## 1. Base Sepolia testnet decides (API3 side, vault-5 agent key)
 
 API3 agent buys a fresh signed BSV/USD price and calls `submitPrice(5, price, usd(0.0005))`
 (snippet in INTEGRATION.md). Show the `IntentCreated` event on sepolia.basescan.org. Note the
@@ -25,8 +25,14 @@ npm run tg -- status                                   # terminal 2: vault UTXO 
 CONFIRM_MAINNET=1 npm run tg -- withdraw --intent N    # watcher re-reads intent N, checks the tx, cosigns; broadcast; float takes it in
 ```
 
-Prints the WhatsOnChain link and `settle(N, 0x…)`. Hand that to the API3 owner, who calls
-`settle` and shows the `Settled` event.
+Prints the WhatsOnChain link and `settle(N, 0x…)`. Hand that to the API3 side: `settle` must be sent with the
+**vault-5 agent key** (`0x0310dCF1…4cf0`); the contract rejects anyone else (`NotAgent`, `TreasuryGuard.sol`), the
+vault owner included. Then show the `Settled` event.
+
+Run both terminals from the same checkout, the one whose `bsv/data` holds the binding, the vault UTXOs and the watcher
+journal. If `watcher-serve` says "No watcher journal", you are in the wrong checkout or the file is missing: restore it
+from the backup. Never answer that with `--init-journal`, which would start an empty journal and forget which intents
+were already signed.
 
 ## 3. The float buys something
 
