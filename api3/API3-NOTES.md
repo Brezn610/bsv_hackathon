@@ -146,6 +146,36 @@ cast wallet sign --private-key <ad-hoc key from cast wallet new> $digest
 ## Links
 [Challenge](https://api3dao.github.io/airnodehub-hackathon/docs/) · [Integrations](https://api3dao.github.io/airnodehub-hackathon/docs/integrations) · [From API to contract](https://api3dao.github.io/airnodehub-hackathon/docs/from-api-to-contract) · [AirnodeHub](https://airnodehub.api3.org/) · [Docs](https://airnodehub-docs.api3.org/) · MCP `https://airnodehub.api3.org/mcp` · Support: API3 topic in the hackathon Telegram group
 
+## Hour-0 spike results (30.10., script `src/spike.ts`, test `test/Spike.t.sol`)
+Fixtures bought once with the agent key via x402 in aUSD and cached in `test/fixtures/` (the script refuses to re-fetch). All signatures verified off-chain (`verifySignedResponse`) and on-chain (`AirnodeV2Attestation.verify` with signer + hash written into the test).
+
+| | CoinPaprika | TwitterAPI.io |
+|---|---|---|
+| Airnode URL (POST /) | `https://airnode-coinpaprika.fly.dev/` | `https://airnode-twitterapi.fly.dev/` |
+| Signer | `0xB8b7816a39A0bF55eF2ae9A282A1502ce35ff732` | `0x7B02Fd3324D2dC362f65a9c01e59EC5fDb4E1CCB` |
+| Price per call | 0.001 USD | 0.01 USD |
+
+**CoinPaprika `getTickersById`**
+- Parameter is `coin_id` (not `id`). We send `{coin_id: "bsv-bitcoin-sv", quotes: "USD"}` explicitly; any parameter change changes the hash.
+- Projection works: `{change1h: /quotes/USD/percent_change_1h, price: /quotes/USD/price, updatedAt: /last_updated}`
+- Data: `{"change1h":-0.15000000596046448,"price":17.046251500133348,"updatedAt":"2026-10-30T13:03:16Z"}`
+  - Values are JSON **numbers**; `change1h` is float32-printed (many digits). `updatedAt` is an ISO string (minute refresh) → `readTimestamp`.
+  - `readInt(data, "change1h", 2)` = `-15` (cuts toward zero), negative decimals work. `readInt` also reads `"-1.23"` as a string.
+  - Risk: exponent notation (`-1e-7`) reverts in `ProjectedJson`. JS prints |x| < 1e-6 that way; very unlikely for a %, but the contract will revert, the agent skips the cycle.
+- **Request hash BSV/USD: `0x18b782163c79529c7bbe757343b930284f3aef690e45560f0aa771b629399480`** (deriveRequestHash == response.requestHash)
+- Request hash BTC/USD (same projection, same signer, fixture for the WrongRequest case): `0xcadca27a1c6328b3abbe1a10feeeec01f5e49ef4ad7de3e54797265df80850d8`. Verifying it against the BSV/USD hash recovers an unrelated address → `NotSignedByAirnode`. A distinct `WrongRequest` error therefore needs a pre-check `response.requestHash == stored hash` (still recover against the stored hash).
+
+**TwitterAPI.io `userLastTweets`** (`{userName: "WhiteHouse"}`, replies excluded by default)
+- Raw shape: `{status, code, msg, data: {pin_tweet, tweets: [20 items]}, has_next_page, next_cursor}`.
+- `data.tweets[0]` is the **newest** post. The pinned post is separate (`data.pin_tweet`, null for WhiteHouse), not in `tweets`.
+- **No retweet boolean.** A retweet has `retweeted_tweet: {...}` (null otherwise) and text `RT @user: ...`. `tweets[0]` at fetch time was a retweet (RT @CENTCOM); ~13 of the 20 were retweets. The retweet's `id`/`createdAt` are the WhiteHouse retweet's own, the author is WhiteHouse.
+- `id` is a JSON **string** (`"2116153357064888354"`) → `readUint(data, "id", 0)` reads it. Snowflake `((id >> 22) + 1288834974657) / 1000` = 1793365251 = `createdAt` "Fri Oct 30 13:00:51 +0000 2026" (Twitter format, not ISO, so Snowflake is the way).
+- Projection used: `{id: /data/tweets/0/id, text: /data/tweets/0/text}` → `{"id":"2116153357064888354","text":"RT @CENTCOM: ..."}`. Retweet check on-chain: `LibString.startsWith(text, "RT @")`. Projecting `retweeted_tweet` would carry ~3.8 KB; projecting `/retweeted_tweet/id` gives a 400 when it is null.
+- **Request hash WhiteHouse (with that projection): `0x783a61a36250c7dfdf26d9ea96ca3cc5894a286c9f4b4139798345cb4d9395e9`**
+- Open (team): do retweets count as the account's post? Signed-at minus post time was ~3 min here.
+
+x402 payments (Base Sepolia, agent key): [BSV/USD](https://sepolia.basescan.org/tx/0x71b12c9ead04e0891898547b6a1206e4c77dfb6aac73eaa31c716e64a2b1e4c7) · [BTC/USD](https://sepolia.basescan.org/tx/0x3f4c886be0237229c8d381a14b30fd5c699dded5bd283c85af7eac896663998d) · [WhiteHouse raw](https://sepolia.basescan.org/tx/0xc3df16c290178a7f50b40f4405535835604a93adf702ef9f4ad54f11a6322e8d) · [WhiteHouse projected](https://sepolia.basescan.org/tx/0x1abcf93642393d2ac66cc21413436aa8c42165525e622dafdb804c1b097e0a8a)
+
 ## Team decisions
 - 30.10.: ~~BSV testnet~~ → **BSV side runs on BSV MAINNET** (tiny real amounts; scripts tested on testnet first). API3 stays on Base Sepolia (x402/aUSD only exists there); no value crosses chains, the contract only verifies data and creates intents
 - 30.10.: "PayPerRead" and "SignalSwap" superseded. **Decided: "Treasury Guard"** (approved by the team 30.10.; design in `docs/TEAM-BRIEF.md`, simple version in `docs/OVERVIEW.md`). Agent treasury vault on BSV `(agent AND watcher) OR owner`. `TreasuryGuard.sol` on Base Sepolia turns signed data into intents the watcher co-signs:
