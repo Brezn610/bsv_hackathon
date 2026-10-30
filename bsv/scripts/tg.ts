@@ -536,7 +536,7 @@ async function buy(): Promise<void> {
   const limits = { maxPerPaymentSats: 2_000, dailyBudgetSats: 10_000, reserveSats: 0 }
   try {
     const floatSats = await payer.wallet.balance()
-    const offer: PaidOffer = { merchant: domain, item: 'research note', description: 'One paid research answer from the Treasury Guard demo merchant', priceSats: price }
+    const offer: PaidOffer = { merchant: domain, item: 'research note: bsv-fees', description: 'One short paid research note on the topic "BSV network fees for agent micropayments", from the team demo merchant (deterministic demo content)', priceSats: price }
     const decision = await decidePurchase(offer, { task, floatSats, maxPerPaymentSats: limits.maxPerPaymentSats })
     console.log(`Agent (${decision.decidedBy}): ${decision.buy ? 'BUY' : 'SKIP'} - ${decision.reason}`)
     if (!decision.buy) {
