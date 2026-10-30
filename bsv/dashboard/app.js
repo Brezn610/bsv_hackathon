@@ -160,13 +160,13 @@
 
   // ---------------------------------------------------------------- source badges
 
-  const LABEL = { live: 'Live', cached: 'Cached', recorded: 'Recorded', simulated: 'Simulated', unavailable: 'Unavailable', loading: 'Loading' };
+  const LABEL = { live: 'Live', cached: 'Cached', unavailable: 'Unavailable', loading: 'Loading' };
   const freshness = (s) => {
     if (!s.okAt) return s.status === 'error' ? 'unavailable' : 'loading';
     if (s.status === 'error' || Date.now() - s.okAt > s.interval * 2.5) return 'cached';
     return 'live';
   };
-  const badge = (kind, detail) => h('span', { class: `src src-${kind}` }, LABEL[kind] ?? kind, detail ? h('span', { class: 'src-detail' }, ` · ${detail}`) : null);
+  const badge = (kind, detail) => h('span', { class: `src src-${kind}` }, detail ? `${detail}, ${(LABEL[kind] ?? kind).toLowerCase()}` : LABEL[kind] ?? kind);
   // A badge bound to a source: its class and "x s ago" are refreshed every second by tick().
   const srcBadge = (key, name) => h('span', { class: 'src', dataset: { src: key, srcName: name } });
   const paintSrcBadges = () => {
@@ -178,8 +178,7 @@
       let detail = el.dataset.srcName;
       if (kind === 'live' || kind === 'cached') detail += ` · ${ago(s.okAt)}`;
       if (kind === 'unavailable' && s.error) detail += ` · ${s.retryInMs ? `retrying in ${Math.round(s.retryInMs / 1000)} s` : 'retrying'}`;
-      el.textContent = LABEL[kind];
-      el.append(h('span', { class: 'src-detail' }, ` · ${detail}`));
+      el.textContent = kind === 'live' ? detail.replaceAll(' · ', ', ') : `${detail.replaceAll(' · ', ', ')} — ${LABEL[kind].toLowerCase()}`;
       el.title = s.error && kind !== 'live' ? `Last error: ${s.error.message || s.error}` : '';
     }
   };
@@ -214,7 +213,6 @@
     for (const id of S.receipts.keys()) ids.add(id);
     const now = nowSec();
     return [...ids].sort((a, b) => (BigInt(b) > BigInt(a) ? 1 : -1)).map((id) => {
-      const rec = null;
       const chain = S.chain.intents.get(id);
       const onChain = chain && chain.vaultId === VAULT ? chain : null;
       const dec = latestApproval(id);
@@ -235,7 +233,7 @@
       else if (onChain) state = 'expired';
       else state = 'unknown';
       return {
-        id, rec, onChain, approval, txid, txSource, mismatch, maxSats, state,
+        id, onChain, approval, txid, txSource, mismatch, maxSats, state,
         baseCreatedTx: logTx?.txHash || null,
         settled: onChain ? onChain.settled : false,
         settleTx: null,
@@ -256,8 +254,8 @@
     if (k === 'live' && hv?.ok) {
       cls = 'pill-ok';
       const skew = Number(hv.clockSkewSec);
-      text = `Watcher online · ${hv.binding} · clock skew ${skew > 0 ? '+' : ''}${skew} s · since ${clock(Date.parse(hv.startedAt))}`;
-      title = `Watcher at ${CFG.watcher}. Started ${hv.startedAt}. ${hv.decisions} decisions since start.`;
+      text = 'Watcher connected';
+      title = `Binding: ${hv.binding}. Clock skew: ${skew} s. Started ${hv.startedAt}. ${hv.decisions} decisions since start.`;
     } else if (k === 'loading') { cls = 'pill-loading'; text = 'Watcher: checking…'; }
     else {
       cls = 'pill-bad';
@@ -342,7 +340,7 @@
     const feed = EV.base.feeds.bsvUsd;
     const head = h('div', { class: 'card-head' }, h('h3', { id: 'price-title' }, 'Signed BSV/USD price'), srcBadge('base', 'Base Sepolia'));
     if (!lp || !lp.signedAt) {
-      const msg = S.base.status === 'error' ? 'Base RPC unavailable. No price loaded.' : 'Waiting for signed-price data from Base Sepolia…';
+      const msg = S.base.status === 'error' ? 'No price loaded. Check the Base RPC in Connection details; retries are automatic.' : 'Waiting for signed-price data from Base Sepolia…';
       mount(el, stringify(['p-empty', msg]), () => [head, h('p', { class: 'state' }, msg)]);
 
       return;
@@ -357,26 +355,26 @@
     const sig = stringify([lp, cfg, match?.id, txHash, airOk, reqOk]);
     mount(el, sig, () => [head,
       h('p', { class: 'big' }, h('span', { class: 'num' }, price8(lp.price)), h('span', { class: 'unit' }, ' per BSV'),
-        h('span', { class: `delta ${lp.change1h < 0n ? 'down' : 'up'}` }, ` ${lp.change1h < 0n ? '▼' : '▲'} ${pct(lp.change1h < 0n ? -lp.change1h : lp.change1h).replace('+', '')} 1 h`)),
+        h('span', { class: `delta ${lp.change1h < 0n ? 'down' : 'up'}` }, ` ${lp.change1h < 0n ? 'down' : 'up'} ${pct(lp.change1h < 0n ? -lp.change1h : lp.change1h).replace('+', '')} 1 h`)),
       h('dl', { class: 'facts' },
         h('div', null, h('dt', null, 'Signed'), h('dd', null, h('span', { dataset: { agoSec: lp.signedAt.toString() } }))),
         h('div', null, h('dt', null, 'Observed'), h('dd', null, h('span', { dataset: { agoSec: lp.updatedAt.toString() } }))),
-        h('div', null, h('dt', null, 'Observed → signed'), h('dd', null, h('span', { class: 'num' }, dur(obs)), ' ', check(cfg && obs <= cfg.maxDataAge, `≤ ${cfg ? dur(cfg.maxDataAge) : '600 s'}`))),
-        h('div', null, h('dt', null, 'Signed → accepted on Base'), h('dd', null, acc !== null ? [h('span', { class: 'num' }, dur(acc)), ' ', check(acc <= cfg.maxSignatureAge, `≤ ${dur(cfg.maxSignatureAge)}`)] : h('span', { class: 'muted' }, 'n/a (price-only submission)')))),
+        h('div', null, h('dt', null, 'Observation to signature'), h('dd', null, h('span', null, dur(obs)), ' ', check(cfg && obs <= cfg.maxDataAge, `≤ ${cfg ? dur(cfg.maxDataAge) : '600 s'}`))),
+        h('div', null, h('dt', null, 'Signature to acceptance'), h('dd', null, acc !== null ? [h('span', null, dur(acc)), ' ', check(acc <= cfg.maxSignatureAge, `≤ ${dur(cfg.maxSignatureAge)}`)] : h('span', { class: 'muted' }, 'n/a (price-only submission)')))),
       h('p', { class: 'small' }, 'Accepted ', createdAt !== null ? h('span', { dataset: { agoSec: createdAt.toString() } }, '') : h('span', { dataset: { agoSec: lp.signedAt.toString(), prefix: 'signed ' } }, ''),
         txHash ? [' in ', baseTx(txHash)] : null, match ? ` · created SPEND intent ${match.id}` : ''),
       h('p', { class: 'small' }, feed.name, ' Airnode ', baseAddr(feed.airnode), ' ', check(airOk && reqOk, airOk && reqOk ? 'signer and request match vault 5' : 'differs from the vault config')),
-      h('p', { class: 'note' }, h('span', null, 'No valid signature → no intent → no BSV moves.'), h('a', { href: '#tamper', class: 'jump' }, 'Try to cheat it ↓'))]);
+      h('p', { class: 'note' }, 'The contract requires a valid signature before creating a spending intent.')]);
   };
-  const check = (ok, text) => h('span', { class: ok ? 'ok' : 'bad' }, ok ? '✓ ' : '✗ ', text);
+  const check = (ok, text) => h('span', { class: 'verification-note' }, ok ? 'Pass: ' : 'Check failed: ', text);
 
   const renderBudget = () => {
     const el = $('#budget-card');
     const v5 = S.chain.v5;
     const cfg = v5.config;
-    const head = h('div', { class: 'card-head' }, h('h3', { id: 'budget-title' }, 'Today’s budget · vault 5'), srcBadge('base', 'Base Sepolia'));
+    const head = h('div', { class: 'card-head' }, h('h3', { id: 'budget-title' }, 'Daily budget'), srcBadge('base', 'Base Sepolia'));
     if (!cfg || v5.remaining === undefined) {
-      const msg = S.base.status === 'error' ? 'Base RPC unavailable. No budget loaded.' : 'Waiting for vault budget data…';
+      const msg = S.base.status === 'error' ? 'No budget loaded. Check the Base RPC in Connection details; retries are automatic.' : 'Waiting for vault budget data…';
       mount(el, stringify(['b-empty', msg]), () => [head, h('p', { class: S.base.status === 'error' ? 'state state-error' : 'state' }, msg)]);
       return;
     }
@@ -385,7 +383,7 @@
     mount(el, stringify([rem, daily, v5.regime, cfg]), () => [head,
       h('div', { class: 'budget-row' },
         h('p', { class: 'big' }, h('span', { class: 'num' }, usd6(rem)), h('span', { class: 'unit' }, ` left of ${usd6(daily)}`)),
-        h('span', { class: `regime regime-${String(v5.regime).toLowerCase()}`, title: `Set by the contract from the signed 1 h change. Breaker ${pct(cfg.breakerBps)} → RISK_OFF, re-entry ${pct(cfg.reentryBps)}, cooldown ${dur(cfg.cooldown)}, hedge caps ${fixed(cfg.breakerHedgeBps, 2, 0)} % / ${fixed(cfg.eventHedgeBps, 2, 0)} %.` }, v5.regime)),
+        h('span', { class: `regime regime-${String(v5.regime).toLowerCase()}`, title: `Set by the contract from the signed 1 h change. Breaker ${pct(cfg.breakerBps)} enters RISK_OFF, re-entry ${pct(cfg.reentryBps)}, cooldown ${dur(cfg.cooldown)}, hedge caps ${fixed(cfg.breakerHedgeBps, 2, 0)} % / ${fixed(cfg.eventHedgeBps, 2, 0)} %.` }, String(v5.regime).toLowerCase().replaceAll('_', ' '))),
       h('div', { class: 'bar', role: 'meter', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pctLeft), 'aria-label': 'Daily budget remaining' },
         h('span', { class: 'bar-fill bar-base', style: undefined, dataset: { w: String(pctLeft) } })),
       h('p', { class: 'muted small' }, `Spent today ${usd6(daily - rem)} · resets 00:00 UTC · intents expire after ${dur(cfg.intentTtl)}`),
@@ -393,8 +391,8 @@
   };
   const runnerLine = () => {
     const lp = S.chain.v8.lastPrice;
-    if (!lp || !lp.signedAt) return 'Autonomous runner (vault 8, no BSV funds) →';
-    return `Autonomous runner (vault 8, no BSV funds): last signed price ${dur(Number(nowSec() - lp.signedAt))} ago →`;
+    if (!lp || !lp.signedAt) return 'View agent activity in vault 8 (no BSV funds)';
+    return `Autonomous runner (vault 8, no BSV funds): last signed price ${dur(Number(nowSec() - lp.signedAt))} ago`;
   };
 
   // ---------------------------------------------------------------- render: Enforce lane
@@ -406,18 +404,18 @@
     403: ['bad', 'Forged or missing agent signature'],
     400: ['neutral', 'Malformed request']
   };
-  const decisionRow = (d, kind, isNew) => {
+  const decisionRow = (d, isNew) => {
     const [cls, label] = STATUS[d.status] || ['neutral', `HTTP ${d.status}`];
     const at = Date.parse(d.at);
     const reasons = Array.isArray(d.reasons) ? d.reasons.map(String) : [];
-    return h('li', { class: `dec dec-${cls}${kind === 'recorded' ? ' dec-recorded' : ''}${isNew ? ' is-new' : ''}` },
+    return h('li', { class: `dec dec-${cls}${isNew ? ' is-new' : ''}` },
       h('div', { class: 'dec-top' },
-        h('time', { class: 'mono', datetime: d.at, title: d.at }, Number.isFinite(at) ? (kind === 'recorded' ? dateTime(at) : clock(at)) : '—'),
+        h('time', { datetime: d.at, title: d.at }, Number.isFinite(at) ? clock(at) : '—'),
         h('span', { class: 'dec-intent' }, `intent ${String(d.intentId)}`),
         h('span', { class: `status status-${cls}` }, `${d.status} ${label}`)),
       d.status === 200 && d.verdict === 'APPROVE'
-        ? h('p', { class: 'dec-detail mono' }, `${group(d.vaultIn ?? 0)} in → ${group(d.toFloat ?? 0)} to float · ${group(d.change ?? 0)} back · ${group(d.fee ?? 0)} fee`,
-          d.proposalId ? h('span', { class: 'proposal', title: 'Txid of the transaction before unlocking scripts. It is not the final BSV txid.' }, ` · proposal ${short(String(d.proposalId))} (not the BSV txid)`) : null)
+        ? h('p', { class: 'dec-detail' }, h('span', { class: 'num' }, group(d.toFloat ?? 0)), ' sats to float; ', h('span', { class: 'num' }, group(d.change ?? 0)), ' change; ', h('span', { class: 'num' }, group(d.fee ?? 0)), ' fee. Vault input: ', h('span', { class: 'num' }, group(d.vaultIn ?? 0)), '.',
+          d.proposalId ? h('span', { class: 'proposal mono', title: 'Txid of the transaction before unlocking scripts. It is not the final BSV txid.' }, ` · proposal ${short(String(d.proposalId))} (not the BSV txid)`) : null)
         : null,
       reasons.length === 1 ? h('p', { class: 'dec-reason' }, reasons[0]) : null,
       reasons.length > 1 ? h('details', { class: 'dec-reasons', dataset: { key: decKey(d) } },
@@ -438,9 +436,9 @@
       if (reached) out.push(h('p', { class: 'muted small' }, `${counts.ok} approved · ${counts.no} refused since the watcher started${startedAt ? ` (${clock(Date.parse(startedAt))})` : ''}`));
       const list = h('ol', { class: 'dec-list', 'aria-live': 'polite', 'aria-relevant': 'additions' });
       {
-        if (live.length) list.append(...live.map((d) => decisionRow(d, 'live', S.newDecisions.has(decKey(d)))));
-        else if (reached) list.append(h('li', { class: 'empty' }, 'Waiting for the next agent request. New approvals and refusals will appear here.'));
-        else if (S.decisions.status === 'error') list.append(h('li', { class: 'empty empty-bad' }, `Watcher unreachable at ${CFG.watcher}. Live decisions appear here when it is running.`));
+        if (live.length) list.append(...live.map((d) => decisionRow(d, S.newDecisions.has(decKey(d)))));
+        else if (reached) list.append(h('li', { class: 'empty' }, 'No requests since the watcher started. Submit a withdrawal from your agent to see its decision here.'));
+        else if (S.decisions.status === 'error') list.append(h('li', { class: 'empty empty-bad' }, `Watcher not reachable at ${CFG.watcher}. Start it with npm run tg -- watcher-serve.`));
         else list.append(h('li', { class: 'empty' }, 'Contacting the watcher…'));
       }
       out.push(list);
@@ -460,7 +458,7 @@
       ? (C.reverseHex(hv.vaultScriptSha256) === WOC_SCRIPT_HASH ? check(true, 'script hash matches the watcher’s binding') : check(false, 'script hash differs from the watcher’s binding'))
       : h('span', { class: 'muted' }, 'Configured script hash; watcher binding not checked yet');
     if (!v) {
-      const msg = S.vault.status === 'error' ? 'WhatsOnChain unavailable. No balance loaded.' : 'Waiting for vault balance from WhatsOnChain…';
+      const msg = S.vault.status === 'error' ? 'No balance loaded. Check the WhatsOnChain connection; retries are automatic.' : 'Waiting for vault balance from WhatsOnChain…';
       mount(el, stringify(['v-empty', msg]), () => [head, h('p', { class: S.vault.status === 'error' ? 'state state-error' : 'state' }, msg), h('p', { class: 'small' }, hashCheck)]);
       return;
     }
@@ -477,10 +475,10 @@
     const observed = rows.filter((r) => r.chainOut !== null);
     const paid = observed.reduce((sum, r) => sum + r.chainOut, 0n);
     mount($('#flows-card'), stringify([paid, observed.length]), () => [
-      h('div', { class: 'card-head' }, h('h3', { id: 'flows-title' }, 'Agent funding & purchases')),
-      h('p', { class: 'big num' }, observed.length ? sats(paid) : '—'),
+      h('div', { class: 'card-head' }, h('h3', { id: 'flows-title' }, 'Paid to the agent')),
+      h('p', { class: 'big' }, h('span', { class: 'num' }, observed.length ? group(paid) : '—'), observed.length ? h('span', { class: 'unit' }, ' sats') : null),
       h('p', { class: 'muted small' }, observed.length ? `Paid to the float in ${observed.length} observed BSV transactions.` : 'No withdrawal into the float has been read from BSV.'),
-      h('p', { class: 'state' }, 'HTTP 402 purchases: not connected. A payment receipt source is required to show actual purchases.'),
+      h('p', { class: 'state' }, 'Purchases are not connected. Add a payment receipt source to show HTTP 402 spending.'),
       h('p', { class: 'muted small' }, 'The full float wallet balance is not public.')
     ]);
   };
@@ -508,14 +506,14 @@
     const sig = stringify([rows.map((r) => [r.id, r.state, r.txid, r.mismatch, r.settled, r.maxSats, r.approval, r.baseCreatedTx, r.onChain?.expiry, r.chainOut]), txSig, S.base.okAt > 0]);
     mount(el, sig, () => {
       const head = h('div', { class: 'card-head' },
-        h('h3', { id: 'pipeline-title' }, 'Intent → withdrawal → payment', h('span', { class: 'muted' }, ' · vault 5 only')),
+        h('h3', { id: 'pipeline-title' }, 'Transaction ledger', h('span', { class: 'muted' }, ' · vault 5 only')),
         h('span', { class: 'head-badges' }, srcBadge('base', 'Base'), ' ', badge(txFreshness(rows), 'tx status: WhatsOnChain')));
       const sub = h('p', { class: 'muted' }, 'Compare each observed withdrawal with its intent limit (outflow includes the fee). A Base settle is a record written by the API3 agent, not cross-chain proof.');
       const table = h('table', { class: 'pipe' },
         h('caption', { class: 'sr-only' }, 'Vault 5 SPEND intents and what happened to each'),
-        h('thead', null, h('tr', null, ['Intent', 'Limit (maxSats)', 'Watcher', 'BSV withdrawal', 'Outflow incl. fee ÷ limit', 'HTTP 402 from it', 'Base settle'].map((t) => h('th', { scope: 'col' }, t)))),
-        h('tbody', null, rows.length ? rows.map(pipeRow) : h('tr', null, h('td', { colspan: '7', class: 'empty' }, 'No vault-5 intents found.'))));
-      return [head, sub, h('div', { class: 'table-wrap' }, table)];
+        h('thead', null, h('tr', null, ['Intent', 'Limit, sats', 'Watcher', 'BSV transaction', 'Outflow / limit, sats', 'HTTP 402', 'Base settlement'].map((t) => h('th', { scope: 'col' }, t)))),
+        h('tbody', null, rows.length ? rows.map(pipeRow) : h('tr', null, h('td', { colspan: '7', class: 'empty' }, 'No intents loaded for vault 5. Check the Base connection in Connection details.'))));
+      return [head, sub, h('div', { class: 'table-wrap', tabindex: '0', role: 'region', 'aria-label': 'Scrollable transaction table' }, table)];
     });
   };
   const pipeRow = (r) => {
@@ -523,15 +521,13 @@
     const outflow = r.approval ? BigInt(r.approval.toFloat ?? 0) + BigInt(r.approval.fee ?? 0) : null;
     const share = outflow !== null && r.maxSats ? Number((outflow * 1000n) / r.maxSats) / 10 : null;
     const usd = r.onChain && r.maxSats ? approxUsd(r.maxSats, r.onChain.price) : null;
-    const payeeWord = r.rec && r.rec.payee !== 'Agent Float wallet' ? 'agent wallet' : 'float';
     let watcherCell;
-    if (r.rec) watcherCell = [h('span', { class: 'status status-ok' }, '200 Approved'), h('span', { class: 'muted small block' }, r.rec.watcher)];
-    else if (r.approval) watcherCell = [h('span', { class: 'status status-ok' }, '200 Approved'), h('span', { class: 'muted small block' }, 'live feed')];
+    if (r.approval) watcherCell = [h('span', { class: 'status status-ok' }, 'Approved'), h('span', { class: 'muted small block' }, 'watcher response')];
     else if (r.state === 'withdrawn') watcherCell = [h('span', { class: 'status status-ok' }, 'Co-signed'), h('span', { class: 'muted small block', title: 'The vault pays out only with the agent’s and the watcher’s signatures, or the owner’s alone (which carries no TGv1 receipt).' }, 'shown by the payout')];
     else watcherCell = h('span', { class: 'muted small' }, r.state === 'swap' ? 'not eligible' : 'no approval seen');
     return h('tr', { class: `row-${cls}` },
       h('th', { scope: 'row' },
-        h('span', { class: 'intent-id' }, `#${r.id}`), h('span', { class: `status status-${cls}` }, label),
+        h('span', { class: 'intent-id' }, `#${r.id}`), h('span', { class: 'intent-state' }, label),
         h('span', { class: 'small block' },
           r.state === 'open' ? h('span', { class: 'countdown', dataset: { untilSec: r.onChain.expiry.toString() } }, '') : null,
           r.state === 'open' && r.baseCreatedTx ? ' · ' : null,
@@ -539,21 +535,16 @@
       h('td', { class: 'num', title: r.onChain ? `Signed price ${price8(r.onChain.price)} per BSV` : '' }, r.maxSats !== null ? group(r.maxSats) : '—',
         usd ? h('span', { class: 'muted small block' }, usd) : null),
       h('td', null, watcherCell),
-      h('td', null, r.txid ? [wocTx(r.txid), r.txSource === 'recorded run' ? null : h('span', { class: 'muted small' }, ` via ${r.txSource}`), h('span', { class: 'block' }, txState(r.txid))] : h('span', { class: 'muted' }, '—'),
-        r.mismatch ? h('span', { class: 'bad small block' }, '✗ settle record differs from the recorded txid') : null),
+      h('td', null, r.txid ? [wocTx(r.txid), h('span', { class: 'muted small' }, ` via ${r.txSource}`), h('span', { class: 'block' }, txState(r.txid))] : h('span', { class: 'muted' }, '—'),
+        r.mismatch ? h('span', { class: 'bad small block' }, 'Settlement record differs from the BSV receipt') : null),
       h('td', null, outflow !== null && r.maxSats ? [
-        h('span', { class: 'num', title: `${group(r.approval.toFloat)} to ${payeeWord} + ${group(r.approval.fee)} fee` }, `${group(outflow)} / ${group(r.maxSats)}`),
+        h('span', { class: 'num', title: `${group(r.approval.toFloat)} to float + ${group(r.approval.fee)} fee` }, `${group(outflow)} / ${group(r.maxSats)}`),
         h('span', { class: 'bar bar-sm', role: 'img', 'aria-label': `${share} % of the limit used` }, h('span', { class: `bar-fill ${share <= 100 ? 'bar-ok' : 'bar-bad'}`, dataset: { w: String(Math.min(share, 100)) } }))
       ] : r.chainOut ? [h('span', { class: 'num' }, `${group(r.chainOut)} to float`), h('span', { class: 'muted small block' }, 'read from the BSV tx · fee not shown')]
         : h('span', { class: 'muted' }, '—')),
-      h('td', null, r.payment ? [wocTx(r.payment.txid), ' ', txState(r.payment.txid),
-        r.rec.model ? h('details', { class: 'small', dataset: { key: `why-${r.id}` } },
-          h('summary', null, `${group(r.payment.sats)} sats · HTTP ${r.payment.http} · ${r.rec.model.by} chose BUY`),
-          h('p', null, r.rec.model.reason), h('p', { class: 'muted' }, `Merchant: ${r.payment.merchant}. The guardian’s rules approved it; the payment is real.`))
-          : h('span', { class: 'muted small block' }, `${group(r.payment.sats)} sats · HTTP ${r.payment.http}`)]
-        : r.rec ? h('span', { class: 'muted small', title: r.rec.paymentNote || '' }, 'none from this withdrawal') : h('span', { class: 'muted small' }, 'not visible from public data')),
-      h('td', null, r.settled === true || r.settled === 'recorded'
-        ? [h('span', { class: 'status status-info' }, 'recorded'), r.settleTx ? [' ', baseTx(r.settleTx)] : null, r.settled === 'recorded' ? h('span', { class: 'muted small block' }, 'from RESULTS.md') : null]
+      h('td', null, h('span', { class: 'muted small' }, 'Payment receipts not connected')),
+      h('td', null, r.settled === true
+        ? h('span', { class: 'status status-info' }, 'record on Base')
         : h('span', { class: 'muted' }, 'not settled')));
   };
   // ---------------------------------------------------------------- render: trust
@@ -592,13 +583,13 @@
               h('dl', { class: 'facts' },
                 h('div', null, h('dt', null, 'Signed'), h('dd', null, h('span', { dataset: { agoSec: lp.signedAt.toString() } }, ''))),
                 h('div', null, h('dt', null, 'Observed'), h('dd', null, h('span', { dataset: { agoSec: lp.updatedAt.toString() } }, ''))),
-                h('div', null, h('dt', null, 'Observed → signed'), h('dd', null, dur(lp.signedAt - lp.updatedAt), ' ', check(cfg && lp.signedAt - lp.updatedAt <= cfg.maxDataAge, 'limit 600 s')))),
+                h('div', null, h('dt', null, 'Observation to signature'), h('dd', null, dur(lp.signedAt - lp.updatedAt), ' ', check(cfg && lp.signedAt - lp.updatedAt <= cfg.maxDataAge, 'limit 600 s')))),
               h('p', { class: active ? 'ok small' : 'warnc small' }, active ? 'Runner active: a price was accepted in the last 25 min.' : 'Runner idle: no accepted price in the last 25 min.')
             ] : h('p', { class: 'state' }, S.base.status === 'error' ? 'Base RPC unavailable.' : 'Reading vault 8…')),
           h('article', { class: 'card' }, h('div', { class: 'card-head' }, h('h3', null, 'Budget and regime'), srcBadge('base', 'Base Sepolia')),
             cfg && v8.remaining !== undefined ? [
               h('p', { class: 'big' }, h('span', { class: 'num' }, usd6(v8.remaining)), h('span', { class: 'unit' }, ` left of ${usd6(cfg.dailyBudgetUsd)}`)),
-              h('p', null, h('span', { class: `regime regime-${String(v8.regime).toLowerCase()}` }, v8.regime)),
+              h('p', null, h('span', { class: `regime regime-${String(v8.regime).toLowerCase()}` }, String(v8.regime).toLowerCase().replaceAll('_', ' '))),
               h('p', { class: 'muted small' }, 'Agent ', baseAddr(cfg.agent), ' · its own key, never the vault-5 agent.')
             ] : h('p', { class: 'state' }, '—')),
           h('article', { class: 'card' }, h('div', { class: 'card-head' }, h('h3', null, 'Intents of vault 8')),
@@ -609,11 +600,11 @@
           h('p', { class: 'muted small' }, S.logData.from !== null && S.logData.from <= S.logData.to
             ? `Blocks ${group(S.logData.from)}–${group(S.logData.to)}${S.logData.secPerBlockMilli ? `, about the last ${dur(Number(((S.logData.to - S.logData.from + 1n) * S.logData.secPerBlockMilli) / 1000n))}` : ''}, read in pages of 200 blocks (the public RPC’s limit). Older cycles: Basescan.`
             : 'Reading recent blocks…'),
-          prices.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'pipe' },
+          prices.length ? h('div', { class: 'table-wrap', tabindex: '0', role: 'region', 'aria-label': 'Scrollable transaction table' }, h('table', { class: 'pipe' },
             h('thead', null, h('tr', null, ['Signed', 'Price', '1 h change', 'Spend intent', 'Base tx'].map((t) => h('th', { scope: 'col' }, t)))),
             h('tbody', null, prices.slice(0, 20).map((p) => {
               const it = logIntents.get(p.txHash);
-              return h('tr', null, h('td', { class: 'mono' }, dateTime(Number(p.signedAt) * 1000)), h('td', { class: 'num' }, price8(p.price)), h('td', { class: 'num' }, pct(p.change1h)),
+              return h('tr', null, h('td', null, dateTime(Number(p.signedAt) * 1000)), h('td', { class: 'num' }, price8(p.price)), h('td', { class: 'num' }, pct(p.change1h)),
                 h('td', null, it ? `#${it.intentId} · ${group(it.maxSats)} sats` : h('span', { class: 'muted' }, 'price only')), h('td', null, baseTx(p.txHash)));
             }))))
             : S.logData.from !== null && S.logData.from <= S.logData.to ? h('p', { class: 'empty' }, 'No vault-8 price was accepted in this window yet.') : null)
@@ -656,13 +647,13 @@
     const rows = evidenceRows();
     const sig = stringify([rows, rows.map((x) => S.tx.get(x.txid)?.state)]);
     mount(el, sig, () => [
-      h('h2', { class: 'tab-title' }, 'All evidence'),
+      h('h2', { class: 'tab-title' }, 'Transaction references'),
       h('p', { class: 'lede small' }, 'Transactions discovered from connected sources. No bundled transaction history is included.'),
-      h('section', { class: 'card card-wide' }, h('div', { class: 'table-wrap' }, h('table', { class: 'pipe' },
+      h('section', { class: 'card card-wide' }, h('div', { class: 'table-wrap', tabindex: '0', role: 'region', 'aria-label': 'Scrollable transaction table' }, h('table', { class: 'pipe' },
         h('thead', null, h('tr', null, ['What', 'Network', 'Transaction', 'Status', 'Detail'].map((t) => h('th', { scope: 'col' }, t)))),
         h('tbody', null, rows.length ? rows.map((x) => h('tr', null, h('th', { scope: 'row' }, x.what), h('td', null, x.net), h('td', null, x.txid ? wocTx(x.txid) : baseTx(x.base)),
           h('td', null, x.txid ? txState(x.txid) : h('span', { class: 'muted small' }, 'see Basescan')), h('td', { class: 'small' }, x.detail))) : h('tr', null, h('td', { colspan: '5', class: 'empty' }, 'No transactions loaded. Waiting for connected sources.')))))),
-      h('p', { class: 'muted small' }, 'Source: ', ext('https://github.com/eujinnl/bsv_hackathon/blob/main/bsv/docs/evidence/RESULTS.md', 'bsv/docs/evidence/RESULTS.md'), '. Documentation only; no results are imported.')
+      h('p', { class: 'muted small' }, 'Sources: Base Sepolia contract events and WhatsOnChain transaction responses.')
     ]);
   };
 
@@ -678,8 +669,7 @@
         h('div', null, h('dt', null, 'Vault script SHA-256'), h('dd', { class: 'mono' }, hv?.vaultScriptSha256 || EV.bsv.vaultScriptSha256, h('span', { class: 'muted' }, hv?.vaultScriptSha256 ? ' (watcher /health)' : ' (configured)' ))),
         h('div', null, h('dt', null, 'Agent key'), h('dd', { class: 'mono' }, hv?.agentKey || 'Not connected')),
         h('div', null, h('dt', null, 'Watcher key'), h('dd', { class: 'mono' }, hv?.watcherKey || 'Not connected'))),
-      h('p', { class: 'muted small' }, 'Sources: watcher ', h('span', { class: 'mono' }, CFG.watcher), ' · Base RPC ', h('span', { class: 'mono' }, CFG.rpc), ' · ', h('span', { class: 'mono' }, CFG.woc), ' · ',
-        ext('https://github.com/eujinnl/bsv_hackathon/blob/main/bsv/docs/evidence/RESULTS.md', 'RESULTS.md'), ' · ', ext('https://github.com/eujinnl/bsv_hackathon/pull/2', 'PR #2'))
+      h('p', { class: 'muted small' }, 'Sources: watcher ', h('span', null, CFG.watcher), ' · Base RPC ', h('span', null, CFG.rpc), ' · ', h('span', null, CFG.woc))
     ]);
   };
 

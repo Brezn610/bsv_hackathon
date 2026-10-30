@@ -17,8 +17,8 @@
       <div class="brand">
         <h1>Treasury Guard</h1>
         <ul class="chips" aria-label="Networks">
-          <li class="chip chip-base"><span class="dot" aria-hidden="true"></span>Base Sepolia · testnet · decides</li>
-          <li class="chip chip-bsv"><span class="dot" aria-hidden="true"></span>BSV · mainnet · moves the money</li>
+          <li class="chip chip-base"><span class="dot" aria-hidden="true"></span>Base Sepolia · testnet</li>
+          <li class="chip chip-bsv"><span class="dot" aria-hidden="true"></span>BSV · mainnet</li>
         </ul>
       </div>
       <div class="top-status">
@@ -32,9 +32,9 @@
     </div>
     <nav class="tabs" role="tablist" aria-label="Views">
       <button type="button" role="tab" id="tab-btn-overview" aria-controls="tab-overview" aria-selected="true">Overview</button>
-      <button type="button" role="tab" id="tab-btn-agent" aria-controls="tab-agent" aria-selected="false" tabindex="-1">Autonomous agent · vault 8</button>
+      <button type="button" role="tab" id="tab-btn-agent" aria-controls="tab-agent" aria-selected="false" tabindex="-1">Agent · vault 8</button>
       <button type="button" role="tab" id="tab-btn-hedges" aria-controls="tab-hedges" aria-selected="false" tabindex="-1">Event hedges</button>
-      <button type="button" role="tab" id="tab-btn-evidence" aria-controls="tab-evidence" aria-selected="false" tabindex="-1">All evidence</button>
+      <button type="button" role="tab" id="tab-btn-evidence" aria-controls="tab-evidence" aria-selected="false" tabindex="-1">Transactions</button>
     </nav>
   </header>
 
@@ -43,44 +43,35 @@
   <main id="main">
     <!-- OVERVIEW -->
     <section id="tab-overview" role="tabpanel" aria-labelledby="tab-btn-overview" tabindex="-1">
-      <section class="intro" aria-labelledby="product-title">
-        <div><p class="eyebrow">Treasury control for AI agents · vault 5</p>
-          <h2 id="product-title">Let your agent spend.<br><span>Keep control of the money.</span></h2>
-          <p class="intro-copy">Set a dollar budget. Signed price data determines the allowance; the watcher checks each withdrawal. Your agent buys the data it needs, and you retain an owner-only exit.</p>
-        </div>
-        <div class="intro-actions"><a class="btn btn-primary" href="#pipeline">View transaction activity <span aria-hidden="true">↗</span></a>
-          <a class="btn" href="#trust">View validation status</a>
-          <span class="muted small">Read-only dashboard · no wallet needed</span>
-        </div>
-      </section>
-      <div class="section-label"><h2>Live control room</h2><span class="muted small">Public chain data + local watcher · no example data</span></div>
-
-      <ol id="flow" class="flow" aria-label="How one payment travels"></ol>
-
-      <div class="lanes">
-        <section class="lane lane-base" aria-labelledby="lane-decide">
-          <h2 id="lane-decide" class="lane-title"><span class="lane-verb">Decide</span> Base Sepolia <span class="net-tag">testnet</span></h2>
-          <article class="card" id="price-card" aria-labelledby="price-title"></article>
-          <article class="card" id="budget-card" aria-labelledby="budget-title"></article>
-        </section>
-
-        <section class="lane lane-watcher" aria-labelledby="lane-enforce">
-          <h2 id="lane-enforce" class="lane-title"><span class="lane-verb">Enforce</span> Watcher</h2>
-          <article class="card card-feed" id="decisions-card" aria-labelledby="decisions-title"></article>
-        </section>
-
-        <section class="lane lane-bsv" aria-labelledby="lane-move">
-          <h2 id="lane-move" class="lane-title"><span class="lane-verb">Move</span> BSV <span class="net-tag">mainnet</span></h2>
-          <article class="card" id="vault-card" aria-labelledby="vault-title"></article>
-          <article class="card" id="flows-card" aria-labelledby="flows-title"></article>
-        </section>
+      <div class="page-heading">
+        <div><p class="breadcrumb">Treasury Guard / Vault 5</p><h2>Withdrawal monitor</h2>
+          <p class="page-description">Follow each request from its spending limit to its BSV transaction.</p></div>
+        <span class="read-only">Read-only access</span>
       </div>
 
-      <section class="card card-wide" id="pipeline" aria-labelledby="pipeline-title"></section>
-
-      <div class="bottom">
-        <section class="card" id="trust" aria-labelledby="trust-title"></section>
+      <div class="monitor-grid">
+        <div class="activity-column">
+          <section class="card-feed" id="decisions-card" aria-labelledby="decisions-title"></section>
+          <section class="path-section" aria-labelledby="path-title">
+            <h3 id="path-title">Payment path</h3>
+            <ol id="flow" class="flow" aria-label="How one payment travels"></ol>
+          </section>
+        </div>
+        <aside class="account-summary" aria-label="Account context">
+          <article id="vault-card" aria-labelledby="vault-title"></article>
+          <article id="budget-card" aria-labelledby="budget-title"></article>
+          <article id="flows-card" aria-labelledby="flows-title"></article>
+        </aside>
+        <section class="ledger-section" id="pipeline" aria-labelledby="pipeline-title"></section>
       </div>
+      <details class="support-section">
+        <summary>Signed price <span>Price, freshness and signing identity</span></summary>
+        <article id="price-card" aria-labelledby="price-title"></article>
+      </details>
+      <details class="support-section">
+        <summary>Validation &amp; trust <span>Test status and verification limits</span></summary>
+        <section id="trust" aria-labelledby="trust-title"></section>
+      </details>
     </section>
 
     <!-- VAULT 8 -->
@@ -93,7 +84,7 @@
     <section id="tab-evidence" role="tabpanel" aria-labelledby="tab-btn-evidence" tabindex="-1" hidden></section>
   </main>
 
-  <footer id="footer" class="footer"></footer>
+  <footer class="footer"><details class="connection-details"><summary>Connection details</summary><div id="footer"></div></details></footer>
 
   <noscript><p class="banner banner-warn">This read-only dashboard needs JavaScript to read the watcher, Base Sepolia and WhatsOnChain.</p></noscript>
 
