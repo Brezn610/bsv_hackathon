@@ -52,6 +52,7 @@ interface DeploymentsJson {
     vaultId: number | null
     judgeVaultId: number | null
     liveJudgeVaultId?: number | null
+    runnerVaultId?: number | null
     retiredVaults?: Record<string, string>
     deployBlock: number | null
   }
@@ -63,7 +64,11 @@ export function loadBinding(file = process.env.API3_DEPLOYMENTS ?? DEFAULT_DEPLO
   if (d.chainId !== 84532) throw new Error(`baseSepolia.chainId is ${d.chainId}, expected 84532`)
   if (d.treasuryGuard === null || !/^0x[0-9a-fA-F]{40}$/.test(d.treasuryGuard)) throw new Error('baseSepolia.treasuryGuard is not an address')
   if (d.vaultId === null || d.deployBlock === null) throw new Error('baseSepolia.vaultId / deployBlock missing')
-  const excluded = [d.judgeVaultId, d.liveJudgeVaultId, ...Object.keys(d.retiredVaults ?? {}).map(Number)]
+  // Every other vault the file names (judge, live judge, the API3 runner, any future *VaultId) and the retired ones.
+  const otherVaults = Object.entries(d as unknown as Record<string, unknown>)
+    .filter(([k, v]) => k !== 'vaultId' && /VaultId$/.test(k) && typeof v === 'number')
+    .map(([, v]) => v as number)
+  const excluded = [...otherVaults, ...Object.keys(d.retiredVaults ?? {}).map(Number)]
     .filter((v): v is number => typeof v === 'number')
     .map(BigInt)
   const vaultId = BigInt(d.vaultId)

@@ -56,7 +56,7 @@ class ImmediateBroadcastWallet extends Wallet {
  * - re-posting a known transaction succeeds ("already known"), because both the
  *   payer and the payee of a BRC-29 payment broadcast it;
  * - when a transaction spends two outputs of the same unconfirmed parent (the
- *   soul token and its change, say), every input shares one parsed parent, so
+ *   a token and its change, say), every input shares one parsed parent, so
  *   script verification can walk the whole unconfirmed ancestry.
  * Blocks are not needed for settlement: payments are final at 0-conf.
  */

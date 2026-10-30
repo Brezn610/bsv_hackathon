@@ -1,7 +1,6 @@
-// The Guardian agent lives inside the pet's wallet. It answers every spending
+// The Guardian lives inside the agent's wallet. It answers every spending
 // authorization request the WalletPermissionsManager raises, and keeps a
-// hash-chained journal of its decisions whose head is anchored in the pet's
-// on-chain soul token.
+// hash-chained journal of its decisions whose head can be anchored on chain.
 import { Hash, Utils } from '@bsv/sdk'
 import type { PermissionToken, Wallet, WalletPermissionsManager } from '@bsv/wallet-toolbox'
 import type { EventBus } from '../events'
@@ -295,7 +294,7 @@ function journalHash(prevHash: string, body: Omit<JournalEntry, 'prevHash' | 'ha
 
 /**
  * Recomputes the journal's hash chain from genesis. If it returns `ok`, `head` can be compared
- * with the `guardianRoot` in a soul token to prove the whole decision history.
+ * with an anchored journal root to prove the whole decision history.
  */
 export function verifyJournal(journal: JournalEntry[]): { ok: boolean; head: string; brokenAt?: number } {
   let prev = GENESIS

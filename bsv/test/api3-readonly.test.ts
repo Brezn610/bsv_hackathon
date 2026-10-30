@@ -13,12 +13,12 @@ test('the ABI copy is exactly the entries of api3/src/client/abi.ts (run npm run
   assert.deepEqual(JSON.parse(readFileSync(ABI_FILE, 'utf8')), JSON.parse(JSON.stringify(await api3Abi())))
 })
 
-test('the binding is vault 5 on the deployed contract; judge and retired vaults are excluded', () => {
+test('the binding is vault 5 on the deployed contract; judge, runner and retired vaults are excluded', () => {
   const b = loadBinding()
   assert.equal(b.chainId, 84532)
   assert.equal(b.contract, '0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773')
   assert.equal(b.vaultId, 5n)
-  for (const v of [6n, 7n, 1n, 2n, 3n, 4n]) assert.ok(b.excludedVaultIds.includes(v))
+  for (const v of [6n, 7n, 8n, 1n, 2n, 3n, 4n]) assert.ok(b.excludedVaultIds.includes(v))
 })
 
 test('settle takes the WhatsOnChain txid as 0x + 64 hex', () => {

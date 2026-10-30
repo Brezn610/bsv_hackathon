@@ -3,11 +3,8 @@ import { EventEmitter } from 'node:events'
 
 export type WorldEventType =
   | 'chain'
-  | 'pet'
-  | 'pet.chat'
-  | 'pet.purchase'
-  | 'pet.income'
-  | 'soul'
+  | 'agent'
+  | 'agent.decision'
   | 'guardian.request'
   | 'guardian.decision'
   | 'error'

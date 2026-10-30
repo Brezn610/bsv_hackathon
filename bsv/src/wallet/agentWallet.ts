@@ -1,12 +1,12 @@
-// The pet never touches its raw wallet. Every spend goes through a
+// The agent never touches its raw wallet. Every spend goes through a
 // WalletPermissionsManager whose "user approval" prompt is answered by the
 // Guardian agent instead of a human.
 import type { WalletInterface } from '@bsv/sdk'
 import { WalletPermissionsManager, type Wallet } from '@bsv/wallet-toolbox'
 import type { TxObserver } from '../guardian/txObserver'
 
-/** The admin originator is the pet's own runtime (soul token upkeep). It is never handed to the pet's brain. */
-export const ADMIN_ORIGINATOR = 'admin.satspet.local'
+/** The admin originator is the agent's own runtime. It is never handed to the agent's model. */
+export const ADMIN_ORIGINATOR = 'admin.treasuryguard.dev'
 
 /** With `observer`, the guardian can also see each transaction it is asked to authorize. */
 export function createGuardedWallet(underlying: Wallet, observer?: TxObserver): WalletPermissionsManager {

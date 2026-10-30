@@ -11,13 +11,13 @@ export interface MerchantProfile {
   trust: TrustLevel
 }
 
-/** What the pet says it is about to buy. Declared before paying, matched when the wallet asks. */
+/** What the agent says it is about to buy. Declared before paying, matched when the wallet asks. */
 export interface SpendIntent {
   merchant: string
   item: string
   why: string
   expectedSats: number
-  /** "self" = the pet's own needs (hunger). "chat" = a stranger talked it into this. */
+  /** "self" = the agent's own task. "chat" = an untrusted party (a message, a web page) suggested it. */
   source: 'self' | 'chat'
   /** The visitor's raw chat message when source is "chat". The brain's `why` may paraphrase it. */
   visitorMessage?: string
@@ -81,7 +81,7 @@ export function evaluatePolicy(request: SpendRequest, ctx: PolicyContext): { out
   if (intent === undefined) {
     findings.push({ rule: 'declared-intent', severity: 'block', detail: 'Nobody declared why this payment is happening.' })
   } else {
-    findings.push({ rule: 'declared-intent', severity: 'ok', detail: `Pet says: "${intent.why}"` })
+    findings.push({ rule: 'declared-intent', severity: 'ok', detail: `Agent says: "${intent.why}"` })
     if (!Number.isSafeInteger(intent.expectedSats) || intent.expectedSats <= 0) {
       findings.push({ rule: 'price-match', severity: 'block', detail: 'The declared intent has no valid listed price.' })
     } else if (amount > intent.expectedSats) {
