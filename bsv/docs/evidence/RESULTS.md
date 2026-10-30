@@ -1,6 +1,6 @@
 # Results
 
-**End to end, live:** API3 signed price → SPEND intent 2 on Base Sepolia → watcher checks and co-signs → BSV mainnet vault → Agent Float withdrawal → `settle` on Base. The HTTP 402 payment and the owner-only exit are also live on mainnet.
+**End to end, live:** API3 signed price → SPEND intent on Base Sepolia → watcher checks and co-signs → BSV mainnet vault → Agent Float → the agent's model (DeepSeek) decides → guardian → HTTP 402 payment that spends exactly the withdrawn sats. Intent 2 also completed `settle` on Base. The owner-only exit is live on mainnet too.
 
 Revision: see `git log -- bsv` (branch `feat/bsv-treasury-guard`), checked 2026-10-30, Europe/Berlin.
 Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock chain for offline tests.
@@ -24,6 +24,8 @@ Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock c
 | HTTP 402 purchase by the agent wallet | [`43c8255e…9b77`](https://whatsonchain.com/tx/43c8255e63ab363f9d3641a601e74aee5ea95b5d53b747fcc86c40d71e959b77) | `@bsv/402-pay` 0.3.3 + `withHostOriginator`; HTTP 200; merchant +1,000 sats exactly; guardian approved the declared purchase; 857 ms from request to answer; local demo merchant, real mainnet payment. Paid from the agent's existing balance, **not** from the vault withdrawal; mined in block 973334 |
 | **Vault withdrawal for Base intent 2** | [`ae35d469…dcf5`](https://whatsonchain.com/tx/ae35d46939d7fd7f79ff32aab1d6bdc906d28a18da93cce3950c013ccc91dcf5) | watcher re-read intent 2 at Base block 52281922 and APPROVED; spends vault UTXO `c1f97102…:0` (5,000) with agent + watcher signatures: 2,796 to the Agent Float, 2,162 change back to the same vault script, `OP_RETURN "TGv1 84532 0x8e38… 5 2"`; fee 42; vault outflow 2,838 ≤ maxSats 2,896; 1,045 ms from intent read to broadcast; the float took it in (agent balance 20,707); mined in block 973334. A second `withdraw --intent 2` was refused: "journal already holds this intent as broadcast" |
 | **`settle(2, 0xae35d469…dcf5)` on Base Sepolia** | [`0xc1a8c9bb…e5b8`](https://sepolia.basescan.org/tx/0xc1a8c9bb236698e05a51293e337369ab9ea6284b97d863e0a66257c2844de5b8) | sent by the vault-5 agent `0x0310dCF1…4cf0`, block 52283537, status success; `Settled(intentId 2, bsvTxid 0xae35d469…dcf5)`. Independently re-read by the BSV side: `getIntent(2).settled = true`, `bsvTxid` equals the BSV withdrawal txid. A recorded claim by the agent, not a cross-chain proof |
+| **Vault withdrawal for Base intent 4** (float wallet) | [`452a42b4…a31f`](https://whatsonchain.com/tx/452a42b4bf518451c9c4f48a270af892b5b2adb74b64ac8a76bbd5319285a31f) | intent 4 (`maxSats` 2,902) re-read at Base block 52298837 and APPROVED; spends the vault change `ae35d469…:1` (2,162): 2,062 to the dedicated float wallet, 58 back to the same vault script, receipt `TGv1 84532 … 5 4`; fee 42; outflow 2,104 ≤ 2,902. (Intent 3 was created on vault 8, the API3 runner, and was ignored.) |
+| **Agent pays HTTP 402 with the withdrawn sats** | [`54082a71…b320`](https://whatsonchain.com/tx/54082a714816ce2e9b2a67c23c5e04da67c2f93b8df30136b7126b715802b320) | DeepSeek decided BUY ("the offer directly matches the task topic and its 1000-sat price is within both the float balance and the per-payment cap"); guardian (rules) approved; the only input is `452a42b4…:0`, the float output of the intent-4 withdrawal; 1,000 sats to the merchant, 1,039 change to the float, fee 23; HTTP 200 in 1,002 ms |
 | Atomic swap-and-pay | [`ee2a3896…8e8c`](https://whatsonchain.com/tx/ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c) | rail baseline, earlier on 30 Oct: 1,000 sats to the maker, 1 pUSD to the merchant, fee 66, one tx. Price was a fixed 1,000 sats; the signed-rate `executeSwap` wrapper is **offline only** |
 
 ## Gate (1), exact mainnet script, offline: PASS 12/12
@@ -50,7 +52,7 @@ insufficient sats.
 - The paid API is a local demo merchant serving a deterministic note, not external data.
 - Watcher and agent ran in one CLI process with separate keys (see SAFETY_AND_TRUST.md).
 - Blocks: `cdcbf706`, `db5ca41c`, `c1f97102` in 973333; `43c8255e`, `ae35d469` in 973334 (checked 18:01 Berlin).
-- The HTTP 402 payment `43c8255e` was made before the withdrawal, from the agent's existing balance; the withdrawn sats are now in the same agent wallet.
+- The first HTTP 402 payment `43c8255e` came from the agent's existing balance. The second, `54082a71`, spends the intent-4 withdrawal output directly (dedicated float wallet).
 - "One transaction instead of two" for swap-and-pay is a structural property; no fee saving is claimed.
 
 ## Final report (spec §11), 30 Oct 2026, 18:05 Berlin
@@ -61,6 +63,7 @@ insufficient sats.
 - Read-only API3 adapter for vault 5 (chain check, tip − 1 read, judge/retired vaults excluded).
 - Watcher policy on the real transaction bytes, journal with fsync + rename + checksum.
 - Live loop: signed price → intent 2 on Base → co-signed vault withdrawal on BSV mainnet → `settle(2)` on Base, verified from both sides.
+- Live loop with the agent's model: intent 4 → withdrawal `452a42b4` into the float wallet → DeepSeek BUY → guardian → HTTP 402 `54082a71`, whose only input is the withdrawal's float output.
 - Sats HTTP 402 payment on mainnet; `executeSwap` safety wrapper with negative tests.
 - INTEGRATION, SAFETY_AND_TRUST, DEMO_RUNBOOK, RESULTS, SUBMISSION docs.
 
@@ -68,7 +71,6 @@ insufficient sats.
 - The signed-rate swap (`executeSwap`) has not run on mainnet; the mainnet swap `ee2a3896` used a fixed price.
 - The watcher does not run as a separate process or host.
 - No automatic intent subscription service: `tg withdraw --intent N` is one repeatable CLI cycle.
-- The 402 payment was not paid from the withdrawn sats specifically (same wallet, earlier coins).
 - Demo video and organizer confirmation of the pre-event code rules.
 
 **TESTED**: 54/54 offline tests, 2/2 live Base reads, `tsc` clean, gate (1) 12/12 on the exact mainnet script.

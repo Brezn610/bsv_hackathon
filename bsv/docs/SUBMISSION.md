@@ -36,6 +36,7 @@ The invariant: an API3 intent alone cannot move money, and no BSV transaction ca
 | Watcher re-reads intent 2, checks the raw transaction and co-signs. 2,796 sats go to the Agent Float, 2,162 return to the vault, OP_RETURN receipt, fee 42 | BSV mainnet | [ae35d469…](https://whatsonchain.com/tx/ae35d46939d7fd7f79ff32aab1d6bdc906d28a18da93cce3950c013ccc91dcf5) |
 | Agent records the BSV txid with `settle(2, txid)`. Read back: `settled = true` | Base Sepolia | [0xc1a8c9bb…](https://sepolia.basescan.org/tx/0xc1a8c9bb236698e05a51293e337369ab9ea6284b97d863e0a66257c2844de5b8) |
 | Agent pays an HTTP 402 API (1,000 sats, HTTP 200 in 857 ms) | BSV mainnet | [43c8255e…](https://whatsonchain.com/tx/43c8255e63ab363f9d3641a601e74aee5ea95b5d53b747fcc86c40d71e959b77) |
+| Intent 4 → withdrawal into the dedicated float wallet (2,062 sats) → agent's model (DeepSeek) decides BUY → guardian → HTTP 402 that spends exactly that withdrawal output | Base Sepolia + BSV mainnet | [`452a42b4…a31f`](https://whatsonchain.com/tx/452a42b4bf518451c9c4f48a270af892b5b2adb74b64ac8a76bbd5319285a31f) → [`54082a71…b320`](https://whatsonchain.com/tx/54082a714816ce2e9b2a67c23c5e04da67c2f93b8df30136b7126b715802b320) |
 | Atomic swap-and-pay: 1,000 sats to the maker and 1 pUSD to the merchant, in one tx | BSV mainnet | [ee2a3896…](https://whatsonchain.com/tx/ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c) |
 
 A second withdrawal for intent 2 was refused live: `journal already holds this intent as broadcast`.
@@ -44,7 +45,8 @@ A second withdrawal for intent 2 was refused live: `journal already holds this i
 
 - **BSV:** `@bsv/sdk` 3.2.1 (custom vault script, `Spend` interpreter, BEEF/SPV), `@bsv/wallet-toolbox` 2.14.9 (server wallets, `WalletPermissionsManager` guardian), BSV Desktop as the owner's BRC-100 wallet, BRC-42 derived keys, `@bsv/402-pay` 0.3.3 (BRC-121), `@bsv/btms` 1.2.6 + public `tm_btms` overlay, `SIGHASH_SINGLE | ANYONECANPAY` maker offers, Arcade/ARC broadcast, WhatsOnChain.
 - **API3 / EVM:** `TreasuryGuard.sol` on Base Sepolia (verified), API3 AirnodeHub signed data (CoinPaprika BSV/USD, TwitterAPI.io), x402 payments in aUSD, Foundry, viem.
-- **Tests:** 54 offline tests on the BSV side (mock chain with real keys and signatures), plus live read-only checks against the deployed contract. The API3 side has 122 forge tests and 24 TS tests.
+- **Agent model:** the purchase decision is made by an LLM: Claude (Anthropic SDK, structured output) or DeepSeek (JSON mode), under a deterministic guardian.
+- **Tests:** 58 offline tests on the BSV side (mock chain with real keys and signatures), plus live read-only checks against the deployed contract. The API3 side has 122 forge tests and 24 TS tests.
 
 ## Security and safety gates
 
