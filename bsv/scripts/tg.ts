@@ -5,8 +5,9 @@
 //   npm run tg -- rebind-float           new binding version: same vault, Agent Float = the float wallet
 //   npm run tg -- init                   derive agent / watcher / owner (BSV Desktop) vault keys, write data/vault-binding.json
 //   npm run tg -- gate                   safety gate (1), offline: the EXACT mainnet script through the interpreter and the mock chain
-//   npm run tg -- fund --sats N          CONFIRM_MAINNET=1; owner (BSV Desktop) funds the vault, N <= 5000
+//   npm run tg -- fund --sats N          CONFIRM_MAINNET=1; owner (BSV Desktop) funds the vault: N <= 5000 until the owner exit is proven, then <= 50000
 //   npm run tg -- exit                   CONFIRM_MAINNET=1; owner-only exit of every live vault UTXO, through BSV Desktop
+//   npm run tg -- watcher-serve          run the watcher as its own process on 127.0.0.1:4810 (--port, --init-journal)
 //   npm run tg -- status                 binding, vault UTXOs (checked on chain), journal
 //   npm run tg -- withdraw --intent N    CONFIRM_MAINNET=1; watcher checks intent N on Base and cosigns; agent broadcasts and takes it in
 //   npm run tg -- buy                    CONFIRM_MAINNET=1; Agent Float buys one paid answer over HTTP 402 (local merchant)
@@ -15,7 +16,7 @@
 // script, and nothing on mainnet without CONFIRM_MAINNET=1. Keys are never printed.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { Beef, P2PKH, PrivateKey, ProtoWallet, Script, Transaction, Utils, WalletClient } from '@bsv/sdk'
+import { Beef, Hash, P2PKH, PrivateKey, ProtoWallet, Script, Transaction, Utils, WalletClient } from '@bsv/sdk'
 import { decidePurchase, type PaidOffer } from '../src/agent/brain'
 import { buyResearch } from '../src/agent/buyResearch'
 import { floatLockingScript, internalizeWithdrawal } from '../src/agent/float'
@@ -42,13 +43,18 @@ import {
   type VaultSigner
 } from '../src/vault/template'
 import { evaluateWithdrawal, type VaultBinding } from '../src/watcher/policy'
+import { lockJournal } from '../src/watcher/lock'
+import { DEFAULT_WATCHER_URL, RemoteWatcher } from '../src/watcher/remoteWatcher'
+import { startWatcherServer } from '../src/watcher/server'
 import { Watcher } from '../src/watcher/service'
 import { WatcherJournal } from '../src/watcher/state'
 import { bindOriginator, createGuardedWallet } from '../src/wallet/agentWallet'
 
 const OWNER_ORIGINATOR = process.env.OWNER_ORIGINATOR ?? 'owner.treasuryguard.dev'
 const KEY_ID = process.env.VAULT_KEY_ID ?? 'vault-5-v1'
-const MAX_FUND_SATS = 5_000
+/** Until the owner exit is proven on this script, only a tiny deposit; afterwards still small (50,000 sats ≈ $0.009). */
+const MAX_EXIT_PROOF_SATS = 5_000
+const MAX_FUND_SATS = 50_000
 const BINDING_FILE = path.join(STATE_DIR, 'vault-binding.json')
 const UTXO_FILE = path.join(STATE_DIR, 'vault-utxos.json')
 const GATE_FILE = path.join(STATE_DIR, 'gate1.json')
@@ -343,11 +349,12 @@ function requireGate1(script: string): void {
 
 async function fund(): Promise<void> {
   const sats = Number(arg('sats'))
-  if (!Number.isSafeInteger(sats) || sats <= 0 || sats > MAX_FUND_SATS) throw new Error(`--sats must be 1..${MAX_FUND_SATS}`)
   const { stored } = loadStoredBinding()
   requireGate1(stored.vaultLockingScript)
   const utxos = loadUtxos()
   const exitProven = existsSync(path.join(EVIDENCE_DIR, 'owner-exit.json'))
+  const cap = exitProven ? MAX_FUND_SATS : MAX_EXIT_PROOF_SATS
+  if (!Number.isSafeInteger(sats) || sats <= 0 || sats > cap) throw new Error(`--sats must be 1..${cap}${exitProven ? '' : ' until the owner exit is proven'}`)
   const purpose: StoredUtxo['purpose'] = exitProven ? 'spend' : 'exit-proof'
   if (purpose === 'exit-proof' && utxos.some(u => u.status === 'live')) throw new Error('Exit-proof funding is already live: run the owner exit first')
   requireMainnetConfirm(`Funding the vault with ${sats} sats`)
@@ -430,15 +437,32 @@ async function withdraw(): Promise<void> {
   requireMainnetConfirm(`Withdrawing for intent ${intentId}`)
   const reader = createIntentReader({ binding: loadBinding(), rpcUrl: process.env.BASE_SEPOLIA_RPC })
   const agent = await agentWallet()
+  const agentSigner: VaultSigner = { wallet: agent.wallet, keyID: KEY_ID }
+  // By default the watcher is its own process (tg watcher-serve) and this process never loads its
+  // key. TG_INPROCESS_WATCHER=1 keeps the earlier in-process path as a fallback.
+  const inProcess = process.env.TG_INPROCESS_WATCHER === '1'
+  const lock = inProcess ? lockJournal(JOURNAL_FILE) : undefined
   try {
-    const watcher = new Watcher({
-      binding,
-      reader,
-      journal: new WatcherJournal(JOURNAL_FILE),
-      signer: watcherSigner(),
-      // Independent check: each recorded vault UTXO must be unspent on chain right now.
-      unspentVaultUtxos: async () => await unspentByScript(stored.vaultLockingScript)
-    })
+    let watcher: Pick<Watcher, 'cosign' | 'recordBroadcast'>
+    if (inProcess) {
+      watcher = new Watcher({
+        binding,
+        reader,
+        journal: new WatcherJournal(JOURNAL_FILE),
+        signer: watcherSigner(),
+        // Independent check: each recorded vault UTXO must be unspent on chain right now.
+        unspentVaultUtxos: async () => await unspentByScript(stored.vaultLockingScript)
+      })
+      console.log('Watcher: in-process (TG_INPROCESS_WATCHER=1)')
+    } else {
+      const remote = new RemoteWatcher(process.env.TG_WATCHER_URL ?? DEFAULT_WATCHER_URL, agentSigner)
+      const health = await remote.health().catch((err: Error) => {
+        throw new Error(`Watcher server not reachable (${err.message}). Start it with: npm run tg -- watcher-serve`)
+      })
+      if (health.binding !== stored.version) throw new Error(`Watcher server runs binding ${String(health.binding)}, this CLI has ${stored.version}`)
+      watcher = remote
+      console.log(`Watcher: separate process at ${process.env.TG_WATCHER_URL ?? DEFAULT_WATCHER_URL} (binding ${String(health.binding)})`)
+    }
     const t0 = Date.now()
     const intent = await reader.readIntent(intentId)
     console.log(`Intent ${intentId}: vault ${intent.vaultId}, kind ${intent.kind}, maxSats ${intent.maxSats}, expires ${new Date(Number(intent.expiry) * 1000).toISOString()}, read at block ${intent.readAtBlock}`)
@@ -446,7 +470,7 @@ async function withdraw(): Promise<void> {
     for (const u of live) ancestry.mergeBeef(Utils.toArray(u.beef, 'hex'))
     const result = await withdrawForIntent({
       intent,
-      agent: { wallet: agent.wallet, keyID: KEY_ID },
+      agent: agentSigner,
       watcher,
       utxos: live.map(toVaultUtxo),
       vaultLockingScript: stored.vaultLockingScript,
@@ -495,8 +519,64 @@ async function withdraw(): Promise<void> {
     console.log(`  ${result.amountSats} sats to the Agent Float, fee ${result.fee}; float wallet balance ${floatBalance}`)
     console.log(`  For the API3 owner: settle(${intentId}, ${receipt.settleArg})`)
   } finally {
+    lock?.release()
     await agent.close()
   }
+}
+
+/**
+ * The watcher as its own process. Refuses to start unless: the journal exists (or --init-journal),
+ * this process alone owns it, the binding matches api3/deployments.json, the watcher key matches
+ * the vault script, Base Sepolia answers on the right chain, and the clock is within 20 s of Base.
+ */
+async function watcherServe(): Promise<void> {
+  const { stored, binding } = loadStoredBinding()
+  if (!existsSync(JOURNAL_FILE) && !process.argv.includes('--init-journal')) {
+    throw new Error(`No watcher journal at ${JOURNAL_FILE}. Restore it from a backup, or pass --init-journal for a new, empty one`)
+  }
+  const deployed = loadBinding()
+  if (deployed.chainId !== binding.base.chainId || deployed.contract.toLowerCase() !== binding.base.contract.toLowerCase() || deployed.vaultId !== binding.base.vaultId) {
+    throw new Error('vault-binding.json does not match api3/deployments.json (chain, contract or vault)')
+  }
+  const missing = deployed.excludedVaultIds.filter(v => !binding.base.excludedVaultIds.includes(v))
+  if (missing.length > 0) throw new Error(`The binding does not exclude vault(s) ${missing.join(', ')} named in deployments.json; run tg rebind-float`)
+  const signer = watcherSigner()
+  if ((await vaultPublicKey(signer)) !== stored.keys.watcher) throw new Error('The watcher key in .env.watcher does not match the vault script')
+  const reader = createIntentReader({ binding: deployed, rpcUrl: process.env.BASE_SEPOLIA_RPC })
+  await reader.checkChain()
+  const skew = Math.floor(Date.now() / 1000) - (await reader.latestBlockTime())
+  if (Math.abs(skew) > 20) throw new Error(`The local clock is ${skew} s off the latest Base block; fix the clock first`)
+  const lock = lockJournal(JOURNAL_FILE)
+  const watcher = new Watcher({
+    binding,
+    reader,
+    journal: new WatcherJournal(JOURNAL_FILE),
+    signer,
+    unspentVaultUtxos: async () => await unspentByScript(stored.vaultLockingScript)
+  })
+  const running = await startWatcherServer({
+    watcher,
+    agentKey: stored.keys.agent,
+    info: {
+      binding: stored.version,
+      bsvNetwork: 'main',
+      base: { chainId: binding.base.chainId, contract: binding.base.contract, vaultId: binding.base.vaultId.toString(), excludedVaultIds: binding.base.excludedVaultIds.map(String) },
+      vaultScriptSha256: Utils.toHex(Hash.sha256(Utils.toArray(stored.vaultLockingScript, 'hex'))),
+      watcherKey: stored.keys.watcher,
+      agentKey: stored.keys.agent,
+      clockSkewSec: skew
+    },
+    decisionsFile: path.join(STATE_DIR, 'watcher-decisions.jsonl'),
+    port: Number(arg('port') ?? 4810)
+  })
+  console.log(`Watcher listening on ${running.url} (binding ${stored.version}, clock skew ${skew} s). Ctrl+C to stop.`)
+  const stop = async (): Promise<void> => {
+    await running.close()
+    lock.release()
+    process.exit(0)
+  }
+  process.once('SIGINT', () => void stop())
+  process.once('SIGTERM', () => void stop())
 }
 
 /** Txids of the vault withdrawals recorded in the evidence folder. */
@@ -588,7 +668,7 @@ async function buy(): Promise<void> {
   }
 }
 
-const commands: Record<string, () => Promise<void>> = { 'watcher-key': watcherKey, 'float-key': floatKey, 'rebind-float': rebindFloat, init, gate, fund, exit, status, withdraw, buy }
+const commands: Record<string, () => Promise<void>> = { 'watcher-key': watcherKey, 'float-key': floatKey, 'rebind-float': rebindFloat, 'watcher-serve': watcherServe, init, gate, fund, exit, status, withdraw, buy }
 
 const command = commands[process.argv[2] ?? '']
 if (command === undefined) {

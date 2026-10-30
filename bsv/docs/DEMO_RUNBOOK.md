@@ -19,7 +19,9 @@ API3 agent buys a fresh signed BSV/USD price and calls `submitPrice(5, price, us
 ## 2. BSV mainnet moves the money (BSV side)
 
 ```sh
-npm run tg -- status                                   # vault UTXO unspent on chain
+npm run tg -- watcher-serve                            # terminal 1: the watcher, its own process on 127.0.0.1:4810
+curl -s http://127.0.0.1:4810/health                   # binding, keys (public), excluded vaults, clock skew
+npm run tg -- status                                   # terminal 2: vault UTXO unspent on chain
 CONFIRM_MAINNET=1 npm run tg -- withdraw --intent N    # watcher re-reads intent N, checks the tx, cosigns; broadcast; float takes it in
 ```
 
@@ -35,6 +37,8 @@ CONFIRM_MAINNET=1 npm run tg -- buy     # local paid API; real BSV mainnet payme
 ## 4. Refusals (show live, no money)
 
 - `withdraw --intent N` again → `Watcher refused: journal already holds this intent as broadcast`.
+  Over HTTP the watcher answers 409 for that, 422 for a policy refusal (e.g. intent 3, vault 8), 403 for a forged agent
+  signature; `curl -s http://127.0.0.1:4810/decisions` lists every decision.
 - `npx tsx --test test/watcher-policy.test.ts` → overspend, wrong recipient, change leakage,
   expired, judge vaults 6/7, SWAP: all DENY before any signature.
 

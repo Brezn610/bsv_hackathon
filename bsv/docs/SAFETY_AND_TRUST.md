@@ -22,7 +22,7 @@ unlock (normal): <watcherSig> <agentSig> OP_1      unlock (owner): <ownerSig> OP
 | --- | --- |
 | (1) Offline, exact mainnet script, real key holders: interpreter + mock chain | **PASS**, 12/12, 30 Oct 17:18 Berlin (`docs/evidence/gate1.json`) |
 | (2a) Fund ≤ 5,000 sats, owner-only exit first | **PASS**: 3,000 sats funded, then exited by BSV Desktop alone (see RESULTS.md) |
-| (2b) Fund once more for the agent+watcher demo | funded 5,000 sats after (2a) |
+| (2b) Fund once more for the agent+watcher demo | funded 5,000 sats after (2a). Per-deposit cap after the exit proof: 50,000 sats (≈ $0.009), raised with the owner's approval on 30 Oct |
 
 `tg` enforces the order: `fund` refuses without a passing gate (1) for the same script, the first
 deposit is marked `exit-proof`, a second deposit needs the owner-exit evidence, and `withdraw`
@@ -41,10 +41,21 @@ needs it too. Every mainnet step needs `CONFIRM_MAINNET=1`, and each one was app
   and either re-broadcasts that exact transaction or leaves the intent unused. The owner can
   always exit.
 - The watcher can block (refuse to sign) but cannot take funds: it cannot spend without the agent.
-- **Disclosed limitation:** in the demo the watcher runs inside the same `tg` CLI process as the
-  agent. Its key lives in a separate file the agent's environment never loads, and the agent only
-  receives signatures for transactions the policy approved. Running it as its own process
-  or host is the production step.
+- **Separate process (Option B).** `tg watcher-serve` runs the watcher as its own process, an HTTP
+  server on 127.0.0.1 that alone loads `.env.watcher` and owns the journal (an exclusive lock file;
+  a second watcher refuses to start). `tg withdraw` talks to it through `RemoteWatcher` and never
+  loads the watcher key. Before co-signing, the server checks the agent's signature on every input,
+  so no other local process can use up an intent; it answers 409 for an intent already used, 422
+  for a policy refusal, 403 for a missing or forged agent signature. It refuses to start when the
+  journal is missing (unless `--init-journal`), the binding differs from `api3/deployments.json`,
+  the watcher key does not match the vault script, Base is unreachable or on the wrong chain, or
+  the clock is more than 20 s off the latest Base block. `GET /health` and `GET /decisions` are
+  public and carry no keys or signatures. The signing path (`policy`, `service`, `state`,
+  `flow/withdraw`) is unchanged.
+- **What ran where:** the mainnet withdrawals for intents 2 and 4 ran with the earlier in-process
+  watcher (same CLI process, key in its own file). The separate process is tested offline
+  (`test/watcher-server.test.ts`) and dry-run against Base; `TG_INPROCESS_WATCHER=1` keeps the
+  in-process path as a fallback. Both still run on one machine: a separate host is the production step.
 
 ## Spend firewall vs vault budget
 

@@ -51,7 +51,7 @@ insufficient sats.
 - Mocked: the SPEND intent in `integration-mock.test.ts` and `watcher-policy.test.ts` (shape and
   values as `getIntent` returns them); the swap's signed rate ($20.00 fixture) in `execute-swap.test.ts`.
 - The paid API is a local demo merchant serving a deterministic note, not external data.
-- Watcher and agent ran in one CLI process with separate keys (see SAFETY_AND_TRUST.md).
+- The mainnet withdrawals for intents 2 and 4 ran with the in-process watcher (same CLI process, separate key file). Since then the watcher runs as its own process (`tg watcher-serve`); that path is tested offline and dry-run against Base, not yet used for a mainnet withdrawal.
 - Blocks: `cdcbf706`, `db5ca41c`, `c1f97102` in 973333; `43c8255e`, `ae35d469` in 973334 (checked 18:01 Berlin); `452a42b4`, `54082a71` in 973339 (checked 18:55 Berlin).
 - The first HTTP 402 payment `43c8255e` came from the agent's existing balance. The second, `54082a71`, spends the intent-4 withdrawal output directly (dedicated float wallet).
 - "One transaction instead of two" for swap-and-pay is a structural property; no fee saving is claimed.
@@ -70,7 +70,7 @@ insufficient sats.
 
 **NOT_COMPLETED**
 - The signed-rate swap (`executeSwap`) has not run on mainnet; the mainnet swap `ee2a3896` used a fixed price.
-- The watcher does not run as a separate process or host.
+- The separate watcher process has not yet carried a mainnet withdrawal; it runs on the same machine, not a separate host.
 - No automatic intent subscription service: `tg withdraw --intent N` is one repeatable CLI cycle.
 - Demo video and organizer confirmation of the pre-event code rules.
 

@@ -71,7 +71,7 @@ The mainnet runbook (the `tg` CLI) is in [`bsv/docs/DEMO_RUNBOOK.md`](bsv/docs/D
 - The watcher can block but cannot take funds. If it goes offline, the owner exits alone (proven on mainnet).
 - API3 signatures prove origin, integrity and time, not economic correctness.
 - pUSD is an unbacked demo token, not a stablecoin. There is no CDP, liquidation, peg or bridge.
-- In the demo, watcher and agent run in one process with separate keys. The signed-rate swap wrapper is tested offline only.
+- The watcher runs as its own local process with its own key; the mainnet runs of intents 2 and 4 used the earlier in-process mode, and a separate host is the production step. The signed-rate swap wrapper is tested offline only.
 
 ## Repository layout
 

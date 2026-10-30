@@ -30,6 +30,8 @@ export interface IntentReader {
   binding: Api3Binding
   checkChain: () => Promise<void>
   latestBlock: () => Promise<bigint>
+  /** Unix seconds of the latest block: the watcher compares it with its own clock. */
+  latestBlockTime: () => Promise<number>
   readIntent: (intentId: bigint) => Promise<ConfirmedIntent>
   vaultConfig: (vaultId: bigint) => Promise<Record<string, unknown>>
   remainingUsdToday: (vaultId: bigint) => Promise<bigint>
@@ -55,6 +57,7 @@ export function createIntentReader(opts: { binding: Api3Binding; rpcUrl?: string
     binding,
     checkChain,
     latestBlock: async () => await client.getBlockNumber(),
+    latestBlockTime: async () => Number((await client.getBlock({ blockTag: 'latest' })).timestamp),
     async readIntent(intentId) {
       await checkChain()
       const latestBlock = await client.getBlockNumber()

@@ -60,7 +60,7 @@ A second withdrawal for intent 2 was refused live: `journal already holds this i
 - The watcher can block but cannot take funds; if it goes offline, the owner exits alone (proven on mainnet).
 - API3 signatures prove origin, integrity and time, not economic correctness.
 - pUSD is an unbacked demo token, not a stablecoin. There is no CDP, liquidation, peg or bridge.
-- In the demo, watcher and agent run in one process with separate keys; production would separate them.
+- The watcher runs as its own local process (HTTP on 127.0.0.1, its own key and journal); the mainnet runs of intents 2 and 4 used the earlier in-process mode. A separate host is the production step.
 - The signed-rate version of the swap wrapper (`executeSwap`) is tested offline; the mainnet swap used a fixed price.
 - Part of the swap rail (BTMS issue/split, maker offer, fill, guardian) was prototyped before the event in [Brezn610/BSV_pet](https://github.com/Brezn610/BSV_pet). Provenance is in `bsv/README.md`.
 
