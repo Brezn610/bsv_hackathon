@@ -42,11 +42,14 @@ creates a SPEND intent (`submitPrice(5, …, usd(0.001))`). The BSV side runs wi
 ```sh
 # Terminal A: watcher (as above)        Terminal B: the BSV agent, unattended
 CONFIRM_MAINNET=1 npm run tg -- auto --buy      # new vault-5 SPEND intents → withdraw over the watcher → HTTP 402 buy
+# paying an external 402 service instead of the local demo merchant:
+CONFIRM_MAINNET=1 npm run tg -- auto --buy --url <analyst URL> --price <sats> --description "<offer text>" [--item <name>]
 ```
 
 - Only intents created after it starts (or from `--from-block B`), so a rehearsal never leaks into the
   demo; SPEND only (SWAP intents are
-  logged as `skipped:swap`: the watcher never co-signs them). At most `--max-intents` per run (default 5).
+  logged as `skipped:swap`: the watcher never co-signs them). At most `--max-intents` per run (default 5) and `--max-sats` of vault outflow per run (default
+  15,000, counted at each intent's `maxSats` before it starts).
 - Each intent goes through exactly the `tg withdraw` path (watcher checks, journal, pending file).
   It is marked `started` before and never started twice, also across restarts.
 - Stops on the first failure that is not a clean refusal before signing; Base/WhatsOnChain hiccups

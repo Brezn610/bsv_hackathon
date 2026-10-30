@@ -589,9 +589,14 @@ async function auto(): Promise<void> {
   if (process.env.TG_INPROCESS_WATCHER === '1') throw new Error('tg auto only runs against the separate watcher (tg watcher-serve); unset TG_INPROCESS_WATCHER')
   const { binding } = loadStoredBinding()
   const vaultId = binding.base.vaultId
+  const withBuy = process.argv.includes('--buy')
   const maxIntents = Number(arg('max-intents') ?? 5)
   if (!Number.isSafeInteger(maxIntents) || maxIntents <= 0) throw new Error('--max-intents must be a positive integer')
-  const withBuy = process.argv.includes('--buy')
+  // Most sats this run may move out of the vault, counted at each intent's maxSats before it is started.
+  const maxSats = Number(arg('max-sats') ?? 15_000)
+  if (!Number.isSafeInteger(maxSats) || maxSats <= 0) throw new Error('--max-sats must be a positive integer')
+  // --buy passes --url/--price/--description/--item/--task through to buy(), which reads the same argv.
+  if (withBuy && arg('url') !== undefined && arg('description') === undefined) throw new Error('--description is required with --url')
   const reader = createIntentReader({ binding: loadBinding(), rpcUrl: process.env.BASE_SEPOLIA_RPC })
   const state: AutoState = existsSync(AUTO_STATE_FILE) ? readJson<AutoState>(AUTO_STATE_FILE) : { nextBlock: '0', handled: {} }
   // Only intents created from now on, unless --from-block says otherwise: never old ones from a rehearsal.
@@ -616,8 +621,9 @@ async function auto(): Promise<void> {
     console.log('[auto] stopping after the current step')
   })
   let withdrawn = 0
+  let spentSats = 0
   const attempts = new Map<string, number>()
-  log({ event: 'start', vaultId: vaultId.toString(), fromBlock: state.nextBlock, buy: withBuy, maxIntents })
+  log({ event: 'start', vaultId: vaultId.toString(), fromBlock: state.nextBlock, buy: withBuy, buyUrl: arg('url') ?? 'local demo merchant', maxIntents, maxSats })
 
   while (!stopping) {
     try {
@@ -636,6 +642,9 @@ async function auto(): Promise<void> {
           continue
         }
         if (withdrawn >= maxIntents) throw new Error(`--max-intents ${maxIntents} reached; intent ${id} left for a human`)
+        // An RPC error here is a tick error: nothing was started, the window is read again.
+        const intent = await reader.readIntent(id)
+        if (spentSats + Number(intent.maxSats) > maxSats) throw new Error(`--max-sats ${maxSats} would be exceeded (moved ${spentSats}, intent ${id} allows ${intent.maxSats}); left for a human`)
         log({ event: 'withdraw', intentId: id.toString(), block: ev.blockNumber.toString() })
         mark(id, { status: 'started' })
         try {
@@ -657,7 +666,9 @@ async function auto(): Promise<void> {
         }
         withdrawn++
         const evidence = path.join(EVIDENCE_DIR, `withdrawal-intent-${id}.json`)
-        const txid = existsSync(evidence) ? readJson<{ bsvTxid: string }>(evidence).bsvTxid : undefined
+        const receipt = existsSync(evidence) ? readJson<{ bsvTxid: string; vaultOutflowSats?: number }>(evidence) : undefined
+        const txid = receipt?.bsvTxid
+        spentSats += receipt?.vaultOutflowSats ?? Number(intent.maxSats)
         const unrecorded = existsSync(path.join(STATE_DIR, `pending-withdrawal-${id}.json`))
         mark(id, { status: unrecorded ? 'done-unrecorded' : 'done', txid })
         log({ event: unrecorded ? 'withdrawn-unrecorded' : 'withdrawn', intentId: id.toString(), txid })
@@ -676,7 +687,7 @@ async function auto(): Promise<void> {
     } catch (err) {
       const message = (err as Error).message
       // A failed intent or the cap needs a human; an RPC hiccup while listing is retried next tick.
-      if (/^Intent \d+ failed|--max-intents/.test(message)) {
+      if (/^Intent \d+ failed|--max-intents|--max-sats/.test(message)) {
         log({ event: 'halt', error: message })
         throw err
       }
