@@ -15,7 +15,7 @@
 //
 // Gate (2) is enforced here: no 'spend' funding before an owner exit has been proven on the same
 // script, and nothing on mainnet without CONFIRM_MAINNET=1. Keys are never printed.
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { Beef, Hash, P2PKH, PrivateKey, ProtoWallet, Script, Transaction, Utils, WalletClient } from '@bsv/sdk'
 import { decidePurchase, type PaidOffer } from '../src/agent/brain'
@@ -428,8 +428,8 @@ async function status(): Promise<void> {
   if (existsSync(JOURNAL_FILE)) console.log(readFileSync(JOURNAL_FILE, 'utf8'))
 }
 
-async function withdraw(): Promise<void> {
-  const intentId = BigInt(arg('intent') ?? NaN)
+async function withdraw(intentIdArg?: bigint): Promise<void> {
+  const intentId = intentIdArg ?? BigInt(arg('intent') ?? NaN)
   const { stored, binding } = loadStoredBinding()
   requireGate1(stored.vaultLockingScript)
   if (!existsSync(path.join(EVIDENCE_DIR, 'owner-exit.json'))) throw new Error('Gate (2): the owner exit has not been proven on mainnet yet')
@@ -561,6 +561,123 @@ async function withdraw(): Promise<void> {
     lock?.release()
     await agent.close()
   }
+}
+
+const AUTO_STATE_FILE = path.join(STATE_DIR, 'auto-state.json')
+const AUTO_LOG_FILE = path.join(STATE_DIR, 'auto-cycle.jsonl')
+const AUTO_POLL_MS = 10_000
+/** Failures that happened before anything was signed or sent, so the same intent may be tried again. */
+const AUTO_RETRYABLE = /independent verification failed|not reachable|fetch failed|ECONNREFUSED|ETIMEDOUT|does not exist at block/
+
+interface AutoState {
+  nextBlock: string
+  handled: Record<string, { status: 'started' | 'done' | 'done-unrecorded' | 'failed' | 'skipped:swap'; at: string; txid?: string; error?: string }>
+}
+
+/**
+ * Unattended BSV half of the cycle: every new SPEND intent of the guarded vault on Base is withdrawn
+ * through the separate watcher (and, with --buy, the agent then buys over HTTP 402). Nothing here
+ * decides or signs on its own: each intent goes through exactly the `tg withdraw` path, so the
+ * watcher's checks, its journal (one transaction per intent) and the pending-withdrawal guard all
+ * apply. An intent is marked 'started' before its withdraw and is never started again; the first
+ * failure that is not a clean pre-signing refusal stops the loop for a human.
+ */
+async function auto(): Promise<void> {
+  requireMainnetConfirm('The automatic withdrawal loop')
+  if (process.env.TG_INPROCESS_WATCHER === '1') throw new Error('tg auto only runs against the separate watcher (tg watcher-serve); unset TG_INPROCESS_WATCHER')
+  const { binding } = loadStoredBinding()
+  const vaultId = binding.base.vaultId
+  const maxIntents = Number(arg('max-intents') ?? 5)
+  const withBuy = process.argv.includes('--buy')
+  const reader = createIntentReader({ binding: loadBinding(), rpcUrl: process.env.BASE_SEPOLIA_RPC })
+  const state: AutoState = existsSync(AUTO_STATE_FILE) ? readJson<AutoState>(AUTO_STATE_FILE) : { nextBlock: '0', handled: {} }
+  const fromArg = arg('from-block')
+  if (fromArg !== undefined) state.nextBlock = BigInt(fromArg).toString()
+  else if (state.nextBlock === '0') state.nextBlock = (await reader.latestBlock()).toString()
+  const log = (entry: Record<string, unknown>): void => {
+    const line = { at: new Date().toISOString(), ...entry }
+    appendFileSync(AUTO_LOG_FILE, JSON.stringify(line) + '\n')
+    console.log(`[auto] ${JSON.stringify(line)}`)
+  }
+  const mark = (id: bigint, entry: Omit<AutoState['handled'][string], 'at'>): void => {
+    state.handled[id.toString()] = { ...entry, at: new Date().toISOString() }
+    writeJson(AUTO_STATE_FILE, state)
+  }
+  const stuck = Object.entries(state.handled).filter(([, h]) => h.status === 'started').map(([id]) => id)
+  if (stuck.length > 0) throw new Error(`Intent(s) ${stuck.join(', ')} were started and never finished (${AUTO_STATE_FILE}); check them by hand first`)
+
+  let stopping = false
+  process.once('SIGINT', () => {
+    stopping = true
+    console.log('[auto] stopping after the current step')
+  })
+  let withdrawn = Object.values(state.handled).filter(h => h.status === 'done' || h.status === 'done-unrecorded').length
+  const attempts = new Map<string, number>()
+  log({ event: 'start', vaultId: vaultId.toString(), fromBlock: state.nextBlock, buy: withBuy, maxIntents })
+
+  while (!stopping) {
+    try {
+      const to = (await reader.latestBlock()) - 1n // same one-block lag as readIntent
+      const from = BigInt(state.nextBlock)
+      let retryLater = false
+      for (const ev of from <= to ? await reader.intentEvents(from, to, vaultId) : []) {
+        const id = ev.intentId
+        if (stopping || state.handled[id.toString()] !== undefined) continue
+        if (ev.kind !== 0) {
+          log({ event: 'skip', intentId: id.toString(), reason: 'SWAP intent: the watcher never co-signs SWAP' })
+          mark(id, { status: 'skipped:swap' })
+          continue
+        }
+        if (withdrawn >= maxIntents) throw new Error(`--max-intents ${maxIntents} reached; intent ${id} left for a human`)
+        log({ event: 'withdraw', intentId: id.toString(), block: ev.blockNumber.toString() })
+        mark(id, { status: 'started' })
+        try {
+          await withdraw(id)
+        } catch (err) {
+          const message = (err as Error).message
+          const pending = existsSync(path.join(STATE_DIR, `pending-withdrawal-${id}.json`))
+          const tries = (attempts.get(id.toString()) ?? 0) + 1
+          attempts.set(id.toString(), tries)
+          if (!pending && tries < 3 && AUTO_RETRYABLE.test(message) && !/may still have signed/.test(message)) {
+            delete state.handled[id.toString()]
+            writeJson(AUTO_STATE_FILE, state)
+            log({ event: 'retry', intentId: id.toString(), attempt: tries, error: message })
+            retryLater = true
+            continue
+          }
+          mark(id, { status: 'failed', error: message })
+          throw new Error(`Intent ${id} failed: ${message}`)
+        }
+        withdrawn++
+        const evidence = path.join(EVIDENCE_DIR, `withdrawal-intent-${id}.json`)
+        const txid = existsSync(evidence) ? readJson<{ bsvTxid: string }>(evidence).bsvTxid : undefined
+        const unrecorded = existsSync(path.join(STATE_DIR, `pending-withdrawal-${id}.json`))
+        mark(id, { status: unrecorded ? 'done-unrecorded' : 'done', txid })
+        log({ event: unrecorded ? 'withdrawn-unrecorded' : 'withdrawn', intentId: id.toString(), txid })
+        process.exitCode = undefined
+        if (withBuy) {
+          await buy().then(
+            () => log({ event: 'bought', intentId: id.toString() }),
+            (err: Error) => log({ event: 'buy-failed', intentId: id.toString(), error: err.message })
+          )
+        }
+      }
+      if (!retryLater) {
+        state.nextBlock = (to + 1n > from ? to + 1n : from).toString()
+        writeJson(AUTO_STATE_FILE, state)
+      }
+    } catch (err) {
+      const message = (err as Error).message
+      // A failed intent or the cap needs a human; an RPC hiccup while listing is retried next tick.
+      if (/^Intent \d+ failed|--max-intents/.test(message)) {
+        log({ event: 'halt', error: message })
+        throw err
+      }
+      log({ event: 'tick-error', error: message })
+    }
+    await new Promise(r => setTimeout(r, AUTO_POLL_MS))
+  }
+  log({ event: 'stop' })
 }
 
 /**
@@ -717,7 +834,7 @@ async function buy(): Promise<void> {
   }
 }
 
-const commands: Record<string, () => Promise<void>> = { 'watcher-key': watcherKey, 'float-key': floatKey, 'rebind-float': rebindFloat, 'watcher-serve': watcherServe, init, gate, fund, exit, status, withdraw, buy }
+const commands: Record<string, () => Promise<void>> = { 'watcher-key': watcherKey, 'float-key': floatKey, 'rebind-float': rebindFloat, 'watcher-serve': watcherServe, init, gate, fund, exit, status, withdraw, buy, auto }
 
 const command = commands[process.argv[2] ?? '']
 if (command === undefined) {
