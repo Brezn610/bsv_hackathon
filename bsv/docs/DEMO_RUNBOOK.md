@@ -6,7 +6,7 @@ networking, fact 31). For mainnet steps: `export TG_ENV_FILE=…/rail/.env TG_DA
 ## 0. Offline proof (no money, ~10 s)
 
 ```sh
-npm test                    # 54 offline tests (2 live ones skipped)
+npm test                    # 64 offline tests (2 live ones skipped)
 LIVE_BASE=1 npx tsx --test test/api3-readonly.test.ts   # live reads of vault 5; intent #1 (vault 2) refused
 ```
 

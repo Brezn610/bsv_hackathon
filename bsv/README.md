@@ -31,13 +31,13 @@ Node.js ≥ 22. Offline tests spend nothing.
 ```sh
 cd bsv
 npm ci
-npm test                 # 58 offline tests pass (mock chain, real keys/signatures/BEEF); 2 live tests skipped
+npm test                 # 64 offline tests pass (mock chain, real keys/signatures/BEEF); 2 live tests skipped
 LIVE_BASE=1 npm test     # + read-only checks against the deployed contract on Base Sepolia
 npm run typecheck
 npm run sync:api3        # after an API3 interface change: re-copy the ABI (a test fails on drift)
 ```
 
-Tested versions (pinned): `@bsv/sdk` 3.2.1, `@bsv/wallet-toolbox` 2.14.9, `@bsv/overlay` 2.6.4,
+Tested versions (BSV stack pinned exactly; `@anthropic-ai/sdk` is `^1.3.0`): `@bsv/sdk` 3.2.1, `@bsv/wallet-toolbox` 2.14.9, `@bsv/overlay` 2.6.4,
 `@bsv/btms` 1.2.6, `@bsv/402-pay` 0.3.3, `viem` 2.57.3, `express` 5.3.0.
 
 | Test file | Covers |

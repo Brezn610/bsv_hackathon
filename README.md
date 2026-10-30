@@ -61,7 +61,7 @@ A second withdrawal for intent 2 was refused live (`journal already holds this i
 
 | Part | Where | Commands |
 | --- | --- | --- |
-| BSV side: vault, watcher, Agent Float, HTTP 402, swap-and-pay | [`bsv/`](bsv/README.md) | `cd bsv && npm ci && npm test && npm run typecheck` (58 offline tests), `LIVE_BASE=1 npm test` (adds live Base reads) |
+| BSV side: vault, watcher, Agent Float, HTTP 402, swap-and-pay | [`bsv/`](bsv/README.md) | `cd bsv && npm ci && npm test && npm run typecheck` (64 offline tests), `LIVE_BASE=1 npm test` (adds live Base reads) |
 | API3 side: contract, client, judge script | [`api3/`](api3/README.md) | `cd api3 && pnpm install && forge test && pnpm test`; live judge: `node --env-file=.env src/judge.ts --dry` |
 
 The mainnet runbook (the `tg` CLI) is in [`bsv/docs/DEMO_RUNBOOK.md`](bsv/docs/DEMO_RUNBOOK.md). The design and checks are in [`bsv/docs/INTEGRATION.md`](bsv/docs/INTEGRATION.md) and [`bsv/docs/SAFETY_AND_TRUST.md`](bsv/docs/SAFETY_AND_TRUST.md).

@@ -1,6 +1,6 @@
 # Results
 
-**End to end, live:** API3 signed price → SPEND intent on Base Sepolia → watcher checks and co-signs → BSV mainnet vault → Agent Float → the agent's model (DeepSeek) decides → guardian → HTTP 402 payment that spends exactly the withdrawn sats. Intent 2 also completed `settle` on Base. The owner-only exit is live on mainnet too.
+**End to end, live:** API3 signed price → SPEND intent on Base Sepolia → watcher checks and co-signs → BSV mainnet vault → Agent Float → the agent's model (DeepSeek) decides → guardian → HTTP 402 payment that spends exactly the withdrawn sats. Intents 2, 4 and 5 each completed `settle` on Base; intent 5 ran through the separate watcher process. The owner-only exit is live on mainnet too.
 
 Revision: see `git log -- bsv` (branch `feat/bsv-treasury-guard`), checked 2026-10-30, Europe/Berlin.
 Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock chain for offline tests.
@@ -41,7 +41,7 @@ mainnet. agent+watcher OK; agent-only, watcher-only, agent/watcher on the owner 
 the cosign branch: all fail; change goes back to the vault script; the policy approves; owner-only
 exit OK; mock chain accepts both the cosigned spend and the owner exit. See `gate1.json`.
 
-## Offline tests: 54/54 pass (`npm test`), plus 2 live Base reads that pass with `LIVE_BASE=1`
+## Offline tests: 64/64 pass (`npm test`), plus 2 live Base reads that pass with `LIVE_BASE=1`
 
 Negative proofs, all before the watcher signs: overspend (fee counted), wrong recipient, extra
 payee, change to agent, fee cap, expired and inside-margin, settled, SWAP, wrong chain, contract
@@ -70,27 +70,29 @@ insufficient sats.
 - Watcher policy on the real transaction bytes, journal with fsync + rename + checksum.
 - Live loop: signed price → intent 2 on Base → co-signed vault withdrawal on BSV mainnet → `settle(2)` on Base, verified from both sides.
 - Live loop with the agent's model: intent 4 → withdrawal `452a42b4` into the float wallet → DeepSeek BUY → guardian → HTTP 402 `54082a71`, whose only input is the withdrawal's float output → `settle(4)` on Base, verified from both sides.
+- Same loop through the separate watcher process (`tg watcher-serve`, HTTP): intent 5 → `85b74fb5` → HTTP 402 `6cf0ff26` → `settle(5)`; refusals over HTTP: 409 (intent 5 replayed), 422 (intent 3, vault 8).
 - Sats HTTP 402 payment on mainnet; `executeSwap` safety wrapper with negative tests.
 - INTEGRATION, SAFETY_AND_TRUST, DEMO_RUNBOOK, RESULTS, SUBMISSION docs.
 
 **NOT_COMPLETED**
 - The signed-rate swap (`executeSwap`) has not run on mainnet; the mainnet swap `ee2a3896` used a fixed price.
 - The separate watcher process runs on the same machine as the agent, not on a separate host.
-- No automatic intent subscription service: `tg withdraw --intent N` is one repeatable CLI cycle.
+- No automatic intent subscription service: `tg withdraw --intent N` and `tg buy` are one repeatable CLI cycle, and the API3 owner calls `settle` by hand.
+- Agent and watcher keys are on one machine run by one operator; the owner exit protects the owner, but the two spending keys are not yet held by independent parties.
 - Demo video and organizer confirmation of the pre-event code rules.
 
-**TESTED**: 54/54 offline tests, 2/2 live Base reads, `tsc` clean, gate (1) 12/12 on the exact mainnet script.
+**TESTED**: 64/64 offline tests, 2/2 live Base reads, `tsc` clean, gate (1) 12/12 on the exact mainnet script.
 
-**LIVE VERIFIED**: the eight transactions in the tables above, checked on WhatsOnChain and Basescan; `getIntent(2)` read back after `settle`.
+**LIVE VERIFIED**: every transaction in the tables above, checked on WhatsOnChain and Basescan; `getIntent(2)`, `getIntent(4)` and `getIntent(5)` read back after `settle`.
 
 **BLOCKERS**: none for the BSV side. PR #1 (API3) must merge before PR #2 is retargeted to `main`.
 
-**RISK**: one watcher (liveness only, the owner exit is proven); the vault still holds 2,162 sats (change output `ae35d469…:1`), recoverable by the owner with `tg exit`; local `bsv/data/` (vault UTXO BEEF, journal) is not in git and should be backed up.
+**RISK**: one watcher (liveness only, the owner exit is proven); the vault holds 24,216 sats (change output `85b74fb5…:1`, checked 30 Oct 21:00), recoverable by the owner with `tg exit`; local `bsv/data/` (vault UTXO BEEF, journal) is not in git and should be backed up.
 
 **NEXT ACTION**: merge PR #1 → retarget PR #2; record the video; submit with `docs/SUBMISSION.md`; optionally `tg exit` after judging.
 
 **FILES**: `bsv/src/{vault,watcher,api3,agent,flow,swap/executeSwap.ts,merchant/{paidApi,signedInvoice}.ts,chain/wocUtxos.ts,wallet/originator.ts}`, `bsv/scripts/tg.ts`, `bsv/test/*.test.ts`, `bsv/docs/*`.
 
-**COMMANDS**: `npm ci && npm test && npm run typecheck`; `LIVE_BASE=1 npm test`; `npm run tg -- watcher-key|init|gate|fund|exit|status|withdraw|buy`.
+**COMMANDS**: `npm ci && npm test && npm run typecheck`; `LIVE_BASE=1 npm test`; `npm run tg -- watcher-key|float-key|rebind-float|init|gate|fund|exit|status|watcher-serve|withdraw|buy`.
 
 **TX LINKS**: see the tables above.
