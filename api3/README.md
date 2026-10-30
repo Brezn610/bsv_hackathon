@@ -50,6 +50,9 @@ verified on-chain.
   costs ~3.8 KB per response, and projecting `/retweeted_tweet/id` returns HTTP 400 when it is null. We project
   `{id, text}` of `/data/tweets/0` and reject text starting with `RT @` (`NotOriginalPost`). In our sample, 13 of the 20
   newest @WhiteHouse posts were retweets.
+- **Posts of a brand-new X account were not visible.** For our new demo account @TreasuryGuardDe, `userLastTweets`
+  returned an empty list for 30+ min after a public original post, while an older account's post showed up within
+  seconds. So the demo uses the older account @956_kakashi.
 - **No machine-readable post time.** `createdAt` comes as `Fri Oct 30 13:00:51 +0000 2026`, not ISO 8601, so the
   contract derives the post time from the tweet id (Snowflake).
 - Limitation, not missing data: a value in exponent notation (`-1e-7`) reverts in `ProjectedJson`. Unlikely for a
@@ -61,11 +64,10 @@ verified on-chain.
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Contract            | TreasuryGuard [`0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773`](https://sepolia.basescan.org/address/0x8e38cc6b1bd1f0d25357066cd0036f28fd1f7773), Base Sepolia (84532), verified                                                                                                                                            |
 | Deploy              | tx [`0xfc0219e4…`](https://sepolia.basescan.org/tx/0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884), block 52226250                                                                                                                                                                                   |
-| Vault 1             | first agent vault, superseded by vault 3 (same config, without the demo account)                                                                                                                                                                                                                                         |
-| Vault 2             | first judge vault ($100/day counter, no funds, agent = the team's deployer key), superseded by vault 4                                                                                                                                                                                                                   |
-| Vault 4             | judge vault: same config as vault 2, also whitelists @TreasuryGuardDe, so a fresh demo post passes `checkEvent`; tx [`0xa3d5c1ef…`](https://sepolia.basescan.org/tx/0xa3d5c1ef6b11c984fc90f8672e12419ffe4c31a01b8feff3e0b35296ce935c40), block 52236550                                                                  |
-| Vault 3             | the team's agent loop, $1/day, also whitelists the team demo X account @TreasuryGuardDe (`0x2e867a28…839d3`), tx [`0x53bbd928…`](https://sepolia.basescan.org/tx/0x53bbd9283eaa5d7b19498d3793971487310bdf1d7038a88cbb7c870d7041d17c), block 52231374                                                                     |
-| Feeds               | CoinPaprika BSV/USD `0x18b78216…399480`, TwitterAPI.io @WhiteHouse, @federalreserve and (vault 3) @TreasuryGuardDe, full hashes in [`deployments.json`](deployments.json)                                                                                                                                                |
+| Vaults 1–4          | superseded (1/3 agent, 2/4 judge): same configs, fewer whitelisted accounts                                                                                                                                                                                                                                              |
+| Vault 5             | the team's agent loop, $1/day (config of vault 3), tx [`0x8500b5dd…`](https://sepolia.basescan.org/tx/0x8500b5dd6ceed76c867b2029a58e6f460b302b1a5663f4d7437bf824247c2e5a), block 52248781                                                                                                                                |
+| Vault 6             | judge vault: $100/day counter, holds no funds, agent = the team's deployer key (config of vault 4), tx [`0x3b32dc30…`](https://sepolia.basescan.org/tx/0x3b32dc30f9701ef9e3fac4a3c7fa956a2b677b09ab78f415465b956ac91cd893), block 52248793                                                                               |
+| Feeds               | CoinPaprika BSV/USD `0x18b78216…399480`, TwitterAPI.io @WhiteHouse, @federalreserve and the demo accounts @956_kakashi and @TreasuryGuardDe, full hashes in [`deployments.json`](deployments.json)                                                                                                                       |
 | Last live judge run | 7/7 PASS on vault 2: valid SPEND intent #1 ($1 → 5,856,771 sats at $17.07) [`0x8426f241…`](https://sepolia.basescan.org/tx/0x8426f2416e45e2f44cceaaea392dcc84d8c991913d4a833b52f6f628953c574a), x402 [`0x628034c4…`](https://sepolia.basescan.org/tx/0x628034c475e4d84c1a89cfd9ab63b545895b8b8e93bf1ff0d1fb4114bfb9fb93) |
 
 **Tamper test.** Check order for a price: request → signer → signature age → replay → budget, so a cached fixture still
@@ -118,8 +120,8 @@ the [faucet](https://api3dao.github.io/airnodehub-hackathon/faucet/). Set `RPC_U
   [BSV/USD purchase](https://sepolia.basescan.org/tx/0x71b12c9ead04e0891898547b6a1206e4c77dfb6aac73eaa31c716e64a2b1e4c7)),
   the tamper cases above on real fixtures. The BSV side (vault, watcher, payments) runs on BSV mainnet with tiny amounts.
 - **Demo:** Base Sepolia, not Base mainnet (x402 in aUSD only exists there). The live vault runs a $1/day budget. The
-  stablecoin on BSV is a demo token and not redeemable. One team-run watcher and LP. The team demo X account
-  @TreasuryGuardDe is labeled as a demo account. The circuit breaker is not expected to fire live: a −5 % hour of BSV is rare, and we never loosen thresholds to
+  stablecoin on BSV is a demo token and not redeemable. One team-run watcher and LP. News-guard demo posts come from
+  @956_kakashi, an existing account of the team, not an official one. The circuit breaker is not expected to fire live: a −5 % hour of BSV is rare, and we never loosen thresholds to
   force it. Its logic is shown in Forge tests with a local test signer (−6.25 % in 1 h → `RISK_OFF` + 50 % hedge intent,
   re-entry only after the cooldown, `forge test --match-test breaker`). Live, it fires only on a real crash.
 - The agent loop and the watcher are built by the BSV side of the team on top of the client in
