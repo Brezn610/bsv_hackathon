@@ -19,6 +19,8 @@ export interface Deployment {
   judgeVaultId: number | null;
   // A second judge vault kept fresh for the one real hedge at live judging (a hedge leaves a vault GUARDED).
   liveJudgeVaultId?: number | null;
+  // The vault of src/agent.ts (the API3 autonomous agent demo), with its own key. Never the team's vaultId.
+  runnerVaultId?: number | null;
   // Vault configs are immutable, so every change made a new vault. These hold no funds and are never co-signed.
   retiredVaults?: Record<string, string>;
   deployTx: Hex | null;
