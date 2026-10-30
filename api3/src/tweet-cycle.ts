@@ -64,7 +64,7 @@ const { values } = parseArgs({
   },
 });
 const verdicts = { risk_off: Verdict.RISK_OFF, ignore: Verdict.IGNORE } as const;
-if (!(values.verdict in verdicts)) throw new Error('--verdict must be risk_off or ignore');
+if (!Object.hasOwn(verdicts, values.verdict)) throw new Error('--verdict must be risk_off or ignore');
 const verdictName = values.verdict as keyof typeof verdicts;
 const verdict = verdicts[verdictName];
 if (values.live && values.dry) throw new Error('Pass --live or --dry, not both');
