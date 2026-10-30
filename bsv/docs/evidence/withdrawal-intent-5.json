@@ -1,0 +1,28 @@
+{
+  "intentId": "5",
+  "base": {
+    "chainId": 84532,
+    "contract": "0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773",
+    "vaultId": "5",
+    "readAtBlock": "52337835",
+    "maxSats": "5881",
+    "expiry": "1793390314"
+  },
+  "bsvTxid": "85b74fb5c959f7f239d854ac89d292b932cac4aa243801aa0e1815f8fe020002",
+  "url": "https://whatsonchain.com/tx/85b74fb5c959f7f239d854ac89d292b932cac4aa243801aa0e1815f8fe020002",
+  "settleArg": "0x85b74fb5c959f7f239d854ac89d292b932cac4aa243801aa0e1815f8fe020002",
+  "toFloatSats": 5781,
+  "feeSats": 61,
+  "vaultOutflowSats": 5842,
+  "decision": {
+    "verdict": "APPROVE",
+    "proposalId": "cf77d6ddca7d1fc9992abce12772ceef26735ff968274e9be189944c720719c6",
+    "vaultIn": 30058,
+    "toFloat": 5781,
+    "change": 24216,
+    "fee": 61
+  },
+  "msIntentReadToBroadcast": 1330,
+  "state": "broadcast (0-conf); not yet checked for a block",
+  "at": "2026-10-30T19:43:57.912Z"
+}

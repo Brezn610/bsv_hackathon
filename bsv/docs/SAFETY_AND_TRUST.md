@@ -53,8 +53,8 @@ needs it too. Every mainnet step needs `CONFIRM_MAINNET=1`, and each one was app
   public and carry no keys or signatures. The signing path (`policy`, `service`, `state`,
   `flow/withdraw`) is unchanged.
 - **What ran where:** the mainnet withdrawals for intents 2 and 4 ran with the earlier in-process
-  watcher (same CLI process, key in its own file). The separate process is tested offline
-  (`test/watcher-server.test.ts`) and dry-run against Base; `TG_INPROCESS_WATCHER=1` keeps the
+  watcher (same CLI process, key in its own file); intent 5 ran through the separate watcher process
+  (`85b74fb5…`, with the 409 and 422 refusals shown live). `TG_INPROCESS_WATCHER=1` keeps the
   in-process path as a fallback. Both still run on one machine: a separate host is the production step.
 
 ## Spend firewall vs vault budget

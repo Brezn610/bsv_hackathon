@@ -37,6 +37,7 @@ The invariant: an API3 intent alone cannot move money, and no BSV transaction ca
 | Agent records the BSV txid with `settle(2, txid)`. Read back: `settled = true` | Base Sepolia | [0xc1a8c9bb…](https://sepolia.basescan.org/tx/0xc1a8c9bb236698e05a51293e337369ab9ea6284b97d863e0a66257c2844de5b8) |
 | Agent pays an HTTP 402 API (1,000 sats, HTTP 200 in 857 ms) | BSV mainnet | [43c8255e…](https://whatsonchain.com/tx/43c8255e63ab363f9d3641a601e74aee5ea95b5d53b747fcc86c40d71e959b77) |
 | Intent 4 → withdrawal into the dedicated float wallet (2,062 sats) → agent's model (DeepSeek) decides BUY → guardian → HTTP 402 that spends exactly that withdrawal output | Base Sepolia + BSV mainnet | [`452a42b4…a31f`](https://whatsonchain.com/tx/452a42b4bf518451c9c4f48a270af892b5b2adb74b64ac8a76bbd5319285a31f) → [`54082a71…b320`](https://whatsonchain.com/tx/54082a714816ce2e9b2a67c23c5e04da67c2f93b8df30136b7126b715802b320) → [settle(4)](https://sepolia.basescan.org/tx/0x793e7f26270e8a688239a42128cfa4916842d27c6309f5beaf6bb9dca3ffc980) |
+| Intent 5 through the **separate watcher process** (HTTP): withdrawal 5,781 sats → DeepSeek BUY → HTTP 402 from that output; replaying intent 5 → 409, intent 3 (vault 8) → 422 | Base Sepolia + BSV mainnet | [`85b74fb5…0002`](https://whatsonchain.com/tx/85b74fb5c959f7f239d854ac89d292b932cac4aa243801aa0e1815f8fe020002) → [`6cf0ff26…6134`](https://whatsonchain.com/tx/6cf0ff26409e0173d663ad2893a4e3d24306defd9fa81a01882d64de3d2a6134) |
 | Atomic swap-and-pay: 1,000 sats to the maker and 1 pUSD to the merchant, in one tx | BSV mainnet | [ee2a3896…](https://whatsonchain.com/tx/ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c) |
 
 A second withdrawal for intent 2 was refused live: `journal already holds this intent as broadcast`.
@@ -60,7 +61,7 @@ A second withdrawal for intent 2 was refused live: `journal already holds this i
 - The watcher can block but cannot take funds; if it goes offline, the owner exits alone (proven on mainnet).
 - API3 signatures prove origin, integrity and time, not economic correctness.
 - pUSD is an unbacked demo token, not a stablecoin. There is no CDP, liquidation, peg or bridge.
-- The watcher runs as its own local process (HTTP on 127.0.0.1, its own key and journal); the mainnet runs of intents 2 and 4 used the earlier in-process mode. A separate host is the production step.
+- The watcher runs as its own local process (HTTP on 127.0.0.1, its own key and journal); intents 2 and 4 used the earlier in-process mode, intent 5 the separate process. A separate host is the production step.
 - The signed-rate version of the swap wrapper (`executeSwap`) is tested offline; the mainnet swap used a fixed price.
 - Part of the swap rail (BTMS issue/split, maker offer, fill, guardian) was prototyped before the event in [Brezn610/BSV_pet](https://github.com/Brezn610/BSV_pet). Provenance is in `bsv/README.md`.
 

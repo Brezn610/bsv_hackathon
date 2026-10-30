@@ -27,6 +27,10 @@ Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock c
 | **Vault withdrawal for Base intent 4** (float wallet) | [`452a42b4…a31f`](https://whatsonchain.com/tx/452a42b4bf518451c9c4f48a270af892b5b2adb74b64ac8a76bbd5319285a31f) | intent 4 (`maxSats` 2,902; [created on Base](https://sepolia.basescan.org/tx/0xca48d1b12f24c7a093002e6ed465ec9ceb823b659b929aa3e1e26f57c6eaaca8)) re-read at Base block 52298837 and APPROVED; spends the vault change `ae35d469…:1` (2,162): 2,062 to the dedicated float wallet, 58 back to the same vault script, receipt `TGv1 84532 … 5 4`; fee 42; outflow 2,104 ≤ 2,902. (Intent 3 was created on vault 8, the API3 runner, and was ignored.) |
 | **`settle(4, 0x452a42b4…a31f)` on Base Sepolia** | [`0x793e7f26…c980`](https://sepolia.basescan.org/tx/0x793e7f26270e8a688239a42128cfa4916842d27c6309f5beaf6bb9dca3ffc980) | sent by the vault-5 agent, block 52301453, status success; `Settled(4, 0x452a42b4…)`; re-read by the BSV side: `getIntent(4).settled = true`, `bsvTxid` equals the withdrawal txid |
 | **Agent pays HTTP 402 with the withdrawn sats** | [`54082a71…b320`](https://whatsonchain.com/tx/54082a714816ce2e9b2a67c23c5e04da67c2f93b8df30136b7126b715802b320) | DeepSeek decided BUY ("the offer directly matches the task topic and its 1000-sat price is within both the float balance and the per-payment cap"); guardian (rules) approved; the only input is `452a42b4…:0`, the float output of the intent-4 withdrawal; 1,000 sats to the merchant, 1,039 change to the float, fee 23; HTTP 200 in 1,002 ms |
+| Owner funds the vault with 30,000 sats (cap raised to 50,000 after the exit proof) | [`f4c561d1…165f`](https://whatsonchain.com/tx/f4c561d1405de54fa4559b9742cdcbae33d317c99c0da933aa73f8766aa7165f) | BSV Desktop |
+| **Vault withdrawal for intent 5 through the separate watcher process** | [`85b74fb5…0002`](https://whatsonchain.com/tx/85b74fb5c959f7f239d854ac89d292b932cac4aa243801aa0e1815f8fe020002) | `tg watcher-serve` on 127.0.0.1:4810 answered 200 APPROVE (`docs/evidence/watcher-decisions-intent-5.json`); intent 5 (`maxSats` 5,881) re-read at Base block 52337835; inputs `452a42b4…:1` (58) and `f4c561d1…:0` (30,000); 5,781 to the float wallet, 24,216 back to the vault, receipt `TGv1 84532 … 5 5`; fee 61; outflow 5,842 ≤ 5,881. The CLI did not load the watcher key |
+| Agent pays HTTP 402 from that withdrawal | [`6cf0ff26…6134`](https://whatsonchain.com/tx/6cf0ff26409e0173d663ad2893a4e3d24306defd9fa81a01882d64de3d2a6134) | DeepSeek BUY; guardian approved; only input `85b74fb5…:0`; 1,000 sats to the merchant, 4,758 change to the float; HTTP 200 |
+| Refusals over HTTP, no money moved | — | `withdraw --intent 5` again → 409 "journal already holds this intent as broadcast"; `withdraw --intent 3` (vault 8, expired) → 422 |
 | Atomic swap-and-pay | [`ee2a3896…8e8c`](https://whatsonchain.com/tx/ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c) | rail baseline, earlier on 30 Oct: 1,000 sats to the maker, 1 pUSD to the merchant, fee 66, one tx. Price was a fixed 1,000 sats; the signed-rate `executeSwap` wrapper is **offline only** |
 
 ## Gate (1), exact mainnet script, offline: PASS 12/12
@@ -51,7 +55,7 @@ insufficient sats.
 - Mocked: the SPEND intent in `integration-mock.test.ts` and `watcher-policy.test.ts` (shape and
   values as `getIntent` returns them); the swap's signed rate ($20.00 fixture) in `execute-swap.test.ts`.
 - The paid API is a local demo merchant serving a deterministic note, not external data.
-- The mainnet withdrawals for intents 2 and 4 ran with the in-process watcher (same CLI process, separate key file). Since then the watcher runs as its own process (`tg watcher-serve`); that path is tested offline and dry-run against Base, not yet used for a mainnet withdrawal.
+- The mainnet withdrawals for intents 2 and 4 ran with the in-process watcher (same CLI process, separate key file). Intent 5 ran through the separate watcher process (`tg watcher-serve`, HTTP on 127.0.0.1), on the same machine.
 - Blocks: `cdcbf706`, `db5ca41c`, `c1f97102` in 973333; `43c8255e`, `ae35d469` in 973334 (checked 18:01 Berlin); `452a42b4`, `54082a71` in 973339 (checked 18:55 Berlin).
 - The first HTTP 402 payment `43c8255e` came from the agent's existing balance. The second, `54082a71`, spends the intent-4 withdrawal output directly (dedicated float wallet).
 - "One transaction instead of two" for swap-and-pay is a structural property; no fee saving is claimed.
@@ -70,7 +74,7 @@ insufficient sats.
 
 **NOT_COMPLETED**
 - The signed-rate swap (`executeSwap`) has not run on mainnet; the mainnet swap `ee2a3896` used a fixed price.
-- The separate watcher process has not yet carried a mainnet withdrawal; it runs on the same machine, not a separate host.
+- The separate watcher process runs on the same machine as the agent, not on a separate host.
 - No automatic intent subscription service: `tg withdraw --intent N` is one repeatable CLI cycle.
 - Demo video and organizer confirmation of the pre-event code rules.
 
