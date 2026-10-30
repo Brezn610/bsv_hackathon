@@ -46,6 +46,7 @@ test('deployments.json matches the feeds', () => {
   assert.equal(feeds.tweets.WhiteHouse?.requestHash, feedRequestHash(whiteHouseFeed));
   assert.equal(feeds.tweets.federalreserve?.requestHash, feedRequestHash(tweetFeed('federalreserve')));
   assert.equal(feeds.tweets.TreasuryGuardDe?.requestHash, feedRequestHash(tweetFeed('TreasuryGuardDe')));
+  assert.equal(feeds.tweets['956_kakashi']?.requestHash, feedRequestHash(tweetFeed('956_kakashi')));
 });
 
 test('parses price and tweet data', () => {
