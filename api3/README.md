@@ -7,6 +7,9 @@ price out of the signed JSON. Copy the libraries in `contracts/` into your proje
 
 Everything here is for Airnode v2, the version of Airnode that serves the APIs on AirnodeHub.
 
+## Treasury Guard deployment (this team's project)
+TreasuryGuard on Base Sepolia: [`0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773`](https://sepolia.basescan.org/address/0x8e38cc6b1bd1f0d25357066cd0036f28fd1f7773) (verified). Vault 1 = agent loop, vault 2 = judges. Deploy tx [`0xfc0219e4…`](https://sepolia.basescan.org/tx/0xfc0219e499276dc10e6bdfd3f8005158ebaa14f02957dc86fd355c440c7ed884), block 52226250. Details: `API3-NOTES.md` → "Deployments", interface: `docs/INTERFACE.md`.
+
 ## How it works
 
 ```mermaid
