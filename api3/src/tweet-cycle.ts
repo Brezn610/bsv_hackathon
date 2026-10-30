@@ -103,14 +103,12 @@ const otherVaults = [
 if (otherVaults.map(BigInt).includes(eventVaultId)) {
   throw new Error(`--event-vault ${eventVaultId} is a judge, runner or retired vault (deployments.json)`);
 }
-const readGuard = <T>(functionName: string, args: unknown[]) =>
-  guard.publicClient.readContract({
-    address: guard.address,
-    abi: treasuryGuardAbi,
-    functionName,
-    args,
-  } as never) as Promise<T>;
-if (eventVaultId <= 0n || eventVaultId > (await readGuard<bigint>('vaultCount', []))) {
+const vaultCount = await guard.publicClient.readContract({
+  address: guard.address,
+  abi: treasuryGuardAbi,
+  functionName: 'vaultCount',
+});
+if (eventVaultId <= 0n || eventVaultId > vaultCount) {
   throw new Error(`--event-vault ${eventVaultId} does not exist`);
 }
 if (eventVaultId !== vaultId) {
@@ -121,7 +119,13 @@ if (eventVaultId !== vaultId) {
 }
 const accountFeed = deployment.feeds.tweets[values.account];
 if (!accountFeed) throw new Error(`deployments.json has no tweet feed for ${values.account}`);
-if (!(await readGuard<boolean>('isPostRequest', [eventVaultId, accountFeed.requestHash]))) {
+const whitelisted = await guard.publicClient.readContract({
+  address: guard.address,
+  abi: treasuryGuardAbi,
+  functionName: 'isPostRequest',
+  args: [eventVaultId, accountFeed.requestHash],
+});
+if (!whitelisted) {
   throw new Error(`Vault ${eventVaultId} does not whitelist ${values.account}`);
 }
 // A live RISK_OFF run is meant to hedge: refuse a vault whose one-shot hedge is already used.

@@ -338,8 +338,8 @@ Rehearse only with `--dry` or `--verdict ignore`.
    (`<N>` = the still-`NORMAL` vault you picked in step 4)
 7. Post on **@956_kakashi** (original post: no retweet, no reply, no quote), e.g.
    `[DEMO] Treasury Guard test signal: simulated emergency tariff announcement. Risk-off scenario for our hackathon agent. Not real news.`
-   From now on you have 30 minutes. The same post serves vault 5 (tweet cycle) and vault 7 (judge script), since each
-   vault counts a post once. The tweet cycle picks it up within 30 s: `post-verified` → `spend-created` →
+   From now on you have 30 minutes. The same post serves the tweet cycle's event vault N and vault 7 (judge script),
+   since each vault counts a post once. The tweet cycle picks it up within 30 s: `post-verified` → `spend-created` →
    `receipt-found` → `settled` (about a minute). Wait about a minute until TwitterAPI.io sees it, then check once:
    `node --env-file=.env src/judge.ts --live --dry --post 956_kakashi` → the last row must say `accepted`.
 
