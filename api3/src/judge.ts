@@ -7,7 +7,8 @@
 //   node --env-file=.env src/judge.ts                 fetch a fresh price via x402 (0.001 aUSD) and run all cases
 //   node --env-file=.env src/judge.ts --file r.json   use a saved response instead (it must still be fresh)
 //   options: --dry (no transaction) --usd <dollars> (default 1) --vault <id> (default: judgeVaultId)
-//            --post <account> (also buy that account's latest post, 0.01 aUSD, and show what checkEvent says)
+//            --post <account> (also buy that account's latest post, 0.01 aUSD: a fresh original post gets a RISK_OFF
+//            verdict and a real hedge intent, anything else shows what checkEvent says) --post-file <r.json>
 //            --network <name> --deployments <path> (default baseSepolia, deployments.json)
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs, parseEnv } from 'node:util';
@@ -25,6 +26,7 @@ import {
   Kind,
   Source,
   usd,
+  Verdict,
 } from './client/treasury-guard.ts';
 import { createPayingFetch, readPaymentSettlement } from './x402.ts';
 
@@ -35,6 +37,7 @@ const { values } = parseArgs({
     usd: { type: 'string', default: '1' },
     dry: { type: 'boolean', default: false },
     post: { type: 'string' },
+    'post-file': { type: 'string' },
     network: { type: 'string', default: 'baseSepolia' },
     deployments: { type: 'string' },
   },
@@ -109,6 +112,23 @@ if (signatureAge(fresh, now) > config.maxSignatureAge) {
   );
 }
 
+interface IntentArgs {
+  intentId: bigint;
+  kind: number;
+  direction: number;
+  source: number;
+  maxSats: bigint;
+  maxBps: number;
+  price: bigint;
+  expiry: bigint;
+}
+const printIntent = (args: IntentArgs) =>
+  console.log(
+    `  IntentCreated #${args.intentId}: ${Kind[args.kind]} ${Direction[args.direction]} from ${Source[args.source]}, ` +
+      `maxSats ${args.maxSats}, maxBps ${args.maxBps}, price ${formatPrice(args.price)}, ` +
+      `expires ${new Date(Number(args.expiry) * 1000).toISOString()}`
+  );
+
 // ---- the cases
 interface Result {
   name: string;
@@ -175,25 +195,45 @@ if (values.dry) {
     pass: spend !== undefined,
   });
   console.log(`Valid case sent: ${explorerTx(hash)}`);
-  for (const { args } of intents) {
-    console.log(
-      `  IntentCreated #${args.intentId}: ${Kind[args.kind]} ${Direction[args.direction]} from ${Source[args.source]}, ` +
-        `maxSats ${args.maxSats}, maxBps ${args.maxBps}, price ${formatPrice(args.price)}, ` +
-        `expires ${new Date(Number(args.expiry) * 1000).toISOString()}`
-    );
-  }
+  intents.forEach(({ args }) => printIntent(args));
   console.log(`  budget today: ${formatUsd(before)} → ${formatUsd(await guard.remainingUsdToday(vaultId))} USD\n`);
   await expectReject('Same response again', 'Replay', () => guard.checkPrice(vaultId, fresh));
 }
 
 // A stale post can't be forced live (it depends on when the account last posted); the Forge tests cover it with
 // vm.warp. Here the latest real post is checked and whatever the contract says is shown.
-if (values.post) {
-  console.log(`Fetching the latest post of @${values.post} from the TwitterAPI.io Airnode...`);
-  const post = await guard.fetchPost(values.post, payingFetch());
+if (values.post || values['post-file']) {
+  let post: SignedResponse;
+  if (values['post-file']) {
+    post = JSON.parse(readFileSync(values['post-file'], 'utf8')) as SignedResponse;
+    console.log(`Post from ${values['post-file']}`);
+  } else {
+    console.log(`Fetching the latest post of @${values.post} from the TwitterAPI.io Airnode...`);
+    post = await guard.fetchPost(values.post!, payingFetch());
+  }
   console.log(`  data: ${post.data}`);
   const got = await outcome(() => guard.checkEvent(vaultId, post, fresh));
-  results.push({ name: `Latest @${values.post} post (info)`, expected: 'any', got, pass: undefined });
+  if (got !== 'accepted' || values.dry) {
+    // An old post or a retweet is a normal answer, not a failure: it depends on what the account last posted.
+    results.push({ name: `Latest post (info${values.dry ? ', --dry' : ''})`, expected: 'any', got, pass: undefined });
+  } else {
+    const regimeBefore = await guard.regime(vaultId);
+    const { hash, intents } = await guard.submitEvent(vaultId, post, fresh, Verdict.RISK_OFF);
+    const hedge = intents.find((event) => Kind[event.args.kind] === 'SWAP');
+    results.push({
+      name: 'Fresh original post + RISK_OFF verdict',
+      expected: 'hedge intent',
+      got: hedge
+        ? `intent #${hedge.args.intentId}, ${hedge.args.maxBps / 100} % of the vault`
+        : `no hedge (was ${regimeBefore})`,
+      // Only a NORMAL vault hedges on a post; after a hedge it stays GUARDED for the cooldown.
+      pass: hedge ? true : regimeBefore === 'NORMAL' ? false : undefined,
+    });
+    console.log(`Event sent: ${explorerTx(hash)}`);
+    intents.forEach(({ args }) => printIntent(args));
+    console.log(`  regime: ${regimeBefore} → ${await guard.regime(vaultId)}\n`);
+    await expectReject('Same post again', 'Replay', () => guard.checkEvent(vaultId, post, fresh));
+  }
 }
 
 // ---- report
