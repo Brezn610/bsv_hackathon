@@ -1,0 +1,38 @@
+{
+  "status": 200,
+  "paymentTxid": "43c8255e63ab363f9d3641a601e74aee5ea95b5d53b747fcc86c40d71e959b77",
+  "url": "https://whatsonchain.com/tx/43c8255e63ab363f9d3641a601e74aee5ea95b5d53b747fcc86c40d71e959b77",
+  "priceSats": 1000,
+  "merchantReceivedSats": 1000,
+  "guardian": {
+    "decision": "approve",
+    "mode": "once",
+    "risk": 10,
+    "reasons": [
+      "1000 sats for \"research note\" passes every rule."
+    ],
+    "judge": "rules",
+    "findings": [
+      {
+        "rule": "declared-intent",
+        "severity": "ok",
+        "detail": "Pet says: \"Agent task: one paid research answer\""
+      },
+      {
+        "rule": "merchant",
+        "severity": "ok",
+        "detail": "Treasury Guard research API (local demo merchant) is trusted."
+      }
+    ]
+  },
+  "body": {
+    "topic": "bsv-treasury",
+    "kind": "demo research note (deterministic, not external data)",
+    "note": "Treasury Guard demo merchant: one paid answer about \"bsv-treasury\".",
+    "paidSats": 1000,
+    "servedAt": "2026-10-30T16:25:42.446Z"
+  },
+  "msRequestToAnswer": 857,
+  "note": "Local demo merchant (localhost); the payment itself is a real BSV mainnet transaction.",
+  "at": "2026-10-30T16:25:42.452Z"
+}
