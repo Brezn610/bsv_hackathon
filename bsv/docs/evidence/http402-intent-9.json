@@ -1,0 +1,52 @@
+{
+  "task": "Write a short note for the treasury owner on what BSV network fees look like for agent micropayments today.",
+  "decision": {
+    "buy": true,
+    "reason": "The research note directly matches the task topic and its 1000 sats price is well within both the float balance and per-payment cap.",
+    "decidedBy": "deepseek"
+  },
+  "payer": "float",
+  "status": 200,
+  "paymentTxid": "ccb8dc1872aab97a6b08dbb6f596a940a17574355aebd34b9f6cd2254f04431e",
+  "url": "https://whatsonchain.com/tx/ccb8dc1872aab97a6b08dbb6f596a940a17574355aebd34b9f6cd2254f04431e",
+  "priceSats": 1000,
+  "merchant": "local demo merchant",
+  "merchantReceivedSats": 1000,
+  "guardian": {
+    "decision": "approve",
+    "mode": "once",
+    "risk": 10,
+    "reasons": [
+      "1000 sats for \"research note: bsv-fees\" passes every rule."
+    ],
+    "judge": "rules",
+    "findings": [
+      {
+        "rule": "declared-intent",
+        "severity": "ok",
+        "detail": "Agent says: \"The research note directly matches the task topic and its 1000 sats price is well within both the float balance and per-payment cap.\""
+      },
+      {
+        "rule": "merchant",
+        "severity": "ok",
+        "detail": "Treasury Guard research API (local demo merchant) is trusted."
+      }
+    ]
+  },
+  "paymentInputsFrom": [
+    "e802c1954ab7006cfac40587fb39ecb101cab454098a711928a17b96f84cf6b5"
+  ],
+  "fundedByVaultWithdrawal": [
+    "e802c1954ab7006cfac40587fb39ecb101cab454098a711928a17b96f84cf6b5"
+  ],
+  "body": {
+    "topic": "bsv-fees",
+    "kind": "demo research note (deterministic, not external data)",
+    "note": "Treasury Guard demo merchant: one paid answer about \"bsv-fees\".",
+    "paidSats": 1000,
+    "servedAt": "2026-10-31T08:54:40.050Z"
+  },
+  "msRequestToAnswer": 1623,
+  "note": "Local demo merchant (localhost); the payment itself is a real BSV mainnet transaction.",
+  "at": "2026-10-31T08:54:42.189Z"
+}

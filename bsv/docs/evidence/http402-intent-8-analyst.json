@@ -1,0 +1,45 @@
+{
+  "task": "Decide whether the BSV treasury should go risk-off, based on the newest official post of @956_kakashi.",
+  "decision": {
+    "buy": true,
+    "reason": "The offer directly provides the newest post and a risk-off verdict for the specified account at a low price well within the float and per-payment cap.",
+    "decidedBy": "deepseek"
+  },
+  "payer": "float",
+  "status": 524,
+  "paymentTxid": "e4ada6c69c7928ef08751adc6ba8fba6faa1fdf7a98aeced78c3f5c25dc328f6",
+  "url": "https://whatsonchain.com/tx/e4ada6c69c7928ef08751adc6ba8fba6faa1fdf7a98aeced78c3f5c25dc328f6",
+  "priceSats": 100,
+  "merchant": "https://show-story-try-agents.trycloudflare.com/verdict/956_kakashi",
+  "merchantReceivedSats": "external merchant: see the payment output on WhatsOnChain",
+  "guardian": {
+    "decision": "approve",
+    "mode": "once",
+    "risk": 10,
+    "reasons": [
+      "100 sats for \"Analyst verdict: 956_kakashi\" passes every rule."
+    ],
+    "judge": "rules",
+    "findings": [
+      {
+        "rule": "declared-intent",
+        "severity": "ok",
+        "detail": "Agent says: \"The offer directly provides the newest post and a risk-off verdict for the specified account at a low price well within the float and per-payment cap.\""
+      },
+      {
+        "rule": "merchant",
+        "severity": "ok",
+        "detail": "External 402 service at show-story-try-agents.trycloudflare.com is trusted."
+      }
+    ]
+  },
+  "paymentInputsFrom": [
+    "8519e252e0d0659bbdec889bee0adb273d5cd9608975a19348c6789dc11a108b"
+  ],
+  "fundedByVaultWithdrawal": [
+    "8519e252e0d0659bbdec889bee0adb273d5cd9608975a19348c6789dc11a108b"
+  ],
+  "msRequestToAnswer": 125595,
+  "note": "External 402 service; the payment is a real BSV mainnet transaction.",
+  "at": "2026-10-31T00:37:52.091Z"
+}
