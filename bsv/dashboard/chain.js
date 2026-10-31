@@ -14,7 +14,9 @@
     regime: '0xe105728a', // regime(uint256)
     remainingUsdToday: '0x4ccb795c', // remainingUsdToday(uint256)
     getVaultConfig: '0x7fcced05', // getVaultConfig(uint256)
-    checkPrice: '0x5fc3c41c' // checkPrice(uint256,(bytes32,uint256,bytes,bytes))
+    checkPrice: '0x5fc3c41c', // checkPrice(uint256,(bytes32,uint256,bytes,bytes))
+    submitPrice: '0x777decb2', // submitPrice(uint256,(bytes32,uint256,bytes,bytes),uint256)
+    isPostRequest: '0xc3f4dd1d' // isPostRequest(uint256,bytes32)
   };
 
   // Custom errors of TreasuryGuard.sol (selector → name, argument type).
@@ -26,7 +28,9 @@
     '0xb5a78004': ['Replay', null],
     '0x19af843d': ['BudgetExceeded', 'uint256'],
     '0x2c5211c6': ['InvalidAmount', null],
-    '0x579354d1': ['NotOriginalPost', null]
+    '0x579354d1': ['NotOriginalPost', null],
+    '0x0d9ab13f': ['NotAgent', null],
+    '0xb0782df7': ['Cooldown', null]
   };
 
   const TOPIC = {
@@ -69,7 +73,8 @@
   const encodeCheckPrice = (vaultId, response) => {
     if (!isHex(response.requestHash, 32)) throw new Error('requestHash is not bytes32');
     if (!/^[0-9]+$/.test(String(response.timestamp))) throw new Error('timestamp is not an integer');
-    const data = utf8Hex(response.data);
+    const data = typeof response.dataHex === 'string' ? strip0x(response.dataHex) : utf8Hex(response.data);
+    if (!/^[0-9a-fA-F]*$/.test(data) || data.length % 2) throw new Error('data is not hex');
     const sig = strip0x(response.signature);
     if (!/^[0-9a-fA-F]*$/.test(sig) || sig.length % 2) throw new Error('signature is not hex');
     const dataLen = data.length / 2;
@@ -178,6 +183,30 @@
     };
   };
 
+  // submitPrice(uint256 vaultId, (bytes32 requestHash, uint256 timestamp, bytes data, bytes signature) response,
+  // uint256 usdAmount) calldata → the signed response exactly as the agent sent it. Returns null for other calls.
+  const decodeSubmitPrice = (input) => {
+    if (typeof input !== 'string' || !input.toLowerCase().startsWith(SEL.submitPrice)) return null;
+    const h = input.slice(10);
+    const at = (hex, i) => BigInt('0x' + hex.slice(i * 64, (i + 1) * 64));
+    const tupleOff = Number(at(h, 1)) * 2;
+    const t = h.slice(tupleOff);
+    const dOff = Number(at(t, 2)) * 2;
+    const sOff = Number(at(t, 3)) * 2;
+    const dLen = Number(BigInt('0x' + t.slice(dOff, dOff + 64)));
+    const sLen = Number(BigInt('0x' + t.slice(sOff, sOff + 64)));
+    const dataHex = t.slice(dOff + 64, dOff + 64 + dLen * 2);
+    const signature = '0x' + t.slice(sOff + 64, sOff + 64 + sLen * 2);
+    if (dataHex.length !== dLen * 2 || signature.length !== 2 + sLen * 2) throw new Error('truncated submitPrice calldata');
+    let data = '';
+    try { data = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(dataHex.match(/../g).map((b) => parseInt(b, 16)))); } catch { data = ''; }
+    return {
+      vaultId: at(h, 0),
+      usdAmount: at(h, 2),
+      response: { requestHash: toBytes32(at(t, 0)), timestamp: at(t, 1), dataHex, data, signature }
+    };
+  };
+
   // ---------- transport ----------
 
   const fetchJson = async (url, init = {}, timeoutMs = 8000) => {
@@ -210,9 +239,14 @@
 
   const createBase = (rpcUrl, contract) => {
     let id = 0;
+    // The public RPC answers HTTP 429 to bursts: wait and retry twice before giving up.
     const rpc = async (method, params) => {
       const body = JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params });
-      const json = await fetchJson(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      let json;
+      for (let attempt = 0; ; attempt++) {
+        try { json = await fetchJson(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }); break; }
+        catch (e) { if (e.status !== 429 || attempt >= 2) throw e; await new Promise((r) => setTimeout(r, 900 * (attempt + 1))); }
+      }
       if (json.error) throw new RpcError(json.error.message || 'RPC error', json.error.code, json.error.data);
       return json.result;
     };
@@ -247,6 +281,8 @@
       regime: async (v) => ENUMS.Regime[Number(words(await u(SEL.regime, v))[0])] ?? 'UNKNOWN',
       remainingUsdToday: async (v) => words(await u(SEL.remainingUsdToday, v))[0],
       getVaultConfig: async (v) => decodeConfig(await u(SEL.getVaultConfig, v)),
+      getTransaction: (hash) => rpc('eth_getTransactionByHash', [hash]),
+      isPostRequest: async (v, requestHash) => words(await call(SEL.isPostRequest + word(v) + strip0x(requestHash)))[0] !== 0n,
       // Free eth_call of checkPrice. Resolves { accepted: true, price } or { accepted: false, revert }.
       checkPrice: async (vaultId, response) => {
         try {
@@ -300,6 +336,8 @@
     };
     return {
       scriptUnspent: (scriptHash) => get(`/script/${scriptHash}/unspent/all`),
+      // Every transaction that paid to or spent from the script: [{ tx_hash, height }], newest first.
+      scriptHistory: (scriptHash) => get(`/script/${scriptHash}/history`),
       // The transaction that spent output `n` of `txid`: { txid, vin, status }. HTTP 404 while it is unspent.
       spentBy: (txid, n) => get(`/tx/${txid}/${n}/spent`),
       tx: (txid) => get(`/tx/hash/${txid}`)
@@ -339,6 +377,29 @@
     return null;
   };
 
+  // The vault script (bsv/src/vault/template.ts):
+  //   OP_IF <agentKey> OP_CHECKSIGVERIFY <watcherKey> OP_CHECKSIG OP_ELSE <ownerKey> OP_CHECKSIG OP_ENDIF
+  // Returns the three compressed keys, or null for any other script.
+  const decodeVaultScript = (hex) => {
+    const m = /^6321(0[23][0-9a-f]{64})ad21(0[23][0-9a-f]{64})ac6721(0[23][0-9a-f]{64})ac68$/.exec(String(hex).toLowerCase());
+    return m ? { agent: m[1], watcher: m[2], owner: m[3] } : null;
+  };
+  // Which branch an input took: agent+watcher = <watcherSig> <agentSig> OP_1; owner alone = <ownerSig> OP_0.
+  const unlockPath = (scriptSigHex) => {
+    const s = String(scriptSigHex || '').toLowerCase();
+    if (/^(47|48|49)[0-9a-f]+(47|48|49)[0-9a-f]+51$/.test(s)) return 'cosign';
+    if (/^(47|48|49)[0-9a-f]+00$/.test(s)) return 'owner';
+    return null;
+  };
+  // WhatsOnChain script hash: SHA-256 of the script bytes, byte-reversed.
+  const sha256Hex = async (hex) => {
+    if (!globalThis.crypto?.subtle) return null;
+    const bytes = new Uint8Array((hex.match(/../g) || []).map((b) => parseInt(b, 16)));
+    const d = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+    return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('');
+  };
+  const satsOf = (value) => (Number.isFinite(value) ? BigInt(Math.round(value * 1e8)) : null);
+
   // ---------- polling ----------
 
   // Runs `fn` every `intervalMs`, never overlapping; on error backs off (doubling, up to maxBackoffMs). `onUpdate`
@@ -374,7 +435,7 @@
   window.TGChain = Object.freeze({
     SEL, ERRORS, TOPIC, ENUMS,
     createBase, createWoc, createWatcher,
-    encodeCheckPrice, decodeRevert, decodeIntent, decodePrice, decodeConfig, words,
-    reverseHex, findReceipt, poll, isHex
+    encodeCheckPrice, decodeRevert, decodeIntent, decodePrice, decodeConfig, decodeSubmitPrice, words,
+    reverseHex, findReceipt, decodeVaultScript, unlockPath, sha256Hex, satsOf, poll, isHex
   });
 })();

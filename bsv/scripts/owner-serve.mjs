@@ -25,7 +25,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const BSV_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
-const PORT = Number(process.env.OWNER_PORT ?? 4820)
+const PORT = Number(process.env.OWNER_PORT ?? 5820) // 48xx can be reserved by Windows (WSL mirrored networking)
 const DASHBOARD = process.env.OWNER_DASHBOARD_URL ?? 'http://localhost:8765/'
 const ORIGINS = new Set((process.env.OWNER_ORIGINS ?? 'http://localhost:8765,http://127.0.0.1:8765').split(',').map(s => s.trim()).filter(Boolean))
 const HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`])
@@ -37,6 +37,20 @@ const API3_DIR = path.join(BSV_DIR, '..', 'api3')
 // The API3 steps, run with this Node and the agent's own env file (api3/.env.agent), as the team runs them by hand.
 // OWNER_API3_CMD (a JSON array) replaces `node --env-file=.env.agent` for tests.
 const API3_CMD = process.env.OWNER_API3_CMD ? JSON.parse(process.env.OWNER_API3_CMD) : [process.execPath, '--env-file=.env.agent']
+// Remote API3 agent (bsv/scripts/api3-agent-serve.mjs on the laptop that holds api3/.env.agent): with API3_AGENT_URL
+// and API3_AGENT_TOKEN set, the cycle's first step (signed price → SPEND intent) and last step (settle) run there.
+const API3_REMOTE = process.env.API3_AGENT_URL ? process.env.API3_AGENT_URL.replace(/\/+$/, '') : null
+const API3_REMOTE_TOKEN = process.env.API3_AGENT_TOKEN ?? ''
+const remote = async (pathName, init = {}) => {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 4 * 60_000)
+  try {
+    const res = await fetch(API3_REMOTE + pathName, { ...init, signal: controller.signal, headers: { 'X-Agent-Token': API3_REMOTE_TOKEN, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(body.error || `API3 agent service: HTTP ${res.status}`)
+    return body
+  } finally { clearTimeout(timer) }
+}
 const MAX_AGENT_CYCLES = Number(process.env.AGENT_MAX_CYCLES ?? 3) // per server start: each cycle spends real sats
 let agentCycles = 0
 const JOB_TIMEOUT_MS = 5 * 60_000 // BSV Desktop waits for the owner to approve; settle waits for the BSV receipt
@@ -91,6 +105,15 @@ const STEPS = {
   } }],
   cycle: () => [
     { key: 'intent', label: 'Signed price → SPEND intent on Base Sepolia', exec: async (job) => {
+      if (API3_REMOTE) {
+        try {
+          job.current.message = 'The API3 agent buys a signed price and asks for budget…'
+          const r = await remote('/spend', { method: 'POST', body: '{}' })
+          if (!/^\d+$/.test(String(r.intentId))) return { ok: false, message: 'the API3 agent answered without an intent' }
+          job.intentId = String(r.intentId)
+          return { ok: true, baseTx: typeof r.baseTx === 'string' && /^0x[0-9a-fA-F]{64}$/.test(r.baseTx) ? r.baseTx : null, message: `SPEND intent ${r.intentId}: up to ${r.maxSats} sats.` }
+        } catch (e) { return { ok: false, message: String(e.message || e) } }
+      }
       const r = await api3(['src/spend5.ts'], job)
       const m = /intentId (\d+)n? kind 0 maxSats (\d+)/.exec(r.out)
       const b = BASE_TX.exec(r.out)
@@ -112,6 +135,20 @@ const STEPS = {
       return r.code === 0 && m ? { ok: true, txid: m[2], message: `${d ? `${d[1]} chose to buy. ` : ''}HTTP ${m[1]}, paid.` } : { ok: false, message: lastLine(r.err) || lastLine(r.out) }
     } },
     { key: 'settle', label: 'Settle record on Base (finds the BSV receipt first)', exec: async (job) => {
+      if (API3_REMOTE) {
+        // The remote service started settling right after the intent; wait for it here.
+        const end = Date.now() + 10 * 60_000
+        while (Date.now() < end) {
+          try {
+            const st = await remote(`/intent/${job.intentId}`)
+            if (st.state === 'settled') return { ok: true, baseTx: typeof st.settleTx === 'string' && /^0x[0-9a-fA-F]{64}$/.test(st.settleTx) ? st.settleTx : null, message: 'Recorded on Base (a record, not a proof).' }
+            if (st.state === 'failed') return { ok: false, message: String(st.message || 'settle failed') }
+            job.current.message = 'The API3 agent waits for the BSV receipt, then settles…'
+          } catch (e) { job.current.message = `API3 agent service: ${String(e.message || e)}` }
+          await new Promise((r) => setTimeout(r, 4000))
+        }
+        return { ok: false, message: 'settle did not finish within 10 minutes' }
+      }
       const r = await api3(['src/tweet-cycle.ts', '--live', '--settle-only', job.intentId], job)
       const b = BASE_TX.exec(r.out)
       const ok = r.code === 0 && /\b(settle-sent|already-settled)\b/.test(r.out)
@@ -185,7 +222,7 @@ const server = createServer(async (req, res) => {
   const url = (req.url ?? '').split('?')[0]
   try {
     if (req.method === 'GET' && url === '/owner/health') {
-      return send(res, 200, { ok: true, mainnetAllowed: MAINNET, fundCap: fundCap(), agentCyclesLeft: Math.max(0, MAX_AGENT_CYCLES - agentCycles), busy: summary(running), last: summary([...jobs.values()].at(-1)) }, allowed)
+      return send(res, 200, { ok: true, mainnetAllowed: MAINNET, fundCap: fundCap(), agentCyclesLeft: Math.max(0, MAX_AGENT_CYCLES - agentCycles), api3: API3_REMOTE ? 'remote' : 'local', busy: summary(running), last: summary([...jobs.values()].at(-1)) }, allowed)
     }
     const jm = /^\/owner\/jobs\/(\d+)$/.exec(url)
     if (req.method === 'GET' && jm) {
@@ -225,6 +262,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Owner control on http://127.0.0.1:${PORT} (mainnet ${MAINNET ? 'ON' : 'OFF: start with CONFIRM_MAINNET=1'}; up to ${MAX_AGENT_CYCLES} agent cycles)`)
+  console.log(API3_REMOTE ? `API3 steps: remote agent service at ${new URL(API3_REMOTE).host}` : 'API3 steps: local (needs api3/.env.agent here)')
   console.log('Needs running: the watcher (npm run tg -- watcher-serve) and BSV Desktop. Do not run tweet-cycle --live at the same time.')
   console.log(`Allowed dashboard origins: ${[...ORIGINS].join(', ')}`)
   console.log(`Open the dashboard with this link (it carries the owner token; do not share it):`)
