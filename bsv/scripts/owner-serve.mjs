@@ -160,7 +160,7 @@ const STEPS = {
     { key: 'settle', label: 'Settle record on Base (finds the BSV receipt first)', exec: async (job) => {
       if (API3_REMOTE) {
         // The remote service started settling right after the intent; wait for it here.
-        const end = Date.now() + 10 * 60_000
+        const end = Date.now() + 16 * 60_000 // the remote settle waits up to 15 min for the BSV receipt
         while (Date.now() < end) {
           try {
             const st = await remote(`/intent/${job.intentId}`)
@@ -170,7 +170,7 @@ const STEPS = {
           } catch (e) { job.current.message = `API3 agent service: ${String(e.message || e)}` }
           await new Promise((r) => setTimeout(r, 4000))
         }
-        return { ok: false, message: 'settle did not finish within 10 minutes' }
+        return { ok: false, message: 'settle did not finish within 16 minutes' }
       }
       const r = await api3(['src/tweet-cycle.ts', '--live', '--settle-only', job.intentId], job)
       const b = BASE_TX.exec(r.out)

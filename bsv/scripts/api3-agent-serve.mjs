@@ -30,7 +30,7 @@ const HOST = process.env.AGENT_HOST ?? '127.0.0.1'
 const TOKEN = process.env.AGENT_TOKEN ?? randomBytes(18).toString('hex')
 const MAX_RUNS = Number(process.env.AGENT_MAX_RUNS ?? 4)
 const SPEND_TIMEOUT_MS = 3 * 60_000
-const SETTLE_TIMEOUT_MS = 12 * 60_000
+const SETTLE_TIMEOUT_MS = 17 * 60_000 // tweet-cycle gives up on the receipt after 15 min
 const BASE_TX = /sepolia\.basescan\.org\/tx\/(0x[0-9a-fA-F]{64})/
 
 if (!existsSync(path.join(API3_DIR, '.env.agent'))) {
@@ -61,9 +61,11 @@ async function settleInBackground(intentId) {
   const r = await run(['src/tweet-cycle.ts', '--live', '--settle-only', intentId], SETTLE_TIMEOUT_MS)
   const ok = r.code === 0 && /\b(settle-sent|already-settled)\b/.test(r.out)
   const tx = BASE_TX.exec(r.out)
+  // tweet-cycle exits 0 on receipt-timeout too: that means no BSV transaction with this intent's receipt was found.
+  const timedOut = /\breceipt-timeout\b/.test(r.out)
   intents.set(intentId, ok
     ? { state: 'settled', settleTx: tx ? tx[1] : null, message: 'settled on Base', at: Date.now() }
-    : { state: 'failed', settleTx: null, message: lastLine(r.err) || lastLine(r.out) || 'settle failed', at: Date.now() })
+    : { state: 'failed', settleTx: null, message: timedOut ? 'no BSV receipt found within 15 min' : (lastLine(r.err) || lastLine(r.out) || 'settle failed'), at: Date.now() })
   console.log(`[agent-serve] intent ${intentId}: ${intents.get(intentId).state}`)
 }
 
@@ -76,7 +78,9 @@ const send = (res, status, body) => {
 const server = createServer(async (req, res) => {
   if (!tokenOk(req.headers['x-agent-token'])) return send(res, 401, { error: 'missing or wrong agent token' })
   const url = (req.url ?? '').split('?')[0]
-  if (req.method === 'GET' && url === '/health') return send(res, 200, { ok: true, busy, runsLeft: Math.max(0, MAX_RUNS - runs) })
+  // A spend waits until the previous intent is settled: two processes must never sign with the vault-5 key at once.
+  const settling = [...intents.values()].some((x) => x.state === 'settling')
+  if (req.method === 'GET' && url === '/health') return send(res, 200, { ok: true, busy: busy || settling, settling, runsLeft: Math.max(0, MAX_RUNS - runs) })
   const m = /^\/intent\/(\d{1,9})$/.exec(url)
   if (req.method === 'GET' && m) {
     const it = intents.get(m[1])
@@ -84,6 +88,7 @@ const server = createServer(async (req, res) => {
   }
   if (req.method === 'POST' && url === '/spend') {
     if (busy) return send(res, 409, { error: 'a spend is already running' })
+    if (settling) return send(res, 409, { error: 'the previous intent is still settling on Base; try again when it is settled' })
     if (runs >= MAX_RUNS) return send(res, 429, { error: `this service allows ${MAX_RUNS} spends per start (AGENT_MAX_RUNS)` })
     busy = true
     runs++
