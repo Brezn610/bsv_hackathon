@@ -24,6 +24,7 @@ import { floatLockingScript, internalizeWithdrawal } from '../src/agent/float'
 import { createIntentReader } from '../src/api3/intentReader'
 import { loadBinding, settleTxidArg } from '../src/api3/policyTypes'
 import { MockChain } from '../src/chain/mockChain'
+import { ensureBroadcast } from '../src/chain/ensureBroadcast'
 import { unspentByScript } from '../src/chain/wocUtxos'
 import { openServerWallet, type ServerWallet } from '../src/chain/serverWallet'
 import { config } from '../src/config'
@@ -375,6 +376,13 @@ async function fund(): Promise<void> {
   utxos.push({ outpoint: `${res.txid}.${vout}`, satoshis: sats, beef: Utils.toHex(Array.from(res.tx)), purpose, status: 'live', fundedAt: new Date().toISOString() })
   writeJson(UTXO_FILE, utxos)
   console.log(`Funded: ${woc(res.txid)} (output ${vout})`)
+  reportBroadcast('deposit', await ensureBroadcast(Beef.fromBinary(Array.from(res.tx)), res.txid))
+}
+
+function reportBroadcast(what: string, state: 'seen' | 'posted' | 'unseen'): void {
+  if (state === 'seen') console.log(`The network has the ${what}.`)
+  else if (state === 'posted') console.log(`BSV Desktop had not broadcast the ${what}; the same signed transaction was posted again and the network has it now.`)
+  else console.error(`WARNING: the network does not show the ${what} yet, even after posting it again. Check BSV Desktop and WhatsOnChain.`)
 }
 
 async function exit(): Promise<void> {
@@ -401,6 +409,9 @@ async function exit(): Promise<void> {
     at: new Date().toISOString()
   })
   console.log(`Owner exit: ${woc(result.txid)}`)
+  const exitBeef = Beef.fromBinary(beef.toBinary())
+  exitBeef.mergeRawTx(result.tx.toBinary())
+  reportBroadcast('owner exit', await ensureBroadcast(exitBeef, result.txid))
 }
 
 async function status(): Promise<void> {
@@ -434,8 +445,18 @@ async function withdraw(intentIdArg?: bigint): Promise<void> {
   const { stored, binding } = loadStoredBinding()
   requireGate1(stored.vaultLockingScript)
   if (!existsSync(path.join(EVIDENCE_DIR, 'owner-exit.json'))) throw new Error('Gate (2): the owner exit has not been proven on mainnet yet')
-  const live = loadUtxos().filter(u => u.status === 'live')
-  if (live.length === 0) throw new Error('No live vault UTXO; fund the vault first')
+  const localLive = loadUtxos().filter(u => u.status === 'live')
+  if (localLive.length === 0) throw new Error('No live vault UTXO; fund the vault first')
+  // The watcher co-signs only coins WhatsOnChain lists as unspent (its own check). A deposit WhatsOnChain has
+  // not listed yet made it refuse the whole spend (intent 13: funded just before the run), so such a coin
+  // waits for a later run and this one spends only the coins the watcher can see.
+  const listed = await unspentByScript(stored.vaultLockingScript).catch(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1_500)) // one retry: WhatsOnChain answers 429 under load
+    return await unspentByScript(stored.vaultLockingScript)
+  })
+  const live = localLive.filter(u => listed.get(u.outpoint) === u.satoshis)
+  if (live.length < localLive.length) console.log(`${localLive.length - live.length} vault coin(s) not listed unspent on WhatsOnChain yet; left for a later run`)
+  if (live.length === 0) throw new Error('No vault coin is listed unspent on WhatsOnChain yet (a new deposit shows up within a block); try again shortly')
   // A signed withdrawal from an earlier run: never build a second proposal for this intent.
   const pendingFile = path.join(STATE_DIR, `pending-withdrawal-${intentId}.json`)
   if (existsSync(pendingFile)) {
