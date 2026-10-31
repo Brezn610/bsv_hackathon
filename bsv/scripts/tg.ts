@@ -505,10 +505,10 @@ async function withdraw(intentIdArg?: bigint): Promise<void> {
       utxos: live.map(toVaultUtxo),
       vaultLockingScript: stored.vaultLockingScript,
       floatLockingScript: stored.floatLockingScript,
-      // Every live vault coin is an input, and each extra co-signed input adds about 76 sats of fee at 100 sat/kB:
-      // with a fixed 100-sat reserve, two coins (e.g. after a deposit) made outflow exceed maxSats and the watcher
-      // rightly refused. The spend consolidates the coins, so the next one is back to one input.
-      feeReserveSats: 100 + 90 * (live.length - 1),
+      // Every live vault coin is an input; each extra co-signed input adds about 19 sats of fee at 100 sat/kB (intent 12:
+      // 7 inputs, fee 157). With a fixed 100-sat reserve, several coins (after deposits) made outflow exceed maxSats and
+      // the watcher rightly refused (intent 11). The spend consolidates the coins, so the next one is back to one input.
+      feeReserveSats: 100 + 25 * (live.length - 1),
       broadcast: async tx => {
         const b = Beef.fromBinary(ancestry.toBinary())
         b.mergeRawTx(tx.toBinary())

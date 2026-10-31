@@ -1,7 +1,7 @@
 // A small paid API over HTTP 402 (BRC-121, @bsv/402-pay): the merchant's wallet validates and
 // internalizes the BRC-29 payment before the route runs, so the answer is only released after a
 // valid payment. The content is a deterministic demo answer, labelled as such.
-import type { Server } from 'node:http'
+import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import express from 'express'
 import { createPaymentMiddleware } from '@bsv/402-pay/server'
@@ -49,7 +49,9 @@ export async function startPaidApi(wallet: WalletInterface, opts: { priceSats: n
   })
   const host = opts.host ?? 'localhost'
   const server = await new Promise<Server>(resolve => {
-    const s = app.listen(opts.port ?? 0, host, () => resolve(s))
+    // The payment travels as BEEF in the x-bsv-beef header. With several unconfirmed ancestors (quick runs between
+    // blocks) it outgrows Node's default 16 KB header limit and the request fails with HTTP 431, after the agent paid.
+    const s = createServer({ maxHeaderSize: 1024 * 1024 }, app).listen(opts.port ?? 0, host, () => resolve(s))
   })
   const port = (server.address() as AddressInfo).port
   return {
