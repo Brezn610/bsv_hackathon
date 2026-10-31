@@ -1,16 +1,16 @@
 # Results
 
-**End to end, live:** API3 signed price → SPEND intent on Base Sepolia → watcher checks and co-signs → BSV mainnet vault → Agent Float → the agent's model (DeepSeek) decides → guardian → HTTP 402 payment that spends exactly the withdrawn sats. Intents 2, 4, 5 and 6 each completed `settle` on Base; intent 5 ran through the separate watcher process; intent 6 was triggered by a post and ran unattended (`tg auto`). The owner-only exit is live on mainnet too.
+**End to end, live:** API3 signed price → SPEND intent on Base Sepolia → watcher checks and co-signs → BSV mainnet vault → Agent Float → the agent's model (DeepSeek) decides → guardian → HTTP 402 payment that spends exactly the withdrawn sats. Intents 2, 4, 5, 6, 8 and 9 each completed `settle` on Base; intent 5 ran through the separate watcher process; intents 6, 8 and 9 ran unattended (`tg auto`), intent 6 triggered by a post. The owner-only exit is live on mainnet too.
 
-Revision: see `git log -- bsv` (branch `feat/bsv-treasury-guard`), checked 2026-10-30, Europe/Berlin.
+Revision: see `git log -- bsv` (branch `feat/bsv-treasury-guard`), checked 2026-10-30 (intents 8 and 9: 2026-10-31), Europe/Berlin.
 Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock chain for offline tests.
-"Mined" means seen in a block on WhatsOnChain. Every BSV mainnet transaction below is mined (intent 2 in block 973334, intent 4 in 973339, intent 5 in 973355; checked 30 Oct).
+"Mined" means seen in a block on WhatsOnChain. Every BSV mainnet transaction below is mined (intent 2 in block 973334, intent 4 in 973339, intent 5 in 973355; checked 30 Oct; intent 8 in 973400, intent 9 in 973446; checked 31 Oct).
 
 | Item | Value |
 | --- | --- |
 | API3 contract | `0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773` (Base Sepolia 84532), Base vault ID 5 |
 | Vault 5 on Base | budget $1/day, TTL 900 s; SPEND **intent 2** created by the API3 agent at ~17:37 Berlin ([Base tx](https://sepolia.basescan.org/tx/0x0aa95a723942c63e0463ea8730e4cb2baf8f76ac272b98915c31b8f0130afc90)): `maxSats` 2,896, expiry 16:52:17 UTC |
-| Intents on the contract | #1 (retired vault 2) and #3 (the API3 runner's vault 8): never withdrawn, refused by the watcher (#3 live over HTTP with 422); #2, #4, #5 on vault 5: withdrawn and settled |
+| Intents on the contract | #1 (retired vault 2), #3 and #7 (the API3 runner's vault 8): never withdrawn, refused by the watcher (#3 live over HTTP with 422); #2, #4, #5, #6, #8, #9 on vault 5: withdrawn and settled |
 | BSV vault script | `63210234a2…3fad` (`docs/evidence/gate1.json`), binding `tg-vault-vault-5-v1-2026-10-30` |
 | Agent Float script | intent 2: `76a91419e272af3877858a136f6b5a9c67a390bb13b7e088ac` (agent wallet, binding `tg-vault-vault-5-v1-2026-10-30`); intents 4 and 5: `76a914000d3c59311f64d8806fb5bf5a1daaf0dd15b27988ac` (dedicated float wallet, binding `…+float-wallet` after `tg rebind-float`; vault script unchanged) |
 
@@ -36,6 +36,14 @@ Networks: **BSV mainnet** (money) | **Base Sepolia testnet** (decisions). Mock c
 | **Tweet-triggered rehearsal, unattended (`tg auto`): intent 6** | [`bbbd9137…52ec`](https://whatsonchain.com/tx/bbbd9137a1275ebbac968aa277c289cf775635d0bc9942f7145e7c88f37552ec) | A post by @956_kakashi ("Treasury Guard rehearsal – risk check", tweet `2116295879288311875`) was verified on Base by the API3 side with the verdict **forced to IGNORE** (so no hedge, vault 5 stays NORMAL), then SPEND intent 6 was created ([`0x23c75a3d…5b81`](https://sepolia.basescan.org/tx/0x23c75a3d4a47af33c909a9908c4d965fd603ca0b2a64bd1f420040cc27e75b81), `maxSats` 5,807). `tg auto` (started before the post, `--max-intents 1 --max-sats 7000`) picked it up, the separate watcher answered 200 APPROVE, and the vault paid 5,707 to the float, 18,467 back to the vault, fee 42 (outflow 5,749 ≤ 5,807), receipt `TGv1 … 5 6`. No one typed a command between the post and the purchase. Log: `docs/evidence/auto-cycle-intent-6.jsonl` |
 | Agent buys the Analyst's verdict on that same account | [`abe8f2e9…70d5`](https://whatsonchain.com/tx/abe8f2e90f4c4a52920f467abeb5797ec36d52836d6768c3bf1d1f0da12170d5) | DeepSeek BUY; guardian approved; only input `bbbd9137…:0`; 100 sats to the Analyst, 5,584 change, fee 23; answer: the rehearsal post, verdict 0 "ignore", API3-signed (request hash `0x2aa759a5…` = the `956_kakashi` feed) (`docs/evidence/http402-intent-6-analyst.json`) |
 | `settle(6, 0xbbbd9137…)` on Base Sepolia | [`0xfc733737…58ea`](https://sepolia.basescan.org/tx/0xfc733737edfba6d77f586829c85bf53828d00104667cabfe27c113199fbb58ea) | block 52387107; `getIntent(6).settled = true`, `bsvTxid` matches; found by the API3 side through the `TGv1` receipt. Both BSV txs mined |
+| Owner funds the vault with 30,000 sats | [`4a13c535…5b62`](https://whatsonchain.com/tx/4a13c535ddd0ad01374bb53121aebf59cf0f738360426080f31b858804f15b62) | BSV Desktop; mined in block 973380; the vault then holds 48,467 sats |
+| **Unattended run (`tg auto`): intent 8** | [`8519e252…108b`](https://whatsonchain.com/tx/8519e252e0d0659bbdec889bee0adb273d5cd9608975a19348c6789dc11a108b) | SPEND intent 8 ([created on Base](https://sepolia.basescan.org/tx/0x1e9b4b3d2097e2e7be7504d9ff7f790b5e15cafee603944c997422ef639cc2b3), `maxSats` 5,723 = $0.001 at $17.47159642/BSV). `tg auto --max-intents 1 --max-sats 7000` picked it up; the separate watcher answered 200 APPROVE. Spends `bbbd9137…:1` and `4a13c535…:0` (48,467): 5,623 to the float, 42,783 back to the vault, fee 61 (outflow 5,684 ≤ 5,723), receipt `TGv1 … 5 8`; 1,647 ms from intent read to broadcast; mined in block 973400 |
+| Agent pays the Analyst; **the Analyst timed out** | [`e4ada6c6…28f6`](https://whatsonchain.com/tx/e4ada6c69c7928ef08751adc6ba8fba6faa1fdf7a98aeced78c3f5c25dc328f6) | DeepSeek BUY; guardian approved; only input `8519e252…:0`; 100 sats to the Analyst, 5,500 change, fee 23; mined in block 973400. The service answered **HTTP 524** (Cloudflare timeout): paid, no answer. The loss is bounded by the guardian's per-payment cap; there is no refund flow. The `tg auto` log says `bought`, meaning paid. Evidence: `docs/evidence/http402-intent-8-analyst.json` |
+| `settle(8, 0x8519e252…)` on Base Sepolia | [`0x1c6c8bbd…d927`](https://sepolia.basescan.org/tx/0x1c6c8bbdfee13ae81041f13998ae1f60217243203384f10c767845ba9444d927) | block 52425426, sent by the vault-5 agent, status success; `getIntent(8).settled = true`, `bsvTxid` matches |
+| **Latest unattended run (`tg auto`): intent 9** | [`e802c195…f6b5`](https://whatsonchain.com/tx/e802c1954ab7006cfac40587fb39ecb101cab454098a711928a17b96f84cf6b5) | SPEND intent 9 ([created on Base](https://sepolia.basescan.org/tx/0x9da0d762cd902937eba19cbcaadb8a5a90af1088d640472577f30c6354f47a8d), `maxSats` 5,874 = $0.001 at $17.02188979/BSV). `tg auto` picked it up; the separate watcher answered 200 APPROVE. Spends `8519e252…:1` (42,783): 5,774 to the float, 36,967 back to the vault, fee 42 (outflow 5,816 ≤ 5,874), receipt `TGv1 … 5 9`; 1,265 ms from intent read to broadcast; mined in block 973446 |
+| Agent pays HTTP 402 from that withdrawal | [`ccb8dc18…431e`](https://whatsonchain.com/tx/ccb8dc1872aab97a6b08dbb6f596a940a17574355aebd34b9f6cd2254f04431e) | DeepSeek BUY; guardian approved; only input `e802c195…:0`; 1,000 sats to the local demo merchant, 4,751 change, fee 23; HTTP 200 in 1,623 ms; mined in block 973446 |
+| `settle(9, 0xe802c195…)` on Base Sepolia | [`0xa23646e0…5eb6`](https://sepolia.basescan.org/tx/0xa23646e0941ae931a25024e862e6b20dc0d95d65f0195d133c4e2c5413475eb6) | block 52575312, sent by the vault-5 agent, status success; `getIntent(9).settled = true`, `bsvTxid` matches |
+| Refusal over HTTP, no money moved | — | `withdraw --intent 9` again → 409 "intent is already settled on Base; journal already holds this intent as broadcast" (`docs/evidence/watcher-decisions-intent-9.json`). Log of both runs: `docs/evidence/auto-cycle-intents-8-9.jsonl` |
 | Atomic swap-and-pay | [`ee2a3896…8e8c`](https://whatsonchain.com/tx/ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c) | rail baseline, earlier on 30 Oct: 1,000 sats to the maker, 1 pUSD to the merchant, fee 66, one tx. Price was a fixed 1,000 sats; the signed-rate `executeSwap` wrapper is **offline only** |
 
 ## Gate (1), exact mainnet script, offline: PASS 12/12
@@ -60,7 +68,7 @@ insufficient sats.
 - Mocked: the SPEND intent in `integration-mock.test.ts` and `watcher-policy.test.ts` (shape and
   values as `getIntent` returns them); the swap's signed rate ($20.00 fixture) in `execute-swap.test.ts`.
 - The paid API is a local demo merchant serving a deterministic note, not external data.
-- The mainnet withdrawals for intents 2 and 4 ran with the in-process watcher (same CLI process, separate key file). Intent 5 ran through the separate watcher process (`tg watcher-serve`, HTTP on 127.0.0.1), on the same machine.
+- The mainnet withdrawals for intents 2 and 4 ran with the in-process watcher (same CLI process, separate key file). Intents 5, 6, 8 and 9 ran through the separate watcher process (`tg watcher-serve`, HTTP on 127.0.0.1), on the same machine.
 - Blocks: `cdcbf706`, `db5ca41c`, `c1f97102` in 973333; `43c8255e`, `ae35d469` in 973334 (checked 18:01 Berlin); `452a42b4`, `54082a71` in 973339 (checked 18:55 Berlin).
 - The first HTTP 402 payment `43c8255e` came from the agent's existing balance. The second, `54082a71`, spends the intent-4 withdrawal output directly (dedicated float wallet).
 - "One transaction instead of two" for swap-and-pay is a structural property; no fee saving is claimed.
@@ -75,23 +83,24 @@ insufficient sats.
 - Live loop: signed price → intent 2 on Base → co-signed vault withdrawal on BSV mainnet → `settle(2)` on Base, verified from both sides.
 - Live loop with the agent's model: intent 4 → withdrawal `452a42b4` into the float wallet → DeepSeek BUY → guardian → HTTP 402 `54082a71`, whose only input is the withdrawal's float output → `settle(4)` on Base, verified from both sides.
 - Same loop through the separate watcher process (`tg watcher-serve`, HTTP): intent 5 → `85b74fb5` → HTTP 402 `6cf0ff26` → `settle(5)`; refusals over HTTP: 409 (intent 5 replayed), 422 (intent 3, vault 8).
+- Unattended runs with `tg auto` (31 Oct): intent 8 → `8519e252` → Analyst paid, HTTP 524 → `settle(8)`; intent 9 → `e802c195` → HTTP 402 `ccb8dc18` → `settle(9)`; replaying intent 9 → 409.
 - Sats HTTP 402 payment on mainnet; `executeSwap` safety wrapper with negative tests.
 - INTEGRATION, SAFETY_AND_TRUST, DEMO_RUNBOOK, RESULTS, SUBMISSION docs.
 
 **NOT_COMPLETED**
 - The signed-rate swap (`executeSwap`) has not run on mainnet; the mainnet swap `ee2a3896` used a fixed price.
 - The separate watcher process runs on the same machine as the agent, not on a separate host.
-- No automatic intent subscription service: `tg withdraw --intent N` and `tg buy` are one repeatable CLI cycle, and the API3 side calls `settle` by hand.
+- No hosted intent service: `tg auto` is a bounded CLI loop the operator starts (`--max-intents`, `--max-sats`); the API3 side's runner finds the `TGv1` receipt and calls `settle`.
 - Agent and watcher keys are on one machine run by one operator; the owner exit protects the owner, but the two spending keys are not yet held by independent parties.
 - Demo video and organizer confirmation of the pre-event code rules.
 
 **TESTED**: 70/70 offline tests, 2/2 live Base reads, `tsc` clean, gate (1) 12/12 on the exact mainnet script.
 
-**LIVE VERIFIED**: every transaction in the tables above, checked on WhatsOnChain and Basescan; `getIntent(2)`, `getIntent(4)` and `getIntent(5)` read back after `settle`.
+**LIVE VERIFIED**: every transaction in the tables above, checked on WhatsOnChain and Basescan; `getIntent` read back after `settle` for intents 2, 4, 5, 6, 8 and 9.
 
 **BLOCKERS**: none for the BSV side. PR #1 (API3) must merge before PR #2 is retargeted to `main`.
 
-**RISK**: one watcher (liveness only, the owner exit is proven); the vault holds 18,467 sats (change output `bbbd9137…:1`, after intent 6), recoverable by the owner with `tg exit`; local `bsv/data/` (vault UTXO BEEF, journal) is not in git and should be backed up.
+**RISK**: one watcher (liveness only, the owner exit is proven); the vault holds 36,967 sats (one confirmed output `e802c195…:1`, after intent 9; checked 31 Oct), recoverable by the owner with `tg exit`; local `bsv/data/` (vault UTXO BEEF, journal) is not in git and should be backed up.
 
 **NEXT ACTION**: merge PR #1 → retarget PR #2; record the video; submit with `docs/SUBMISSION.md`; optionally `tg exit` after judging.
 
