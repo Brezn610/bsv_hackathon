@@ -371,3 +371,128 @@ body { font-size: 15px; line-height: 1.6; }
 }
 /* Hidden screen-reader labels inside the scrolling ledger must stay inside it (otherwise the page widens on phones). */
 .table-wrap { position: relative; }
+
+/* ===================================================================== reference theme
+   Charcoal base, large rounded cards with hairline borders, one burnt-orange accent and one solid orange tile,
+   pill buttons, a left sidebar on desktop, faint line-art circles. No gradients. Data and markup unchanged. */
+:root {
+  --bg: #f4f2ee;
+  --surface: #ffffff;
+  --surface-2: #efece6;
+  --side: #fbfaf8;
+  --text: #232427;
+  --muted: #5f6268;
+  --border: #e4e0d8;
+  --accent: #b8481a;
+  --focus: #b8481a;
+  --ok: #b8481a;
+  --bad: #b3261e;
+  --tile: #c54a1a;
+  --on-tile: #ffffff;
+  --soft-accent: #f7e6dc;
+  --soft-bad: #f7e1df;
+  --radius: 22px;
+  --sans: "Inter", "Manrope", "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", "Ubuntu", system-ui, sans-serif;
+  --line-art: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%23000' stroke-opacity='.08'%3E%3Cellipse cx='120' cy='100' rx='80' ry='80'/%3E%3Cellipse cx='124' cy='100' rx='72' ry='76'/%3E%3Cellipse cx='128' cy='100' rx='64' ry='72'/%3E%3Cellipse cx='132' cy='100' rx='56' ry='68'/%3E%3Cellipse cx='136' cy='100' rx='48' ry='64'/%3E%3Cellipse cx='140' cy='100' rx='40' ry='60'/%3E%3Cellipse cx='144' cy='100' rx='32' ry='56'/%3E%3C/svg%3E");
+  --tile-art: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%23fff' stroke-opacity='.22'%3E%3Ccircle cx='200' cy='200' r='60'/%3E%3Ccircle cx='200' cy='200' r='80'/%3E%3Ccircle cx='200' cy='200' r='100'/%3E%3Ccircle cx='200' cy='200' r='120'/%3E%3Ccircle cx='200' cy='200' r='140'/%3E%3Ccircle cx='200' cy='200' r='160'/%3E%3C/svg%3E");
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #1b1c1f;
+  --surface: #232427;
+  --surface-2: #2b2c30;
+  --side: #1f2023;
+  --text: #ececec;
+  --muted: #9b9ea4;
+  --border: #303236;
+  --accent: #f07a45;
+  --focus: #f07a45;
+  --ok: #f07a45;
+  --bad: #ff7a7a;
+  --tile: #c54a1a;
+  --on-tile: #ffffff;
+  --soft-accent: #3a2a22;
+  --soft-bad: #3d2526;
+  --line-art: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%23fff' stroke-opacity='.09'%3E%3Cellipse cx='120' cy='100' rx='80' ry='80'/%3E%3Cellipse cx='124' cy='100' rx='72' ry='76'/%3E%3Cellipse cx='128' cy='100' rx='64' ry='72'/%3E%3Cellipse cx='132' cy='100' rx='56' ry='68'/%3E%3Cellipse cx='136' cy='100' rx='48' ry='64'/%3E%3Cellipse cx='140' cy='100' rx='40' ry='60'/%3E%3Cellipse cx='144' cy='100' rx='32' ry='56'/%3E%3C/svg%3E");
+  color-scheme: dark;
+}
+body { font-family: var(--sans); background: var(--bg); }
+.mono, .step-link, .proposal { font-family: var(--mono); }
+
+/* Big numerals: light, wide, sans. */
+.big { font-weight: 500; letter-spacing: -1.6px; text-align: left; }
+.big .num, .numl { font-family: var(--sans); font-variant-numeric: tabular-nums; }
+.page-heading h2 { font-size: 30px; font-weight: 500; letter-spacing: -.6px; }
+
+/* Pill buttons. */
+.btn { border-radius: 999px; padding: 9px 20px; border-color: var(--border); background: transparent; }
+.btn:hover { border-color: var(--accent); color: var(--text); }
+
+/* Every panel is a large rounded card. */
+.run, .card-feed, .ledger-section, .account-summary > article, .support-section, .card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.card-feed, .ledger-section, .account-summary > article, .card { padding: 22px 24px; }
+.card-feed, .ledger-section { border-top: 1px solid var(--border); }
+.support-section { padding: 16px 24px; margin-top: 16px; }
+.support-section[open] { padding-bottom: 24px; }
+.monitor-grid { column-gap: 20px; row-gap: 20px; grid-template-columns: minmax(0, 1fr) 320px; }
+.account-summary { padding-left: 0; border-left: 0; display: grid; gap: 20px; align-content: start; }
+.account-summary article + article { border-top: 1px solid var(--border); margin-top: 0; padding-top: 22px; }
+.card-head h3, .account-summary h3 { font-size: 17px; font-weight: 500; }
+
+/* The vault balance is the one solid orange tile, with line art in its corner. */
+#vault-card {
+  background: var(--tile) var(--tile-art) no-repeat right -40px bottom -40px / 220px 220px;
+  border-color: var(--tile);
+  color: var(--on-tile);
+}
+#vault-card *, #vault-card a { color: var(--on-tile); }
+#vault-card .big { font-size: 46px; }
+
+/* Line art behind the run's heading, like the reference's revenue card. */
+.run-timeline { background: var(--line-art) no-repeat right -90px top -150px / 300px 300px; }
+
+/* Run list and timeline in the reference's tones. */
+.run { border-radius: var(--radius); background: var(--surface); }
+.run-nav { background: var(--side); }
+.run-item[aria-current="true"] { background: var(--surface-2); border-left-color: var(--accent); }
+.run-status-complete, .run-status-running { background: var(--soft-accent); color: var(--accent); }
+.run-status-stopped { background: var(--soft-bad); color: var(--bad); }
+.step-done .step-dot { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.step-done::before { background: var(--accent); opacity: .5; }
+.step-failed .step-dot { background: var(--bad); border-color: var(--bad); color: var(--bg); }
+.run-waiting { background: var(--surface-2); border-radius: 999px; padding: 10px 18px; }
+.meter .bar-fill { background: var(--accent); }
+
+/* Activity rows like the reference's feed: hairline dividers, small orange dot on new rows. */
+.dec { border-top-color: var(--border); }
+.dec.is-new .dec-intent::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 8px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+
+/* ---------- desktop: the header becomes a left sidebar ---------- */
+@media (min-width: 1101px) {
+  .top {
+    position: fixed; inset: 0 auto 0 0; width: 248px; padding: 0;
+    display: flex; flex-direction: column;
+    background: var(--side); border-bottom: 0; border-right: 1px solid var(--border);
+    z-index: 3; overflow-y: auto;
+  }
+  .top-row { display: contents; }
+  .brand { order: 1; flex-direction: column; align-items: flex-start; gap: 14px; padding: 30px 26px 28px; }
+  .brand h1 { font-size: 19px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .brand h1::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--soft-accent); }
+  .chips { flex-direction: column; gap: 6px; }
+  .tabs { order: 2; flex-direction: column; gap: 2px; overflow: visible; border: 0; margin: 0; }
+  .tabs [role="tab"] {
+    text-align: left; padding: 13px 26px; min-height: 0; border: 0; border-right: 3px solid transparent;
+    color: var(--muted); font-size: 15px;
+  }
+  .tabs [role="tab"]:hover { color: var(--text); background: var(--surface-2); }
+  .tabs [aria-selected="true"] { color: var(--text); background: var(--surface-2); border-right-color: var(--accent); border-bottom: 0; }
+  .top-status { order: 3; margin-top: auto; flex-direction: column; align-items: flex-start; gap: 12px; padding: 22px 26px 28px; border-top: 1px solid var(--border); }
+  .controls { width: 100%; }
+  .controls .btn { width: 100%; }
+  main, .banner, .footer { margin-left: 248px; max-width: none; padding-left: 36px; padding-right: 36px; }
+}

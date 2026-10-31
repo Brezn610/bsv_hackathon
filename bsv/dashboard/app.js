@@ -936,7 +936,8 @@
   const initControls = () => {
     const stored = (() => { try { return localStorage.getItem('tg.theme'); } catch { return null; } })();
     const q = params.get('theme');
-    const theme = q === 'dark' || q === 'light' ? q : stored || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    // Dark is the designed default; a saved choice or ?theme= still wins.
+    const theme = q === 'dark' || q === 'light' ? q : stored || 'dark';
     const apply = (t) => {
       document.documentElement.dataset.theme = t;
       const b = $('#theme-toggle');
