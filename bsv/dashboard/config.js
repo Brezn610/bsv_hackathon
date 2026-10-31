@@ -61,6 +61,7 @@ window.TG_CONFIG = Object.freeze({
     "floatAddress": "11GrdqLCiF1WtzhXqPo5bBb2jCfCTMz8z",
     "floatScript": "76a914000d3c59311f64d8806fb5bf5a1daaf0dd15b27988ac",
     "earlierFloatScript": "76a91419e272af3877858a136f6b5a9c67a390bb13b7e088ac",
+    "swapAndPay": { "txid": "ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c", "makerVout": 0, "merchantVout": 1 },
     "paymentOutcomes": {
       "54082a714816ce2e9b2a67c23c5e04da67c2f93b8df30136b7126b715802b320": { "http": 200, "merchant": "team demo merchant" },
       "6cf0ff26409e0173d663ad2893a4e3d24306defd9fa81a01882d64de3d2a6134": { "http": 200, "merchant": "team demo merchant" },

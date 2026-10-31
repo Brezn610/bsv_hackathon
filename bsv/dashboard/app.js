@@ -1150,6 +1150,148 @@
     ]);
   };
 
+
+  // ---------------------------------------------------------------- agent, re-check, swap, stack
+  // The agent's decision for the payment on screen, from its own log (bsv/data/evidence via the owner server).
+  const renderAgentCard = (rows) => {
+    const el = $('#agent-card');
+    const runs = rows;
+    const sel = runs.find((r) => r.id === S.selectedRun) || runs[0];
+    const ptx = sel?.payment?.txid;
+    const log = S.agentLog || [];
+    const e = (ptx && log.find((x) => x.paymentTxid === ptx)) || (S.selectedRun ? null : log[0]) || null;
+    mount(el, stringify([e, ptx, !!ownerToken, S.agentLogErr]), () => {
+      const out = [head('agent-title', 'The agent’s decision', h('span', { class: 'src', title: 'From the agent’s own log (tg buy), served by the owner server on the demo laptop. The payment itself is on chain.' }, 'agent log'))];
+      if (!ownerToken) { out.push(h('p', { class: 'state' }, 'Shown when the owner server is connected: the agent’s log stays on the demo laptop.')); return out; }
+      if (!e) { out.push(h('p', { class: 'state' }, S.agentLogErr ? 'Agent log unavailable.' : log.length ? 'No log entry for this payment.' : 'Reading the agent log…')); return out; }
+      const g = e.guardian;
+      out.push(h('div', { class: 'agent-grid' },
+        h('div', { class: 'ag' }, h('p', { class: 'ag-label' }, '1 · Task'), h('p', { class: 'ag-text' }, e.task || '—')),
+        h('div', { class: 'ag' }, h('p', { class: 'ag-label' }, '2 · The model decides'),
+          e.decision ? [h('p', { class: `verdict ${e.decision.buy ? 'verdict-ok' : 'verdict-warn'}` }, e.decision.buy ? 'Buy' : 'Skip'), h('p', { class: 'ag-quote' }, `“${e.decision.reason}”`), h('p', { class: 'ag-by' }, `decided by ${e.decision.by || 'the model'}`)] : h('p', { class: 'ag-text' }, '—')),
+        h('div', { class: 'ag' }, h('p', { class: 'ag-label' }, '3 · The guardian checks'),
+          g ? [h('p', { class: `verdict ${g.decision === 'approve' ? 'verdict-ok' : 'verdict-bad'}` }, g.decision === 'approve' ? 'Approved' : 'Blocked'),
+            h('ul', { class: 'ag-checks' }, (g.findings.length ? g.findings : g.reasons.map((r) => ({ rule: 'rules', severity: 'ok', detail: r }))).map((f) => h('li', { class: f.severity === 'ok' ? 'ok-item' : 'bad-item', title: f.detail }, f.rule === 'declared-intent' ? 'Matches the declared intent' : f.rule === 'merchant' ? 'Merchant is allowlisted' : f.detail))),
+            g.risk !== null ? h('p', { class: 'ag-by' }, `risk ${g.risk} / 100 · price and caps within the rules`) : null] : h('p', { class: 'ag-text' }, '—')),
+        h('div', { class: 'ag' }, h('p', { class: 'ag-label' }, '4 · Paid and received'),
+          e.paid ? [h('p', { class: `verdict ${e.status === 200 ? 'verdict-ok' : 'verdict-bad'}` }, `HTTP ${e.status ?? '—'}`),
+            h('p', { class: 'ag-text' }, `${e.priceSats !== null ? `${group(e.priceSats)} sats` : 'paid'} to the ${e.merchant || 'merchant'}${e.ms !== null ? ` · answered in ${(e.ms / 1000).toFixed(1)} s` : ''}`),
+            e.paymentTxid ? h('p', { class: 'pn-link' }, wocTx(e.paymentTxid)) : null,
+            e.received ? h('p', { class: 'ag-by', title: e.received.note }, `received: ${e.received.kind || e.received.note}`) : e.status !== 200 ? h('p', { class: 'ag-by' }, 'no data came back') : null]
+            : h('p', { class: 'ag-text' }, 'Nothing paid.'))));
+      return out;
+    });
+  };
+
+  // The newest withdrawal, checked again in the browser from the BSV transaction and the intent on Base.
+  const renderRecheck = () => {
+    const el = $('#recheck-card');
+    const w = S.hist.rows.find((r) => r.kind === 'withdraw');
+    const t = w ? S.txJson.get(w.txid) : null;
+    const it = w?.intentId ? S.chain.intents.get(w.intentId) : null;
+    const vhex = S.vaultScript?.hex;
+    mount(el, stringify([w, !!t, it && [it.maxSats, it.settled, it.bsvTxid], !!vhex]), () => {
+      const out = [head('recheck-title', 'Latest withdrawal, re-checked from the chain', srcBadge('history', 'WhatsOnChain + Base'))];
+      out.push(h('p', { class: 'card-sub' }, 'This page re-runs the watcher’s checks on the real transaction: it reads the BSV transaction from WhatsOnChain and the intent from TreasuryGuard on Base. Nothing here trusts the watcher’s word.'));
+      if (!w || !t || !vhex) { out.push(h('p', { class: 'state' }, 'Reading the newest withdrawal…')); return out; }
+      const ins = (t.vin || []).map((i) => {
+        const pt = S.txJson.get(i.txid);
+        const o = pt?.vout?.find((x) => x.n === i.vout);
+        return { vault: o?.scriptPubKey?.hex === vhex, sats: C.satsOf(o?.value), path: C.unlockPath(i.scriptSig?.hex) };
+      });
+      const outs = (t.vout || []).map((o) => {
+        const hex = o?.scriptPubKey?.hex || '';
+        const kind = hex === EV.bsv.floatScript ? 'agent' : hex === vhex ? 'vault' : /^(00)?6a/.test(hex) ? 'receipt' : 'other';
+        return { kind, sats: C.satsOf(o.value) };
+      });
+      const rc = C.findReceipt(t);
+      const toAgent = outs.filter((o) => o.kind === 'agent').reduce((a, o) => a + (o.sats ?? 0n), 0n);
+      const change = outs.filter((o) => o.kind === 'vault').reduce((a, o) => a + (o.sats ?? 0n), 0n);
+      const fee = w.fee;
+      const max = it?.maxSats ?? null;
+      const checks = [
+        ['Unlocked by agent + watcher', ins.length > 0 && ins.every((i) => i.vault && i.path === 'cosign'), 'both signatures in the vault input'],
+        ['Pays the registered agent wallet', toAgent > 0n, `${group(toAgent)} sats to the agent’s float`],
+        ['Inside the limit from Base', max !== null && fee !== null && toAgent + fee <= max, max !== null && fee !== null ? `${group(toAgent)} + ${group(fee)} fee ≤ ${group(max)}` : 'reading the intent…'],
+        ['Change goes back to the vault', change > 0n, `${group(change)} sats to the same script`],
+        ['Receipt names this intent', !!rc && String(rc.intentId) === String(w.intentId) && rc.contract === EV.base.contract.toLowerCase(), rc ? `intent ${rc.intentId} on TreasuryGuard` : 'no receipt'],
+        ['Base record matches', !!it?.settled && it.bsvTxid.toLowerCase() === `0x${w.txid}`, it?.settled ? `intent ${w.intentId} settled with this txid` : 'not settled yet']
+      ];
+      const label = { agent: 'to the agent', vault: 'change → vault', receipt: 'receipt', other: 'other' };
+      out.push(h('div', { class: 'recheck' },
+        h('div', { class: 'txa' },
+          h('div', { class: 'txa-col' }, h('p', { class: 'txa-head' }, 'In'), ins.map((i) => h('div', { class: `txa-io ${i.vault ? 'io-vault' : ''}` }, h('span', null, i.vault ? 'Vault coin' : 'Input'), h('strong', null, i.sats !== null ? group(i.sats) : '—'), h('span', { class: 'io-sub' }, i.path === 'cosign' ? 'agent + watcher' : i.path === 'owner' ? 'owner' : '')))),
+          h('div', { class: 'txa-mid', 'aria-hidden': 'true' }, h('span', { class: 'txa-arrow' }), h('div', { class: 'txa-tx' }, h('span', null, 'Transaction'), wocTx(w.txid), h('span', { class: 'io-sub' }, fee !== null ? `fee ${group(fee)} sats` : '')), h('span', { class: 'txa-arrow' })),
+          h('div', { class: 'txa-col' }, h('p', { class: 'txa-head' }, 'Out'), outs.map((o) => h('div', { class: `txa-io io-${o.kind}` }, h('span', null, label[o.kind]), h('strong', null, o.kind === 'receipt' ? (rc ? `intent ${rc.intentId}` : 'OP_RETURN') : group(o.sats ?? 0n)), h('span', { class: 'io-sub' }, o.kind === 'receipt' ? 'TGv1 receipt' : 'sats'))))),
+        h('ul', { class: 'rc-list' }, checks.map(([name, ok, detail]) => h('li', { class: ok ? 'rc-ok' : 'rc-bad' }, h('span', { class: 'rc-mark', 'aria-hidden': 'true' }, ok ? '✓' : '✕'), h('div', null, h('p', { class: 'rc-name' }, name), h('p', { class: 'rc-detail' }, detail)))))));
+      return out;
+    });
+  };
+
+  // Swap-and-pay: one mainnet transaction where sats buy a token and the token goes straight to a merchant.
+  const SWAP = EV.bsv.swapAndPay;
+  let swapLoading = false;
+  const loadSwap = async () => {
+    if (!SWAP || swapLoading || S.swapDone) return;
+    swapLoading = true;
+    try {
+      const t = await getTx(SWAP.txid);
+      for (const i of t.vin || []) await getTx(i.txid);
+      S.swapDone = true;
+    } catch { /* retried when the view opens again */ } finally { swapLoading = false; render(); }
+  };
+  // A token output: <pubkey> OP_CHECKSIG <assetId> <amount> <metadata JSON> OP_2DROP OP_DROP (a PushDrop).
+  const decodeToken = (hex) => {
+    const b = (hex.match(/../g) || []).map((x) => parseInt(x, 16));
+    const pushes = [];
+    for (let i = 0; i < b.length;) {
+      const op = b[i++];
+      let n = op >= 1 && op <= 75 ? op : op === 76 ? b[i++] : op === 77 ? b[i++] + (b[i++] << 8) : -1;
+      if (n < 0) continue;
+      pushes.push(new TextDecoder().decode(new Uint8Array(b.slice(i, i + n))));
+      i += n;
+    }
+    const meta = pushes.map((x) => { try { return JSON.parse(x); } catch { return null; } }).find((x) => x && x.name);
+    const mi = pushes.findIndex((x) => { try { return JSON.parse(x)?.name; } catch { return false; } });
+    return meta ? { name: meta.name, note: meta.note, amount: mi > 0 ? pushes[mi - 1] : null } : null;
+  };
+  const renderSwap = () => {
+    const el = $('#swap-card');
+    const t = SWAP ? S.txJson.get(SWAP.txid) : null;
+    mount(el, stringify([!!t, S.swapDone]), () => {
+      const out = [head('swap-title', 'Swap-and-pay', h('span', { class: 'src' }, 'WhatsOnChain'))];
+      out.push(h('p', { class: 'card-sub' }, 'A merchant that only takes a token: in one transaction the agent’s sats buy pUSD from a maker and the token goes straight to the merchant, all or nothing. pUSD is an unbacked demo token. This mainnet run used a fixed price; the swap at a signed API3 rate is tested offline only.'));
+      if (!t) { out.push(h('p', { class: 'state' }, 'Reading the transaction…')); return out; }
+      const outs = t.vout || [];
+      const maker = outs.find((o) => o.n === SWAP.makerVout);
+      const tok = outs.find((o) => o.n === SWAP.merchantVout);
+      const token = tok ? decodeToken(tok.scriptPubKey?.hex || '') : null;
+      const inSum = (t.vin || []).reduce((a, i) => { const o = S.txJson.get(i.txid)?.vout?.find((x) => x.n === i.vout); return a === null || !o ? null : a + C.satsOf(o.value); }, 0n);
+      const outSum = outs.reduce((a, o) => a + C.satsOf(o.value), 0n);
+      out.push(h('p', { class: 'card-sum' }, 'One transaction, all or nothing'));
+      out.push(h('div', { class: 'swap-flow' },
+        h('div', { class: 'mf' }, h('p', { class: 'mf-label' }, 'Agent pays the maker'), h('p', { class: 'mf-value' }, maker ? group(C.satsOf(maker.value)) : '—', h('span', { class: 'unit' }, ' sats')), h('p', { class: 'mf-cap' }, 'output 0')),
+        h('div', { class: 'mf-arrow', 'aria-hidden': 'true' }, h('span', { class: 'mf-line' })),
+        h('div', { class: 'mf mf-vault' }, h('p', { class: 'mf-label' }, 'Merchant receives'), h('p', { class: 'mf-value' }, token ? `${token.amount ?? '?'} ${token.name}` : '—'), h('p', { class: 'mf-cap' }, 'token output 1, decoded from the chain'))));
+      out.push(h('p', { class: 'small muted' }, wocTx(SWAP.txid), inSum !== null ? ` · fee ${group(inSum - outSum)} sats` : '', t.blockheight ? ` · block ${group(t.blockheight)}` : ''));
+      return out;
+    });
+  };
+
+  // Where each part of the BSV stack is used in this project.
+  const STACK = [
+    ['@bsv/sdk', 'the vault script template, signatures, and the script interpreter that checks every spend'],
+    ['@bsv/wallet-toolbox', 'server wallets for the agent, its float and the demo merchant'],
+    ['BSV Desktop (BRC-100)', 'the owner’s wallet: funds the vault and signs the exit'],
+    ['BRC-42/43 keys', 'every vault key is derived for one protocol, never an identity key'],
+    ['@bsv/402-pay', 'the agent pays APIs over HTTP 402'],
+    ['BTMS tokens', 'pUSD for swap-and-pay']
+  ];
+  const renderStack = () => mount($('#stack-card'), 'stack-v1', () => [
+    head('stack-title', 'Built on the BSV stack'),
+    h('ul', { class: 'stack-list' }, STACK.map(([name, use]) => h('li', null, h('strong', null, name), h('span', null, use))))
+  ]);
+
   // ---------------------------------------------------------------- render: transactions (ledger), trust
 
   const STATE_LABEL = {
@@ -1253,6 +1395,7 @@
     if (!ownerToken) { S.owner.state = 'no-token'; render(); return; }
     try {
       S.owner.health = await ownerFetch('/owner/health');
+      if (!S.agentLogAt || Date.now() - S.agentLogAt > 15000) loadAgentLog();
       S.owner.state = S.owner.health.mainnetAllowed ? 'ready' : 'mainnet-off';
       if (S.owner.health.busy && (!S.owner.job || S.owner.job.state !== 'running')) followJob(S.owner.health.busy);
       else if (!S.owner.job && S.owner.health.last) S.owner.job = S.owner.health.last;
@@ -1262,6 +1405,11 @@
     }
     render();
   };
+  const loadAgentLog = async () => {
+    S.agentLogAt = Date.now();
+    try { S.agentLog = await ownerFetch('/agent/decisions'); S.agentLogErr = null; } catch (e) { S.agentLogErr = e.message; }
+    render();
+  };
   let jobTimer = null;
   const stepDone = (j, key) => j?.steps?.find((x) => x.key === key)?.state === 'done';
   // When a step of the server's job finishes, refresh the matching chain reads now instead of on the next poll.
@@ -1269,7 +1417,7 @@
     const newly = (key) => stepDone(j, key) && !stepDone(prev, key);
     if (newly('intent') || newly('settle')) { basePoller?.now(); logPoller?.now(); }
     if (newly('withdraw') || newly('fund') || newly('exit')) { vaultPoller?.now(); basePoller?.now(); historyPoller?.now(); }
-    if (newly('buy') && j.intentId) { S.payments.delete(String(j.intentId)); readPayment(String(j.intentId)); }
+    if (newly('buy') && j.intentId) { S.payments.delete(String(j.intentId)); readPayment(String(j.intentId)); loadAgentLog(); }
   };
   const followJob = (job) => {
     S.owner.job = job;
@@ -1520,9 +1668,9 @@
       const rows = pipelineRows();
       const tab = currentTab();
       renderHeader();
-      if (tab === 'overview') { renderLanes(rows); renderRun(rows); renderGuarantees(rows); renderDecisions(); renderAgentBar(); }
+      if (tab === 'overview') { renderLanes(rows); renderRun(rows); renderAgentCard(rows); renderGuarantees(rows); renderDecisions(); renderAgentBar(); }
       if (tab === 'api3') { renderPrice(); renderLimit(); renderLab(); renderBreaker(); renderNews(); renderOracle(); }
-      if (tab === 'bsv') { renderScript(); renderVault(); renderWithdrawals(); renderHistory(); renderCosts(rows); renderPayments(rows); }
+      if (tab === 'bsv') { renderScript(); renderVault(); renderWithdrawals(); renderRecheck(); renderSwap(); renderStack(); renderHistory(); renderCosts(rows); renderPayments(rows); }
       if (tab === 'owner') renderOwnerTab();
       if (tab === 'evidence') { renderPipeline(rows); renderTrust(); }
       renderFooter();
@@ -1587,6 +1735,7 @@
     if (name === 'overview' && location.hash) history.replaceState(null, '', location.pathname + location.search);
     if (name === 'api3') { fetchOtherRegimes(); logPoller?.now(); loadPosts(); }
     if (name === 'evidence') fetchEvidenceTx();
+    if (name === 'bsv') loadSwap();
     if (name === 'owner' || name === 'overview') ownerCheck();
     window.scrollTo({ top: 0 });
     render();

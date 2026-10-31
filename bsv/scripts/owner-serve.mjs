@@ -19,7 +19,7 @@
 // Plain Node (no dependencies), so it runs without a build step.
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -57,6 +57,29 @@ const JOB_TIMEOUT_MS = 5 * 60_000 // BSV Desktop waits for the owner to approve;
 // Same caps as `tg fund`; `tg` enforces them again. The exit-proof evidence decides which one applies.
 const EXIT_EVIDENCE = path.join(BSV_DIR, 'data', 'evidence', 'owner-exit.json')
 const fundCap = () => (existsSync(EXIT_EVIDENCE) ? 50_000 : 5_000)
+
+// The agent's own log of each purchase (written by `tg buy`): the task, the model's decision and reason, the guardian's
+// checks and what came back. Read-only; only these fields leave this machine.
+const EVIDENCE_DIR = path.join(BSV_DIR, 'data', 'evidence')
+const clip = (v, n = 400) => (typeof v === 'string' ? v.slice(0, n) : v)
+function agentDecisions() {
+  let files = []
+  try { files = readdirSync(EVIDENCE_DIR).filter((f) => /^http402-\d+\.json$/.test(f)) } catch { return [] }
+  return files.map((f) => {
+    try {
+      const e = JSON.parse(readFileSync(path.join(EVIDENCE_DIR, f), 'utf8'))
+      const g = e.guardian || {}
+      return {
+        at: clip(e.at, 40), task: clip(e.task), status: Number.isInteger(e.status) ? e.status : null, paid: e.paid !== false && !!e.paymentTxid,
+        paymentTxid: typeof e.paymentTxid === 'string' && /^[0-9a-f]{64}$/.test(e.paymentTxid) ? e.paymentTxid : null,
+        priceSats: Number.isInteger(e.priceSats) ? e.priceSats : null, merchant: clip(e.merchant, 80), ms: Number.isInteger(e.msRequestToAnswer) ? e.msRequestToAnswer : null,
+        decision: e.decision ? { buy: !!e.decision.buy, reason: clip(e.decision.reason), by: clip(e.decision.decidedBy, 40) } : null,
+        guardian: e.guardian ? { decision: clip(g.decision, 20), risk: Number.isFinite(g.risk) ? g.risk : null, reasons: (g.reasons || []).slice(0, 3).map((r) => clip(r, 200)), findings: (g.findings || []).slice(0, 6).map((x) => ({ rule: clip(x.rule, 40), severity: clip(x.severity, 20), detail: clip(x.detail, 200) })) } : null,
+        received: e.body && typeof e.body === 'object' ? { kind: clip(e.body.kind, 120), note: clip(e.body.note ?? e.body.summary ?? '', 240) } : null
+      }
+    } catch { return null }
+  }).filter(Boolean).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 20)
+}
 
 const jobs = new Map()
 let running = null
@@ -224,6 +247,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url === '/owner/health') {
       return send(res, 200, { ok: true, mainnetAllowed: MAINNET, fundCap: fundCap(), agentCyclesLeft: Math.max(0, MAX_AGENT_CYCLES - agentCycles), api3: API3_REMOTE ? 'remote' : 'local', busy: summary(running), last: summary([...jobs.values()].at(-1)) }, allowed)
     }
+    if (req.method === 'GET' && url === '/agent/decisions') return send(res, 200, agentDecisions(), allowed)
     const jm = /^\/owner\/jobs\/(\d+)$/.exec(url)
     if (req.method === 'GET' && jm) {
       const j = jobs.get(jm[1])
