@@ -25,6 +25,9 @@
     replayAt: '08:55:46 UTC', exitBack: '2,960', exitFee: '40', exitTx: 'db5ca41c…d41e', fund: '5,000', fundTx: 'c1f97102…6ad4'
   };
 
+  // Fees of one recorded cycle (intent 14, 31 Oct 2026), read from WhatsOnChain: inputs minus outputs.
+  const REC_FEES = { withdraw: 62, withdrawTx: 'c3dfc085…c97d', paid: 1000, pay: 23, payTx: '6f14c69a…906b', exit: 40, exitTx: 'db5ca41c…d41e' };
+
   // ---------------------------------------------------------------- reading the page (text it already shows)
 
   const txt = (el) => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
@@ -428,6 +431,34 @@
       }
     },
 
+    fees: {
+      kicker: 'BSV · FEES PER ACTION', kickerCls: 'k-bsv',
+      title: [['the fee is a sliver ', ''], ['of the payment', 'tt-bsv']],
+      caption: 'Agents pay small amounts, often. On BSV each step costs a few dozen sats.',
+      draw(root) {
+        const f = REC_FEES;
+        const usdPerSat = (Number((/\$([\d.]+)/.exec(live().price || '') || [])[1]) || Number(REC.price.slice(1))) / 1e8;
+        const usd = (sats) => `≈ $${(sats * usdPerSat).toPrecision(2).replace(/^0\.(0+)/, '0.$1')}`;
+        const PX = 0.9; // px per sat
+        const bar = (y, w, cls) => { const r = rr(80, y, w, 46, cls, 8); r.style.transformBox = 'fill-box'; r.style.transformOrigin = 'left center'; return r; };
+        const payBar = bar(150, f.paid * PX, 'x-bar-pay');
+        const feeBar = bar(226, f.pay * PX, 'x-bar-fee');
+        const payT = at(0, 0, T(96, 182, `${f.paid.toLocaleString('en-US')} sats to the paid API`, 'x-label x-bar-t'), T(80 + f.paid * PX + 18, 182, usd(f.paid), 'x-small'));
+        const feeT = at(0, 0, T(80 + f.pay * PX + 18, 258, `${f.pay} sats fee · ${usd(f.pay)} · ${(f.pay / f.paid * 100).toFixed(1)} % of the payment`, 'x-label'));
+        const head = T(80, 128, 'one HTTP 402 payment', 'x-small');
+        const cards = [['Withdrawal', f.withdraw, 'agent + watcher, 3 outputs'], ['HTTP 402 payment', f.pay, 'float → paid API'], ['Owner exit', f.exit, 'the owner alone']].map(([label, sats, sub], i) => {
+          const x = 80 + i * 360;
+          return at(0, 0, rr(x, 330, 320, 170, 'x-card x-card-bsv'), T(x + 24, 370, label, 'x-small'), T(x + 24, 424, `${sats} sats`, 'x-num x-bsv-t'), T(x + 24, 460, usd(sats), 'x-small'), T(x + 24, 486, sub, 'x-mono-xs'));
+        });
+        root.append(head, payBar, feeBar, payT, feeT, ...cards);
+        fade(head, 100);
+        play(payBar, [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], 300, 1200, 'ease-out'); fade(payT, 1300);
+        play(feeBar, [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], 2000, 500, 'ease-out'); rise(feeT, 2400);
+        cards.forEach((c, i) => rise(c, 3600 + i * 450));
+        return { ms: 6600, source: SRC_REC(`intent 14: withdrawal ${f.withdrawTx} fee ${f.withdraw}, payment ${f.payTx} ${f.paid.toLocaleString('en-US')} sats, fee ${f.pay} · owner exit of 30 Oct ${f.exitTx} fee ${f.exit} · fee = inputs − outputs`) };
+      }
+    },
+
     exit: {
       kicker: 'EXIT · THE OWNER ALONE · OP_ELSE', kickerCls: 'k-owner',
       title: [['( agent AND watcher ) ', 'tt-dim'], ['OR owner', 'tt-owner']],
@@ -468,7 +499,7 @@
   const PANEL_SCENE = {
     'price-card': 'price', 'oracle-card': 'price', 'limit-card': 'limit', lab: 'tamper',
     'decisions-card': 'watcher', 'recheck-card': 'watcher', 'withdrawals-card': 'vault',
-    'agent-card': 'pay', 'payments-card': 'pay'
+    'agent-card': 'pay', 'payments-card': 'pay', costs: 'fees'
   };
   const PANEL_SELECTOR = Object.keys(PANEL_SCENE).map((id) => `#${id}`).join(', ');
   const stepTitle = (li) => txt(li.querySelector('.sp-title')?.firstChild);
@@ -499,6 +530,7 @@
     const sp = t.closest('.owner-job li.sp');
     if (sp) return STEP_SCENE[stepTitle(sp)] ? { key: STEP_SCENE[stepTitle(sp)], ctx: {} } : null;
     if (t.closest('.mf-vault, #vault-card, #script-card')) return { key: 'vault', ctx: {} };
+    if (t.closest('#tab-owner .owner-card:not(.owner-danger)')) return { key: 'fund', ctx: {} };
     if (t.closest('.mf-owner, #tab-owner .owner-card, #exit-proof')) return { key: 'exit', ctx: {} };
     // Panels (and their (i)) open the scene of what they show.
     const panel = t.closest(PANEL_SELECTOR);
