@@ -651,24 +651,46 @@
 
   // ---------------------------------------------------------------- render: hedges tab
 
+  const DEMO_HEDGE_VAULTS = (EV.base.demoHedgeVaults || []).map((v) => BigInt(v));
+  const vaultLabel = (v) => {
+    if (v === VAULT) return 'team vault';
+    if (DEMO_HEDGE_VAULTS.includes(v)) return 'demo copy of vault 5 (no BSV behind it)';
+    if (v === BigInt(EV.base.judgeVaultId)) return 'judge vault (video)';
+    if (v === BigInt(EV.base.liveJudgeVaultId)) return 'judge vault (live judging)';
+    if (v === RUNNER) return 'API3 runner (no BSV funds)';
+    return 'retired vault';
+  };
+  const DIRECTION = { SATS_TO_DUSD: 'sats → dUSD (hedge)', DUSD_TO_SATS: 'dUSD → sats (re-entry)', NONE: '—' };
+  const regimeVaults = () => [VAULT, BigInt(EV.base.judgeVaultId), BigInt(EV.base.liveJudgeVaultId), RUNNER, ...DEMO_HEDGE_VAULTS];
+  const regimeOf = (v) => (v === VAULT ? S.chain.v5.regime : v === RUNNER ? S.chain.v8.regime : S.chain.others[v.toString()]);
+
   const renderHedgesTab = () => {
     const el = $('#tab-hedges');
     const all = [...S.chain.intents.entries()];
-    const hedges = all.filter(([, i]) => i.source !== 'BUDGET' || i.kind === 'SWAP');
-    const regimes = S.chain.others;
-    const sig = stringify([all.length, hedges, regimes, S.chain.v5.regime, S.chain.v8.regime]);
+    // Every SWAP or non-budget intent of any vault, newest first; vaults 9-12 are where the API3 demo hedges.
+    const hedges = all.filter(([, i]) => i.kind === 'SWAP' || i.source !== 'BUDGET').sort(([a], [b]) => (BigInt(b) > BigInt(a) ? 1 : -1));
+    const regimes = regimeVaults().map((v) => [v.toString(), regimeOf(v)]);
+    const sig = stringify([all.length, hedges, regimes, hedges.map(([id]) => S.logData.intentTx.get(id)?.txHash)]);
     mount(el, sig, () => [
       h('h2', { class: 'tab-title' }, 'Event hedges'),
-      h('p', { class: 'lede small' }, 'A signed post from a whitelisted account, with a fresh signed price, can move a vault to GUARDED and create a SWAP hedge of at most 25 %. A −5 % signed 1 h move triggers RISK_OFF with a 50 % hedge. The watcher never co-signs SWAP intents, so hedges move no BSV in this submission.'),
+      h('p', { class: 'lede small' }, 'A signed post from a whitelisted account, with a fresh signed price, can move a vault to GUARDED and create a SWAP hedge of at most 25 %. A −5 % signed 1 h move triggers RISK_OFF with a 50 % hedge. For the demo, the API3 side hedges on vaults 9–12, copies of vault 5, while SPEND intents stay on vault 5. The watcher never co-signs SWAP intents, so hedges move no BSV.'),
       h('div', { class: 'grid-2' },
         h('article', { class: 'card' }, h('div', { class: 'card-head' }, h('h3', null, 'Hedge intents on the contract'), srcBadge('base', 'Base Sepolia')),
           !all.length ? h('p', { class: 'state' }, S.base.status === 'error' ? 'Base RPC unavailable.' : 'Reading intents…')
-              : hedges.length ? h('ul', { class: 'plain small' }, hedges.map(([id, i]) => h('li', null, `#${id} · vault ${i.vaultId} · ${i.kind} ${i.direction} · source ${i.source} · max ${fixed(i.maxBps, 2, 0)} % · `, nowSec() < i.expiry ? 'open' : 'expired')))
-                : h('p', { class: 'empty' }, `No hedge intent exists yet: all ${all.length} intents on the contract are BUDGET spends.`)),
+            : hedges.length ? h('ul', { class: 'plain small hedges' }, hedges.map(([id, i]) => {
+              const tx = S.logData.intentTx.get(id)?.txHash;
+              const open = nowSec() < i.expiry;
+              return h('li', null,
+                h('strong', null, `#${id} · vault ${i.vaultId}`), h('span', { class: 'muted' }, ` · ${vaultLabel(i.vaultId)}`),
+                h('span', { class: 'block' }, `${i.kind} ${DIRECTION[i.direction] || i.direction} · source ${i.source} · at most ${fixed(i.maxBps, 2, 0)} % of the vault`),
+                i.kind === 'SWAP' ? h('span', { class: 'block muted' }, `price band ${price8(i.minOut)} – ${price8(i.maxOut)} per BSV`) : null,
+                h('span', { class: 'block' }, open ? h('span', { class: 'countdown', dataset: { untilSec: i.expiry.toString() } }, '') : 'expired', tx ? [' · ', baseTx(tx)] : null));
+            }))
+              : h('p', { class: 'empty' }, `No hedge intent yet: all ${all.length} intents on the contract are BUDGET spends. A hedge on vaults 9–12 appears here within about 20 s.`)),
         h('article', { class: 'card' }, h('div', { class: 'card-head' }, h('h3', null, 'Regimes'), srcBadge('base', 'Base Sepolia')),
-          h('ul', { class: 'plain' }, [['5', 'team vault', S.chain.v5.regime], ['6', 'judge vault (video)', regimes[6]], ['7', 'judge vault (live judging)', regimes[7]], ['8', 'API3 runner', S.chain.v8.regime]].map(([v, what, r]) =>
-            h('li', null, `Vault ${v} · ${what} · `, r ? h('span', { class: `regime regime-${String(r).toLowerCase()}` }, r) : h('span', { class: 'muted' }, '—')))),
-          h('p', { class: 'muted small' }, 'No bundled test results are shown.')))
+          h('ul', { class: 'plain' }, regimes.map(([v, r]) =>
+            h('li', null, `Vault ${v} · ${vaultLabel(BigInt(v))} · `, r ? h('span', { class: `regime regime-${String(r).toLowerCase()}` }, r) : h('span', { class: 'muted' }, '—')))),
+          h('p', { class: 'muted small' }, 'Read while this tab is open, every Base refresh.')))
     ]);
   };
 
@@ -883,17 +905,19 @@
       const [lp, rg, rem] = await Promise.all([base.lastPrice(v), base.regime(v), base.remainingUsdToday(v)]);
       Object.assign(S.chain[key], { lastPrice: lp, regime: rg, remaining: rem });
     }
+    if (currentTab() === 'hedges') fetchOtherRegimes();
     // A settled vault-5 intent: read its BSV transaction for the receipt and float output.
     for (const [id, i] of vaultIntents()) if (i.settled && !S.receipts.has(id)) readReceipt(i.bsvTxid.slice(2));
     return true;
   };
 
+  let regimesBusy = false;
   const fetchOtherRegimes = async () => {
-    if (S.chain.othersLoaded) return;
-    S.chain.othersLoaded = true;
+    if (regimesBusy) return;
+    regimesBusy = true;
     try {
-      for (const v of [6, 7]) S.chain.others[v] = await base.regime(BigInt(v));
-    } catch { S.chain.othersLoaded = false; }
+      for (const v of regimeVaults()) if (v !== VAULT && v !== RUNNER) S.chain.others[v.toString()] = await base.regime(v);
+    } catch { /* shown as — until the next refresh */ } finally { regimesBusy = false; }
     render();
   };
 

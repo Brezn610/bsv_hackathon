@@ -1,4 +1,5 @@
 // Public connection configuration only. No sample transactions or test results.
+// demoHedgeVaults: copies of vault 5 the API3 side hedges on, so the SPEND stays on vault 5. No BSV behind them.
 // earlierFloatScript: the agent wallet that received withdrawals before `tg rebind-float` (intent 2, RESULTS.md).
 'use strict';
 window.TG_CONFIG = Object.freeze({
@@ -12,6 +13,12 @@ window.TG_CONFIG = Object.freeze({
     "runnerVaultId": 8,
     "judgeVaultId": 6,
     "liveJudgeVaultId": 7,
+    "demoHedgeVaults": [
+      9,
+      10,
+      11,
+      12
+    ],
     "retiredVaults": [
       1,
       2,
