@@ -1,0 +1,164 @@
+/* Explain mode (explainer.js): pop-ups for screen recordings. Presentation only; nothing here applies until explain
+   mode adds its own elements. The pop-up is dark in both themes, like the film, and uses the dashboard's dark-theme
+   tokens: API3 / Base blue, BSV gold, green and red only next to a word. Role colours follow the film: agent white,
+   watcher teal, owner orange. */
+.tgx-root {
+  --x-bg: #07090c;
+  --x-panel: #0e1217;
+  --x-line: #262c34;
+  --x-text: #eceef1;
+  --x-text-2: #c3c8cf;
+  --x-muted: #8f97a1;
+  --x-api3: #4c8bed;
+  --x-bsv: #b98a1f;
+  --x-ok: #3fb984;
+  --x-bad: #f26d6d;
+  --x-agent: #f2f4f7;
+  --x-watcher: #1fd1a5;
+  --x-owner: #f6a46c;
+  position: fixed; inset: 0; z-index: 1000;
+  display: grid; place-items: center;
+  font-family: var(--sans);
+  color: var(--x-text);
+}
+.tgx-backdrop { position: absolute; inset: 0; background: rgba(3, 5, 8, .74); backdrop-filter: blur(6px); }
+.tgx-modal {
+  position: relative;
+  width: min(70vw, 1500px); max-height: 94vh;
+  display: grid; gap: .5rem;
+  padding: 1.5rem 1.75rem 1.25rem;
+  border-radius: 28px;
+  border: 1px solid var(--x-line);
+  background: radial-gradient(120% 90% at 18% 0%, #121a26 0%, var(--x-bg) 55%), var(--x-bg);
+  box-shadow: 0 40px 120px -40px rgba(0, 0, 0, .9);
+  animation: tgx-in .28s ease-out both;
+}
+@keyframes tgx-in { from { opacity: 0; transform: translateY(12px) scale(.985); } to { opacity: 1; transform: none; } }
+
+.tgx-kicker { margin: 0; font-family: var(--mono); font-size: .8125rem; font-weight: 600; letter-spacing: .32em; text-transform: uppercase; text-align: center; }
+.tgx-title { margin: 0; font-family: var(--mono); font-size: 2rem; font-weight: 700; letter-spacing: .01em; text-align: center; color: var(--x-text); }
+.k-api3, .tt-api3 { color: var(--x-api3); }
+.k-bsv, .tt-bsv { color: var(--x-bsv); }
+.k-watcher, .tt-watcher { color: var(--x-watcher); }
+.k-owner, .tt-owner { color: var(--x-owner); }
+.tt-dim { color: var(--x-muted); }
+
+.tgx-stage { display: grid; place-items: center; }
+.tgx-stage svg { display: block; width: 100%; height: auto; max-height: calc(94vh - 15rem); overflow: visible; }
+.tgx-caption { margin: 0; text-align: center; font-size: 1.25rem; font-weight: 600; color: var(--x-text); }
+.tgx-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding-top: .25rem; border-top: 1px solid var(--x-line); }
+.tgx-source { margin: 0; font-size: .8125rem; color: var(--x-muted); font-family: var(--mono); }
+.tgx-btns { display: flex; gap: .5rem; }
+.tgx-btn {
+  font: 600 .9375rem var(--sans); color: var(--x-text);
+  padding: .5rem 1.1rem; border-radius: 999px; cursor: pointer;
+  background: rgba(255, 255, 255, .06); border: 1px solid var(--x-line);
+}
+.tgx-btn:hover { background: rgba(255, 255, 255, .1); }
+.tgx-btn-primary { background: var(--x-text); color: #0b0d10; border-color: var(--x-text); }
+.tgx-btn-primary:hover { background: #fff; }
+.tgx-btn:focus-visible, .tgx-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* "Explain this step" on a finished live step; and the on/off notice. */
+.tgx-chip {
+  margin-top: .375rem; padding: .1875rem .625rem; border-radius: 999px; cursor: pointer;
+  font: 600 .75rem var(--sans); color: var(--text);
+  background: rgba(31, 209, 165, .14); border: 1px solid rgba(31, 209, 165, .55);
+}
+.tgx-chip:hover { background: rgba(31, 209, 165, .24); }
+.tgx-toast {
+  position: fixed; left: 50%; top: 1.25rem; transform: translateX(-50%); z-index: 1001;
+  padding: .5rem 1rem; border-radius: 999px;
+  font: 600 .875rem var(--sans); color: #eceef1;
+  background: rgba(14, 18, 23, .92); border: 1px solid #262c34;
+  animation: tgx-toast 2.4s ease both;
+}
+@keyframes tgx-toast { 0% { opacity: 0; } 10%, 80% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ---- the stage (SVG, 1200 × 600 user units) */
+.tgx-stage :where(text) { font-family: var(--sans); fill: var(--x-text); }
+.x-label { font-size: 22px; fill: var(--x-text); }
+.x-small { font-size: 18px; fill: var(--x-text-2); }
+.x-strong { font-weight: 600; }
+.x-role { font-size: 20px; fill: var(--x-text-2); }
+.x-title-s { font-size: 24px; font-weight: 700; }
+.x-num { font-size: 34px; font-weight: 700; font-family: var(--mono); }
+.x-num-s { font-size: 24px; font-weight: 700; font-family: var(--mono); }
+.x-mono-s { font-size: 20px; font-family: var(--mono); }
+.x-mono-xs { font-size: 16px; font-family: var(--mono); }
+.x-caps { font-size: 17px; font-family: var(--mono); letter-spacing: 4px; font-weight: 600; }
+.x-step { font-size: 20px; font-family: var(--mono); fill: var(--x-muted); }
+.x-muted { fill: var(--x-muted); }
+.x-ok { font-size: 22px; font-weight: 700; fill: var(--x-ok); }
+.x-bad { font-size: 22px; font-weight: 700; fill: var(--x-bad); }
+.x-api3-t { fill: var(--x-api3); }
+.x-bsv-t { fill: var(--x-bsv); }
+.x-owner-t { fill: var(--x-owner); }
+.x-watcher-t { fill: var(--x-watcher); }
+
+.r-agent { color: var(--x-agent); }
+.r-watcher { color: var(--x-watcher); }
+.r-owner { color: var(--x-owner); }
+.r-api3 { color: var(--x-api3); }
+.r-bsv { color: var(--x-bsv); }
+.x-ring { fill: rgba(255, 255, 255, .03); stroke: currentColor; stroke-width: 3; }
+.x-hole-ring { fill: rgba(0, 0, 0, .35); stroke-opacity: .6; }
+.x-stroke { fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.x-thick { stroke-width: 5; }
+.x-fill { fill: currentColor; }
+.x-coin { fill: var(--x-bsv); stroke: #f0d58a; stroke-width: 2; }
+
+.x-card { fill: var(--x-panel); stroke: var(--x-line); stroke-width: 2; }
+.x-card-api3 { stroke: rgba(76, 139, 237, .7); fill: rgba(76, 139, 237, .08); }
+.x-card-bsv { stroke: rgba(185, 138, 31, .75); fill: rgba(185, 138, 31, .08); }
+.x-card-watcher { stroke: rgba(31, 209, 165, .65); fill: rgba(31, 209, 165, .07); }
+.x-card-owner { stroke: rgba(246, 164, 108, .7); fill: rgba(246, 164, 108, .07); }
+.x-row { fill: rgba(255, 255, 255, .03); stroke: var(--x-line); stroke-width: 1.5; }
+.x-scan { fill: rgba(31, 209, 165, .16); stroke: rgba(31, 209, 165, .7); stroke-width: 1.5; }
+.x-hi { fill: rgba(76, 139, 237, .16); stroke: rgba(76, 139, 237, .8); stroke-width: 2; }
+.x-hi-owner { fill: rgba(246, 164, 108, .12); stroke: rgba(246, 164, 108, .8); }
+.x-field { fill: rgba(255, 255, 255, .04); stroke: var(--x-line); stroke-width: 1.5; }
+.x-field-hit { fill: rgba(242, 109, 109, .16); stroke: var(--x-bad); }
+.x-vault { fill: #120d06; stroke: var(--x-bsv); stroke-width: 4; }
+.x-vault-halo { fill: rgba(185, 138, 31, .06); stroke: none; }
+.x-chip { fill: rgba(255, 255, 255, .05); stroke: var(--x-line); stroke-width: 1.5; }
+.x-chip-api3 { stroke: rgba(76, 139, 237, .7); }
+.x-chip-bsv { stroke: rgba(185, 138, 31, .75); }
+.x-chip-t { font-size: 16px; font-family: var(--mono); fill: var(--x-text-2); }
+.x-env { fill: #e9eef7; stroke: var(--x-api3); stroke-width: 2; }
+.x-env-flap { fill: none; stroke: var(--x-api3); stroke-width: 2; }
+.x-seal { fill: var(--x-api3); }
+.x-sig { fill: none; stroke: var(--x-api3); stroke-width: 3; stroke-linecap: round; }
+.x-line { stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
+.x-head { fill: currentColor; }
+.a-api3 { color: var(--x-api3); }
+.a-bsv { color: var(--x-bsv); }
+.a-watcher { color: var(--x-watcher); }
+.a-ok { color: var(--x-ok); }
+.a-bad { color: var(--x-bad); }
+.a-muted { color: var(--x-muted); }
+.x-path { fill: none; stroke-width: 3; stroke-linecap: round; }
+.x-bsv-s { stroke: var(--x-bsv); }
+.x-bsv-f { fill: var(--x-bsv); }
+.x-life { stroke: var(--x-line); stroke-width: 2; stroke-dasharray: 6 8; }
+.x-ring-bg { fill: none; stroke: rgba(76, 139, 237, .18); stroke-width: 16; }
+.x-ring-fg { fill: none; stroke: var(--x-api3); stroke-width: 16; stroke-linecap: round; }
+.x-lock { fill: var(--x-bsv); }
+.x-lock-arc { fill: none; stroke: var(--x-bsv); stroke-width: 5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tgx-modal, .tgx-toast { animation: none; }
+}
+.x-bar-pay { fill: var(--x-bsv); }
+.x-bar-fee { fill: var(--x-text-2); }
+.x-bar-t { fill: #14100a; font-weight: 600; }
+
+/* Explain mode: scenes open only from these chips; the (i) text gives way to them. */
+.tgx-on .info { display: none; }
+.tgx-chip.is-done { background: rgba(255, 255, 255, .06); border-color: rgba(255, 255, 255, .22); color: var(--muted); }
+.tgx-chip-head { margin: 0 0 0 .625rem; vertical-align: .15em; font-size: .75rem; line-height: 1.4; }
+.tgx-chip-pn { display: inline-block; margin-top: .5rem; }
+.tgx-counter {
+  position: absolute; top: 1rem; right: 1.25rem; margin: 0;
+  font: 600 .8125rem var(--mono); color: var(--x-muted); letter-spacing: .04em;
+}

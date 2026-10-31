@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src http: https:; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Treasury Guard · bounded spending for AI agents</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="explainer.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><span></span><span></span></span>
+      <div class="brand-text">
+        <h1>Treasury Guard</h1>
+        <p class="brand-sub">Bounded spending for AI agents</p>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button type="button" role="tab" id="tab-btn-overview" aria-controls="tab-overview" aria-selected="true" title="Overview">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>
+        <span class="tab-label">Overview</span>
+      </button>
+      <button type="button" role="tab" id="tab-btn-api3" aria-controls="tab-api3" aria-selected="false" tabindex="-1" title="API3 · Base Sepolia: signed data">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3.5l2.5-7 5 14 2.5-7H21"/></svg>
+        <span class="tab-label">Signed data</span><span class="tab-dot tab-dot-api3" aria-hidden="true"></span>
+      </button>
+      <button type="button" role="tab" id="tab-btn-bsv" aria-controls="tab-bsv" aria-selected="false" tabindex="-1" title="BSV · mainnet: vault and payments">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="3"/><circle cx="12" cy="12" r="3"/><path d="M12 9V7.5M12 16.5V15M9 12H7.5M16.5 12H15"/></svg>
+        <span class="tab-label">Vault</span><span class="tab-dot tab-dot-bsv" aria-hidden="true"></span>
+      </button>
+      <button type="button" role="tab" id="tab-btn-owner" aria-controls="tab-owner" aria-selected="false" tabindex="-1" title="Owner: fund and exit">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16 7l3 3M13.5 9.5l2 2"/></svg>
+        <span class="tab-label">Owner</span>
+      </button>
+      <button type="button" role="tab" id="tab-btn-evidence" aria-controls="tab-evidence" aria-selected="false" tabindex="-1" title="Transactions on both chains">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>
+        <span class="tab-label">Ledger</span>
+      </button>
+    </nav>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="main">
+    <div class="topbar">
+      <div class="topbar-title">
+        <p class="topbar-name">Treasury Guard</p>
+        <ul class="chain-chips" aria-label="Networks">
+          <li class="tag tag-api3">API3 · Base Sepolia</li>
+          <li class="tag tag-bsv">BSV · mainnet</li>
+        </ul>
+      </div>
+      <div class="top-status">
+        <ul class="conn" aria-label="Connections">
+          <li id="watcher-pill" class="pill pill-loading" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span class="pill-text">Watcher: checking…</span></li>
+          <li id="owner-pill" class="pill pill-loading"><span class="dot" aria-hidden="true"></span><span class="pill-text">Owner server: checking…</span></li>
+        </ul>
+        <div class="controls">
+          <button type="button" id="video-toggle" class="btn btn-round" aria-pressed="false" title="Video mode: larger type, chapter captions, ← / → to move (V)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="M16 10.5l5-3v9l-5-3"/></svg><span class="sr-only">Video mode</span></button>
+          <button type="button" id="theme-toggle" class="btn btn-round" aria-pressed="true" title="Switch theme"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" class="ico-fill"/></svg><span class="sr-only theme-label">Light theme</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- OVERVIEW -->
+    <section id="tab-overview" role="tabpanel" aria-labelledby="tab-btn-overview" tabindex="-1">
+      <div class="page-head" id="overview-head">
+        <p class="kicker">Live · Base Sepolia + BSV mainnet</p>
+        <h2>A dollar budget, not a wallet key.</h2>
+      </div>
+
+      <section id="agent-controls" class="agent-controls" aria-label="Run the agent live" hidden></section>
+
+      <section class="card money" id="lanes" aria-labelledby="money-title"></section>
+
+      <section class="card pay" id="run" aria-labelledby="run-title" aria-live="polite"></section>
+
+      <section class="card agent-card" id="agent-card" aria-labelledby="agent-title"></section>
+
+      <div class="grid-2 overview-bottom">
+        <section class="card" id="guarantees" aria-labelledby="guarantees-title"></section>
+        <section class="card" id="decisions-card" aria-labelledby="decisions-title"></section>
+      </div>
+    </section>
+
+    <!-- API3 -->
+    <section id="tab-api3" role="tabpanel" aria-labelledby="tab-btn-api3" tabindex="-1" hidden>
+      <div class="page-head">
+        <p class="kicker chain-kicker chain-api3"><span class="chain-dot"></span>API3 · Base Sepolia testnet</p>
+        <h2>Signed data sets every limit.</h2>
+        <p class="lede">TreasuryGuard <a class="mono" href="https://sepolia.basescan.org/address/0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773" target="_blank" rel="noopener noreferrer">0x8e38…7773</a> · Base Sepolia</p>
+      </div>
+      <div class="grid-2">
+        <article class="card" id="price-card" aria-labelledby="price-title"></article>
+        <article class="card" id="limit-card" aria-labelledby="limit-title"></article>
+      </div>
+      <section class="card card-wide" id="lab" aria-labelledby="lab-title"></section>
+      <div class="grid-2" id="guard-row">
+        <article class="card" id="breaker-card" aria-labelledby="breaker-title"></article>
+        <article class="card" id="news-card" aria-labelledby="news-title"></article>
+      </div>
+      <section class="card card-wide" id="oracle-card" aria-labelledby="oracle-title"></section>
+    </section>
+
+    <!-- BSV -->
+    <section id="tab-bsv" role="tabpanel" aria-labelledby="tab-btn-bsv" tabindex="-1" hidden>
+      <div class="page-head">
+        <p class="kicker chain-kicker chain-bsv"><span class="chain-dot"></span>BSV · mainnet</p>
+        <h2>Two keys, or the owner alone.</h2>
+        <p class="lede">The watcher enforces the limit. It can block, never take.</p>
+      </div>
+      <div class="grid-2 grid-bsv">
+        <article class="card" id="script-card" aria-labelledby="script-title"></article>
+        <div class="stack">
+          <article class="card tile" id="vault-card" aria-labelledby="vault-title"></article>
+          <article class="card" id="withdrawals-card" aria-labelledby="withdrawals-title"></article>
+          <article class="card" id="costs" aria-labelledby="costs-title"></article>
+        </div>
+      </div>
+      <section class="card card-wide" id="recheck-card" aria-labelledby="recheck-title"></section>
+      <div class="grid-2">
+        <section class="card" id="swap-card" aria-labelledby="swap-title"></section>
+        <section class="card" id="stack-card" aria-labelledby="stack-title"></section>
+      </div>
+      <section class="card card-wide" id="history-card" aria-labelledby="history-title"></section>
+      <section class="card card-wide" id="payments-card" aria-labelledby="payments-title"></section>
+    </section>
+
+    <!-- OWNER -->
+    <section id="tab-owner" role="tabpanel" aria-labelledby="tab-btn-owner" tabindex="-1" hidden></section>
+
+    <!-- TRANSACTIONS -->
+    <section id="tab-evidence" role="tabpanel" aria-labelledby="tab-btn-evidence" tabindex="-1" hidden>
+      <div class="page-head">
+        <p class="kicker">Both chains</p>
+        <h2>Every intent, on both chains.</h2>
+      </div>
+      <section class="card card-wide" id="pipeline" aria-labelledby="pipeline-title"></section>
+      <details class="support-section">
+        <summary>Reading the evidence</summary>
+        <section id="trust" aria-labelledby="trust-title"></section>
+      </details>
+    </section>
+  </main>
+
+  <footer class="footer"><details class="connection-details"><summary>Connection details</summary><div id="footer"></div></details></footer>
+
+  <div id="chapter-bar" class="chapter-bar" hidden aria-live="polite"></div>
+
+  <noscript><p class="banner banner-warn">This dashboard needs JavaScript to read the watcher, Base Sepolia and WhatsOnChain.</p></noscript>
+
+  <script src="config.js"></script>
+  <script src="chain.js"></script>
+  <script src="app.js"></script>
+  <script src="explainer.js"></script>
+</body>
+</html>

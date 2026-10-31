@@ -24,6 +24,67 @@ safety wrapper.
 | [`docs/USAGE_AND_VALUE.md`](docs/USAGE_AND_VALUE.md) | The one-page usage and value note the track asks for |
 | [`docs/verified-facts.md`](docs/verified-facts.md) | Rail baseline facts (Chinese), incl. the first mainnet swap-and-pay |
 
+## Dashboard
+
+`dashboard/` is a live view for judges and for the demo video: static files, no build step, no dependencies. Serve
+it (`python3 -m http.server -d dashboard 8765`) and open `http://localhost:8765`.
+It reads the watcher's `GET /health` and `GET /decisions`, Base Sepolia (`eth_call`, `eth_getLogs` in 200-block
+pages, `eth_getTransactionByHash`) and WhatsOnChain. It never calls `/cosign` or `/broadcast`, never signs, and holds
+no key. Views: **Overview** (both chains, the latest payment end to end, live proofs), **API3 · Signed data** (signed
+price, dollars → sats limit, the tamper test, crash and news guards), **BSV · Vault & payments** (the vault script,
+every coin in and out of the vault, fees, HTTP 402 payments), **Owner** and **Transactions**. Details and the
+recording guide: [`dashboard/README.md`](dashboard/README.md).
+
+**Run it live (real transactions).** With the owner's control server running, the page can:
+
+- **Run the agent** (Overview): one full spend, step by step, with the team's existing commands: api3 `spend5.ts`
+  (signed price → SPEND intent), `tg withdraw --intent N` (watcher co-signs), `tg buy` (the model decides, HTTP 402),
+  api3 `tweet-cycle.ts --live --settle-only N` (settle record). The live run fills in from the chain as it happens.
+  At most `AGENT_MAX_CYCLES` (default 3) per server start.
+- **Show a refusal** (Overview): `tg withdraw` for an intent already used; the watcher refuses (409), nothing moves.
+- **Fund the vault / Exit to owner** (Owner view): `tg fund` / `tg exit`; BSV Desktop asks the owner to approve.
+
+On the watcher laptop, with the watcher (`npm run tg -- watcher-serve`) and BSV Desktop running, `bsv/node_modules`
+and `api3` dependencies installed and `api3/.env.agent` in place:
+
+```sh
+CONFIRM_MAINNET=1 npm run owner-serve   # 127.0.0.1:5820; prints a link with a one-time owner token
+```
+
+The default port is 5820: on Windows with WSL mirrored networking the 48xx range can be reserved by Hyper-V.
+If the BSV agent's keys live in another checkout, export `TG_ENV_FILE` and `TG_DATA_DIR` before starting it.
+
+**Two laptops (the API3 agent key stays on its own laptop).** On the laptop that holds `api3/.env.agent`:
+
+```sh
+node bsv/scripts/api3-agent-serve.mjs          # 127.0.0.1:5830; prints a token
+cloudflared tunnel --url http://localhost:5830  # prints an https URL
+```
+
+On the demo laptop, start the owner server with that URL and token; the cycle's first step (signed price → SPEND
+intent) and last step (settle) then run on the API3 laptop, everything else here:
+
+```sh
+CONFIRM_MAINNET=1 API3_AGENT_URL=<tunnel URL> API3_AGENT_TOKEN=<token> npm run owner-serve
+```
+
+Do not run `tweet-cycle.ts --live` (or anything else signing with the vault-5 agent key) at the same time.
+
+Open the printed link. The server listens on 127.0.0.1 only, accepts only the dashboard origins
+(`OWNER_ORIGINS`, default `http://localhost:8765,http://127.0.0.1:8765`), requires the token on every request, runs one
+action at a time and refuses mainnet actions unless started with `CONFIRM_MAINNET=1`. The owner exit returns every
+vault coin; the agent cannot spend again until the vault is funded. Only responses from connected sources are shown; there are no bundled examples or fallback amounts.
+
+| Parameter | Default | Purpose |
+| --- | --- | --- |
+| `?watcher=` | `http://127.0.0.1:4810` | watcher base URL |
+| `?rpc=` | `https://sepolia.base.org` | Base Sepolia RPC |
+| `?theme=dark` / `light` | dark | colour theme |
+| `?ownerApi=` | `http://127.0.0.1:5820` | owner action server |
+| `?video=1` | off | video mode (also the V key) |
+
+End-to-end validation of the owner actions is pending your real transaction test. The agent's HTTP 402 payment is shown as the next spend of each withdrawal's float output (WhatsOnChain `/tx/<txid>/<n>/spent`). Public deployment settings are in `dashboard/config.js`; verify them after merging.
+
 ## Run
 
 Node.js ≥ 22. Offline tests spend nothing.
