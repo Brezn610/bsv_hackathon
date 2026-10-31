@@ -15,6 +15,8 @@
   let modal = null; // the open pop-up
   let observer = null;
   let anims = [];
+  const shown = new Set(); // scenes already explained in this page load: their chips say "Explained ✓"
+  let quietUntil = 0;      // clicks are ignored until then (a pop-up just closed, or a chip was just pressed)
 
   // ---------------------------------------------------------------- recorded example (intent 9, 31 Oct 2026)
   // Checked on WhatsOnChain and Basescan; also in bsv/docs/evidence/RESULTS.md.
@@ -496,54 +498,68 @@
     'AI agent pays for data': 'pay', 'Recorded on Base': 'settle', 'Replay refused': 'replay', 'Owner takes it back': 'exit'
   };
   const RUN_SCENE = ['price', 'limit', 'watcher', 'vault', 'pay', 'settle']; // #run nodes, by data-i
-  const PANEL_SCENE = {
-    'price-card': 'price', 'oracle-card': 'price', 'limit-card': 'limit', lab: 'tamper',
-    'decisions-card': 'watcher', 'recheck-card': 'watcher', 'withdrawals-card': 'vault',
-    'agent-card': 'pay', 'payments-card': 'pay', costs: 'fees'
-  };
-  const PANEL_SELECTOR = Object.keys(PANEL_SCENE).map((id) => `#${id}`).join(', ');
+  // Sections that get one Explain chip next to their title, and the scene it opens.
+  const SECTION_SCENE = [
+    ['#price-card', 'price'], ['#limit-card', 'limit'], ['#lab', 'tamper'], ['#decisions-card', 'replay'],
+    ['#agent-card', 'pay'], ['#vault-card', 'vault'], ['#costs', 'fees'], ['#recheck-card', 'watcher'],
+    ['#owner-main .owner-card:not(.owner-danger)', 'fund'], ['#owner-main .owner-danger', 'exit']
+  ];
   const stepTitle = (li) => txt(li.querySelector('.sp-title')?.firstChild);
-
-  const sceneFor = (t) => {
-    const chipEl = t.closest('.tgx-chip');
-    if (chipEl) return { key: chipEl.dataset.scene, ctx: {} };
-    const btn = t.closest('button');
-    if (btn) {
-      const label = txt(btn);
-      if (btn.id === 'lab-run-all') return { key: 'tamper', ctx: {} };
-      if (label === 'Run the agent') return { key: 'price', ctx: {} };
-      if (/^Replay\b/.test(label) || label === 'Show a refusal') return { key: 'replay', ctx: { replayId: (/#(\d+)/.exec(label) || [])[1] || null } };
-      if (label === 'Fund 5,000 sats') return { key: 'fund', ctx: { amount: '5,000' } };
-      if (label === 'Yes, fund it') {
-        const m = /Send ([\d,]+) sats/.exec(txt(btn.closest('.owner-confirm')));
-        return { key: 'fund', ctx: { amount: m ? m[1] : null } };
-      }
-      if (label === 'Exit' && btn.closest('#tab-owner')) {
-        const typed = document.getElementById('exit-confirm');
-        return typed && typed.value.trim() === 'EXIT' ? { key: 'exit', ctx: {} } : null;
-      }
-      return null;
-    }
-    if (t.closest('a, input, textarea, select, summary, label, form')) return null;
-    const pn = t.closest('#run li.pn');
-    if (pn) return RUN_SCENE[Number(pn.dataset.i)] ? { key: RUN_SCENE[Number(pn.dataset.i)], ctx: {} } : null;
-    const sp = t.closest('.owner-job li.sp');
-    if (sp) return STEP_SCENE[stepTitle(sp)] ? { key: STEP_SCENE[stepTitle(sp)], ctx: {} } : null;
-    if (t.closest('.mf-vault, #vault-card, #script-card')) return { key: 'vault', ctx: {} };
-    if (t.closest('#tab-owner .owner-card:not(.owner-danger)')) return { key: 'fund', ctx: {} };
-    if (t.closest('.mf-owner, #tab-owner .owner-card, #exit-proof')) return { key: 'exit', ctx: {} };
-    // Panels (and their (i)) open the scene of what they show.
-    const panel = t.closest(PANEL_SELECTOR);
-    if (panel) return { key: PANEL_SCENE[panel.id], ctx: {} };
-    return null;
-  };
 
   // ---------------------------------------------------------------- the pop-up
 
   const make = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; return n; };
 
+  // A scene draws its animations with free delays. Here they are grouped into beats (at most 8): each beat
+  // animates in over about 0.5 s and holds about 1 s, so a scene runs 8 to 12 s. The caption and the source
+  // line come with the last beat and stay. → or Space jumps to the next beat, ← back one.
+  const BEAT = 1500, MAX_BEATS = 8;
+  const toBeats = () => {
+    const ds = [...new Set(anims.map((a) => Number(a.effect.getTiming().delay) || 0))].sort((x, y) => x - y);
+    const groups = [];
+    for (const d of ds) { const last = groups[groups.length - 1]; if (last && d - last[last.length - 1] <= 350) last.push(d); else groups.push([d]); }
+    while (groups.length > MAX_BEATS) {
+      let best = 1, gap = Infinity;
+      for (let i = 1; i < groups.length; i++) { const g = groups[i][0] - groups[i - 1][groups[i - 1].length - 1]; if (g < gap) { gap = g; best = i; } }
+      groups.splice(best - 1, 2, groups[best - 1].concat(groups[best]));
+    }
+    const beatOf = new Map();
+    groups.forEach((g, i) => g.forEach((d) => beatOf.set(d, i)));
+    for (const a of anims) {
+      const t = a.effect.getTiming();
+      const b = beatOf.get(Number(t.delay) || 0);
+      const off = Math.min(300, ((Number(t.delay) || 0) - groups[b][0]) * 0.35);
+      a.effect.updateTiming({ delay: reduced() ? 0 : b * BEAT + off, duration: reduced() ? 0 : Math.min(Number(t.duration) || 500, 700) });
+    }
+    return groups.map((_, i) => i * BEAT);
+  };
+  const clock = () => (modal ? performance.now() - modal.t0 : 0);
+  const beatAt = (t) => { let k = 0; modal.starts.forEach((s0, i) => { if (s0 <= t + 30) k = i; }); return k; };
+  const seek = (t) => {
+    modal.t0 = performance.now() - t;
+    for (const a of anims) {
+      const tm = a.effect.getComputedTiming();
+      a.currentTime = Math.min(t, tm.endTime);
+      if (t < tm.endTime) a.play();
+    }
+  };
+  const step = (dir) => {
+    if (!modal || reduced()) return;
+    const k = beatAt(clock());
+    if (dir > 0 && k < modal.starts.length - 1) seek(modal.starts[k + 1]);
+    else if (dir > 0) seek(modal.end);
+    else seek(modal.starts[Math.max(0, k - 1)]);
+  };
+  const tick = () => {
+    if (!modal) return;
+    const n = modal.starts.length;
+    modal.counter.textContent = `beat ${reduced() ? n : beatAt(clock()) + 1} / ${n}`;
+    requestAnimationFrame(tick);
+  };
+
   const close = () => {
     if (!modal) return;
+    quietUntil = performance.now() + 400;
     for (const a of anims) a.cancel();
     anims = [];
     const { root, back } = modal;
@@ -560,6 +576,11 @@
     const out = scene.draw(svg, { live: live(), ctx });
     source.textContent = out.source;
     caption.textContent = scene.caption;
+    modal.starts = toBeats();
+    const last = modal.starts[modal.starts.length - 1];
+    for (const n of [caption, source]) play(n, [{ opacity: 0 }, { opacity: 1 }], last, 500);
+    modal.end = last + 800;
+    modal.t0 = performance.now();
   };
 
   const open = (key, ctx, from) => {
@@ -591,29 +612,48 @@
     closeBtn.type = 'button';
     btns.append(replay, closeBtn);
     foot.append(source, btns);
-    box.append(kicker, title, stage, caption, foot);
+    const counter = make('p', 'tgx-counter');
+    counter.setAttribute('aria-hidden', 'true');
+    box.append(counter, kicker, title, stage, caption, foot);
     root.append(backdrop, box);
     backdrop.addEventListener('click', close);
     closeBtn.addEventListener('click', close);
     replay.addEventListener('click', () => { render(); closeBtn.focus({ preventScroll: true }); });
-    modal = { root, svg, scene, ctx: ctx || {}, source, caption, replay, closeBtn, back: from || null };
+    modal = { root, svg, scene, ctx: ctx || {}, source, caption, replay, closeBtn, counter, starts: [0], end: 0, t0: 0, back: from || null };
     document.body.append(root);
     render();
     closeBtn.focus({ preventScroll: true });
+    shown.add(key);
+    labelChips();
+    requestAnimationFrame(tick);
   };
 
   // ---------------------------------------------------------------- "Explain this step" chips on finished live steps
 
+  const chipLabel = (key) => (shown.has(key) ? 'Explained ✓' : 'Explain');
+  const labelChips = () => {
+    for (const c of document.querySelectorAll('.tgx-chip')) {
+      const t = chipLabel(c.dataset.scene);
+      if (c.textContent !== t) c.textContent = t;
+      c.classList.toggle('is-done', shown.has(c.dataset.scene));
+    }
+  };
+  const addChip = (parent, key, cls) => {
+    if (!parent || !key || parent.querySelector(':scope > .tgx-chip')) return;
+    const b = make('button', `tgx-chip ${cls || ''}`, chipLabel(key));
+    b.type = 'button';
+    b.dataset.scene = key;
+    b.classList.toggle('is-done', shown.has(key));
+    parent.append(b);
+  };
   const decorate = () => {
     if (!on) return;
-    for (const li of document.querySelectorAll('.owner-job li.sp.sp-done')) {
-      if (li.querySelector('.tgx-chip')) continue;
-      const key = STEP_SCENE[stepTitle(li)];
-      if (!key) continue;
-      const b = make('button', 'tgx-chip', 'Explain this step');
-      b.type = 'button';
-      b.dataset.scene = key;
-      li.append(b);
+    // A finished live step shows a chip; it never opens a pop-up by itself.
+    for (const li of document.querySelectorAll('.owner-job li.sp.sp-done')) addChip(li, STEP_SCENE[stepTitle(li)]);
+    for (const li of document.querySelectorAll('#run li.pn')) addChip(li, RUN_SCENE[Number(li.dataset.i)], 'tgx-chip-pn');
+    for (const [sel, key] of SECTION_SCENE) {
+      const sec = document.querySelector(sel);
+      addChip(sec && sec.querySelector('.card-head h3, h3'), key, 'tgx-chip-head');
     }
   };
   let queued = false;
@@ -632,26 +672,23 @@
     document.documentElement.classList.toggle('tgx-on', on);
     if (on) {
       observer = observer || new MutationObserver(queueDecorate);
-      for (const id of ['agent-controls', 'tab-owner']) {
-        const target = document.getElementById(id);
-        if (target) observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-      }
+      observer.observe(document.getElementById('main') || document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
       decorate();
     } else {
       if (observer) observer.disconnect();
       for (const c of document.querySelectorAll('.tgx-chip')) c.remove();
       close();
     }
-    if (!quiet) toast(on ? 'Explain mode on · click a step, a button or the vault · E turns it off' : 'Explain mode off');
+    if (!quiet) toast(on ? 'Explain mode on · press an Explain chip · → next beat · E turns it off' : 'Explain mode off');
   };
 
-  // Clicks: the page's own handlers have already run (this listener is on the document, in the bubble phase).
+  // Clicks: only an Explain chip opens a scene. The page's own handlers have already run (bubble phase).
   document.addEventListener('click', (e) => {
     if (!on || modal || !(e.target instanceof Element) || e.target.closest('.tgx-root')) return;
-    const hit = sceneFor(e.target);
-    if (!hit) return;
-    const from = e.target.closest('button');
-    requestAnimationFrame(() => open(hit.key, hit.ctx, from));
+    const chipEl = e.target.closest('.tgx-chip');
+    if (!chipEl || !SCENES[chipEl.dataset.scene] || performance.now() < quietUntil) return;
+    quietUntil = performance.now() + 500;
+    requestAnimationFrame(() => open(chipEl.dataset.scene, {}, chipEl));
   });
 
   // Keys: while a pop-up is open it takes every key, so Esc closes only the pop-up and video mode stays on.
@@ -660,9 +697,15 @@
       if (e.key === 'Tab') {
         e.preventDefault();
         (document.activeElement === modal.closeBtn ? modal.replay : modal.closeBtn).focus();
-      } else if ((e.key === 'Enter' || e.key === ' ') && document.activeElement === modal.replay) {
-        // the Replay button handles its own Enter / Space
-      } else if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      } else if (e.key === 'Enter' && (document.activeElement === modal.replay || document.activeElement === modal.closeBtn)) {
+        // the focused button handles its own Enter
+      } else if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        step(1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        step(-1);
+      } else if (e.key === 'Escape') {
         e.preventDefault();
         close();
       }

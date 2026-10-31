@@ -149,12 +149,16 @@
 @media (prefers-reduced-motion: reduce) {
   .tgx-modal, .tgx-toast { animation: none; }
 }
-
-/* Explain mode: panels that open a scene show they can be clicked. */
-.tgx-on :is(#price-card, #oracle-card, #limit-card, #lab, #decisions-card, #recheck-card, #withdrawals-card, #agent-card, #payments-card, #vault-card, #script-card, .mf-vault, .mf-owner) { cursor: pointer; }
-.tgx-on #costs, .tgx-on #tab-owner .owner-card { cursor: pointer; }
-/* Explain mode: panels without a scene drop their (i), so every (i) on screen opens an animation. */
-.tgx-on :is(#breaker-card, #news-card, #swap-card) .info { display: none; }
 .x-bar-pay { fill: var(--x-bsv); }
 .x-bar-fee { fill: var(--x-text-2); }
 .x-bar-t { fill: #14100a; font-weight: 600; }
+
+/* Explain mode: scenes open only from these chips; the (i) text gives way to them. */
+.tgx-on .info { display: none; }
+.tgx-chip.is-done { background: rgba(255, 255, 255, .06); border-color: rgba(255, 255, 255, .22); color: var(--muted); }
+.tgx-chip-head { margin: 0 0 0 .625rem; vertical-align: .15em; font-size: .75rem; line-height: 1.4; }
+.tgx-chip-pn { display: inline-block; margin-top: .5rem; }
+.tgx-counter {
+  position: absolute; top: 1rem; right: 1.25rem; margin: 0;
+  font: 600 .8125rem var(--mono); color: var(--x-muted); letter-spacing: .04em;
+}
