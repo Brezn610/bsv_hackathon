@@ -58,27 +58,25 @@ prints, check that the API3 runner has signed a price in the last few minutes, a
 ## Explain mode
 
 Presentation only, for screen recordings. Off by default: open `?explain=1` or press **E** (E again turns it off).
-Each click below opens a centred pop-up with a 6–12 s animation of what happens behind that step, a one-line
-caption, **Replay** and **Close**:
+A scene opens only from an **Explain** chip; nothing else on the page opens one, so clicking around or running an
+action never interrupts a recording. One pop-up at a time:
 
-| Click | Pop-up |
+| Chip | Scene |
 | --- | --- |
-| A step of the payment timeline | Signed price · TreasuryGuard checks and the SPEND intent · watcher check · vault spend · HTTP 402 · settle |
-| **Run the agent** | Signed price (the run keeps going underneath) |
-| **Replay #N** | Replay refused (HTTP 409) |
-| **Run the tamper test** | The panel's five cases, in its order, with the contract's errors |
-| **Fund 5,000 sats** / **Yes, fund it** | The deposit and who can spend it |
-| **Exit** (after typing EXIT) | The owner exits alone |
-| The vault or the owner panel | Vault spend · owner exit |
+| Each step of the latest payment, and each finished step of a live run | Signed price · TreasuryGuard checks and the SPEND intent · watcher check · vault spend · HTTP 402 · settle |
+| Signed price · Dollars → sats limit · Tamper test | The same, and the panel's five tamper cases with the contract's errors |
+| The agent's decision · Watcher decisions | HTTP 402 · replay refused (HTTP 409) |
+| In the vault · Fees on BSV · Latest withdrawal, re-checked | Vault spend · fees per action · watcher check |
+| Fund the vault · Take everything back (Owner view) | The deposit · the owner exits alone |
 
-A finished step of a live run gets an **Explain this step** chip instead of a pop-up, so a recording is never
-interrupted. **Esc**, **Space**, **Enter** or a click outside closes the pop-up; while it is open it takes every key,
-so Esc does not leave video mode. Reduced motion shows the final frame.
+Each scene plays in up to 8 beats (about 0.5 s in, 1 s hold), 7–11 s in all; the caption and the source line come
+with the last beat and stay until you close the pop-up. **→** or **Space** jumps to the next beat, **←** goes back
+one, **Esc** or a click outside closes; while a pop-up is open it takes these keys, so they do not move video
+chapters. A shown scene's chips read **Explained ✓**; pressing one replays it. Reduced motion shows the final frame.
 
 The pop-ups read only what the page already shows (the timeline, the API3 strip). Where the page has no value, the
-pop-up uses intent 9 from 31 Oct and says so: "Recorded example" with its transaction id. Explain mode adds no
-request, no key and no signing, and it never starts an action: the buttons above run exactly as without it, and the
-pop-up opens after the page has handled the click.
+pop-up uses a recorded intent and says so: "Recorded example" with its transaction id. Explain mode adds no request,
+no key and no signing, and it never starts an action.
 
 ## Parameters
 
