@@ -212,7 +212,8 @@
   // intentId, so a withdrawal is counted once however many sources report it.
   const pipelineRows = () => {
     const ids = new Set();
-    for (const [id] of vaultIntents()) ids.add(id);
+    // The ledger is the SPEND/BSV side: vault-5 SPEND intents only. Hedges (SWAP) are in the Event hedges view.
+    for (const [id, i] of vaultIntents()) if (i.kind === 'SPEND') ids.add(id);
     for (const d of liveDecisions()) if (d.status === 200 && d.verdict === 'APPROVE' && /^\d+$/.test(String(d.intentId))) ids.add(String(d.intentId));
     for (const id of S.receipts.keys()) ids.add(id);
     const now = nowSec();
@@ -661,32 +662,35 @@
     return 'retired vault';
   };
   const DIRECTION = { SATS_TO_DUSD: 'sats → dUSD (hedge)', DUSD_TO_SATS: 'dUSD → sats (re-entry)', NONE: '—' };
-  const regimeVaults = () => [VAULT, BigInt(EV.base.judgeVaultId), BigInt(EV.base.liveJudgeVaultId), RUNNER, ...DEMO_HEDGE_VAULTS];
+  // The Event hedges view covers vault 5 and its demo copies only.
+  const HEDGE_VAULTS = [VAULT, ...DEMO_HEDGE_VAULTS];
+  const regimeVaults = () => HEDGE_VAULTS;
   const regimeOf = (v) => (v === VAULT ? S.chain.v5.regime : v === RUNNER ? S.chain.v8.regime : S.chain.others[v.toString()]);
 
   const renderHedgesTab = () => {
     const el = $('#tab-hedges');
     const all = [...S.chain.intents.entries()];
-    // Every SWAP or non-budget intent of any vault, newest first; vaults 9-12 are where the API3 demo hedges.
-    const hedges = all.filter(([, i]) => i.kind === 'SWAP' || i.source !== 'BUDGET').sort(([a], [b]) => (BigInt(b) > BigInt(a) ? 1 : -1));
+    // Event hedges only: SWAP intents with source EVENT, on vault 5 or its demo copies (9-12), newest first.
+    const hedges = all.filter(([, i]) => i.kind === 'SWAP' && i.source === 'EVENT' && HEDGE_VAULTS.includes(i.vaultId))
+      .sort(([a], [b]) => (BigInt(b) > BigInt(a) ? 1 : -1));
     const regimes = regimeVaults().map((v) => [v.toString(), regimeOf(v)]);
     const sig = stringify([all.length, hedges, regimes, hedges.map(([id]) => S.logData.intentTx.get(id)?.txHash)]);
     mount(el, sig, () => [
       h('h2', { class: 'tab-title' }, 'Event hedges'),
-      h('p', { class: 'lede small' }, 'A signed post from a whitelisted account, with a fresh signed price, can move a vault to GUARDED and create a SWAP hedge of at most 25 %. A −5 % signed 1 h move triggers RISK_OFF with a 50 % hedge. For the demo, the API3 side hedges on vaults 9–12, copies of vault 5, while SPEND intents stay on vault 5. The watcher never co-signs SWAP intents, so hedges move no BSV.'),
+      h('p', { class: 'lede small' }, 'A signed post from a whitelisted account, with a fresh signed price, can move a vault to GUARDED and create a SWAP hedge of at most 25 %. Shown here: event hedges (SWAP, source EVENT) on vault 5 and on vaults 9–12, demo copies of vault 5 where the API3 side hedges while SPEND intents stay on vault 5. The watcher never co-signs SWAP intents, so hedges move no BSV.'),
       h('div', { class: 'grid-2' },
-        h('article', { class: 'card' }, h('div', { class: 'card-head' }, h('h3', null, 'Hedge intents on the contract'), srcBadge('base', 'Base Sepolia')),
+        h('article', { class: 'card' }, h('div', { class: 'card-head' }, h('h3', null, 'Event hedges · vaults 5, 9–12'), srcBadge('base', 'Base Sepolia')),
           !all.length ? h('p', { class: 'state' }, S.base.status === 'error' ? 'Base RPC unavailable.' : 'Reading intents…')
             : hedges.length ? h('ul', { class: 'plain small hedges' }, hedges.map(([id, i]) => {
               const tx = S.logData.intentTx.get(id)?.txHash;
               const open = nowSec() < i.expiry;
               return h('li', null,
                 h('strong', null, `#${id} · vault ${i.vaultId}`), h('span', { class: 'muted' }, ` · ${vaultLabel(i.vaultId)}`),
-                h('span', { class: 'block' }, `${i.kind} ${DIRECTION[i.direction] || i.direction} · source ${i.source} · at most ${fixed(i.maxBps, 2, 0)} % of the vault`),
-                i.kind === 'SWAP' ? h('span', { class: 'block muted' }, `price band ${price8(i.minOut)} – ${price8(i.maxOut)} per BSV`) : null,
+                h('span', { class: 'block' }, `SWAP ${DIRECTION[i.direction] || i.direction} · at most ${fixed(i.maxBps, 2, 0)} % of the vault`),
+                h('span', { class: 'block muted' }, `price band ${price8(i.minOut)} – ${price8(i.maxOut)} per BSV`),
                 h('span', { class: 'block' }, open ? h('span', { class: 'countdown', dataset: { untilSec: i.expiry.toString() } }, '') : 'expired', tx ? [' · ', baseTx(tx)] : null));
             }))
-              : h('p', { class: 'empty' }, `No hedge intent yet: all ${all.length} intents on the contract are BUDGET spends. A hedge on vaults 9–12 appears here within about 20 s.`)),
+              : h('p', { class: 'empty' }, `No event hedge on vault 5 or vaults 9–12 yet (${all.length} intents read). A new one appears here within about 20 s.`)),
         h('article', { class: 'card' }, h('div', { class: 'card-head' }, h('h3', null, 'Regimes'), srcBadge('base', 'Base Sepolia')),
           h('ul', { class: 'plain' }, regimes.map(([v, r]) =>
             h('li', null, `Vault ${v} · ${vaultLabel(BigInt(v))} · `, r ? h('span', { class: `regime regime-${String(r).toLowerCase()}` }, r) : h('span', { class: 'muted' }, '—')))),
