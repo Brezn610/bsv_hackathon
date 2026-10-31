@@ -465,6 +465,12 @@
     'AI agent pays for data': 'pay', 'Recorded on Base': 'settle', 'Replay refused': 'replay', 'Owner takes it back': 'exit'
   };
   const RUN_SCENE = ['price', 'limit', 'watcher', 'vault', 'pay', 'settle']; // #run nodes, by data-i
+  const PANEL_SCENE = {
+    'price-card': 'price', 'oracle-card': 'price', 'limit-card': 'limit', lab: 'tamper',
+    'decisions-card': 'watcher', 'recheck-card': 'watcher', 'withdrawals-card': 'vault',
+    'agent-card': 'pay', 'payments-card': 'pay'
+  };
+  const PANEL_SELECTOR = Object.keys(PANEL_SCENE).map((id) => `#${id}`).join(', ');
   const stepTitle = (li) => txt(li.querySelector('.sp-title')?.firstChild);
 
   const sceneFor = (t) => {
@@ -494,6 +500,9 @@
     if (sp) return STEP_SCENE[stepTitle(sp)] ? { key: STEP_SCENE[stepTitle(sp)], ctx: {} } : null;
     if (t.closest('.mf-vault, #vault-card, #script-card')) return { key: 'vault', ctx: {} };
     if (t.closest('.mf-owner, #tab-owner .owner-card, #exit-proof')) return { key: 'exit', ctx: {} };
+    // Panels (and their (i)) open the scene of what they show.
+    const panel = t.closest(PANEL_SELECTOR);
+    if (panel) return { key: PANEL_SCENE[panel.id], ctx: {} };
     return null;
   };
 

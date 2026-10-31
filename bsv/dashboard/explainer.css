@@ -149,3 +149,6 @@
 @media (prefers-reduced-motion: reduce) {
   .tgx-modal, .tgx-toast { animation: none; }
 }
+
+/* Explain mode: panels that open a scene show they can be clicked. */
+.tgx-on :is(#price-card, #oracle-card, #limit-card, #lab, #decisions-card, #recheck-card, #withdrawals-card, #agent-card, #payments-card, #vault-card, #script-card, .mf-vault, .mf-owner) { cursor: pointer; }
