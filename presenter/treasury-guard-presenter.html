@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Treasury Guard</title>
+<style>
+:root{
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --bg:#F4F5F7;--surface:#FFFFFF;--ink:#0D1017;--muted:#4F5665;--line:#D9DDE4;--edge:#AEB5C2;
+  --x:#4B5260;--x-soft:#E7E9ED;--on-x:#FFFFFF;
+  --base:#1D4ED8;--base-soft:#E3EAFE;--base-band:#E9EFFD;--on-base:#FFFFFF;
+  --bsv:#9A5B00;--bsv-fill:#E9A62C;--bsv-soft:#FBEFD3;--bsv-band:#FBF3E2;--on-bsv:#1C1400;
+  --guard:#0F766E;--guard-soft:#D9F2EE;--on-guard:#FFFFFF;
+  --agent:#6D28D9;--agent-soft:#ECE4FD;--on-agent:#FFFFFF;
+  --off-band:#EDEFF2;
+  --stop:#C2321F;--stop-soft:#FBE2DE;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0A0C11;--surface:#141821;--ink:#EEF1F6;--muted:#A0A8B6;--line:#2A3140;--edge:#4A5366;
+    --x:#A9B0BD;--x-soft:#1E232D;--on-x:#0A0C11;
+    --base:#7AA2FF;--base-soft:#17244A;--base-band:#0F1830;--on-base:#06102A;
+    --bsv:#F2B53C;--bsv-fill:#F2B53C;--bsv-soft:#33270F;--bsv-band:#1C170C;--on-bsv:#1C1400;
+    --guard:#34D3B4;--guard-soft:#0E2A26;--on-guard:#04201B;
+    --agent:#AE94FB;--agent-soft:#241B42;--on-agent:#160B33;
+    --off-band:#11141A;
+    --stop:#FF6E5A;--stop-soft:#3A1914;
+  }
+}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg)}
+*{box-sizing:border-box}
+a{color:var(--base)}a:hover{color:var(--ink)}
+#stage{position:absolute;left:50%;top:50%;width:1600px;height:900px;transform:translate(-50%,-50%) scale(var(--s,1));transform-origin:center;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+.mono{font-family:var(--mono)}
+.k-x{--c:var(--x);--fill:var(--x);--soft:var(--x-soft);--on:var(--on-x)}
+.k-base{--c:var(--base);--fill:var(--base);--soft:var(--base-soft);--on:var(--on-base)}
+.k-guard{--c:var(--guard);--fill:var(--guard);--soft:var(--guard-soft);--on:var(--on-guard)}
+.k-bsv{--c:var(--bsv);--fill:var(--bsv-fill);--soft:var(--bsv-soft);--on:var(--on-bsv)}
+.k-agent{--c:var(--agent);--fill:var(--agent);--soft:var(--agent-soft);--on:var(--on-agent)}
+.k-stop{--c:var(--stop);--fill:var(--stop);--soft:var(--stop-soft);--on:#FFFFFF}
+
+/* header */
+.head{position:absolute;left:16px;top:0;width:1568px;height:60px;display:flex;align-items:center;gap:14px;padding:0 8px}
+.brand{font-weight:750;font-size:23px;letter-spacing:-0.02em;margin-right:10px}
+.tab{appearance:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font:600 15px/1 var(--sans);padding:0 14px;min-height:40px;border-radius:999px}
+.tab kbd{font:600 12px/1 var(--mono);border:1px solid var(--line);border-radius:5px;padding:3px 6px;color:var(--muted);background:var(--bg)}
+.tab.cur{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.tab.cur kbd{background:transparent;color:var(--bg);border-color:var(--bg)}
+.tab:hover{color:var(--ink)}.tab.cur:hover{color:var(--bg)}
+.headright{margin-left:auto;display:flex;align-items:center;gap:6px}
+.sub{font:500 14px/1 var(--mono);color:var(--muted)}
+.atkchip{appearance:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 13px/1 var(--mono);padding:0 12px;min-height:38px;border-radius:999px}
+.atkchip svg{width:11px;height:11px;color:var(--stop)}
+.atkchip:hover{border-color:var(--stop)}
+.atkchip.cur{background:var(--stop);border-color:var(--stop);color:#FFFFFF}
+.atkchip.cur svg{color:#FFFFFF}
+
+/* diagram */
+.band{position:absolute;border-radius:18px}
+.band.b-base{background:var(--base-band)}
+.band.b-off{background:var(--off-band);border:1.5px dashed var(--line)}
+.band.b-bsv{background:var(--bsv-band)}
+.band-label{position:absolute;left:24px;top:14px;font:600 14px/1.2 var(--mono);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.b-base .band-label{color:var(--base)}.b-off .band-label{color:var(--muted)}.b-bsv .band-label{color:var(--bsv)}
+#edges{position:absolute;left:0;top:0;width:1600px;height:900px;pointer-events:none}
+.edge{fill:none;stroke:var(--edge);stroke-width:1.6;stroke-dasharray:5 6;marker-end:url(#ah);transition:opacity .4s}
+.edge.nomark{marker-end:none}
+.edge.dim{opacity:.35}
+.edge.on{stroke:var(--c);stroke-width:2.6;stroke-dasharray:7 7;marker-end:url(#ah-on);animation:flow .9s linear infinite}
+.edge.ghost{opacity:0}
+.edge.atk{stroke:var(--stop);stroke-width:2.6;stroke-dasharray:7 7;marker-end:none;opacity:1;animation:flow .9s linear infinite}
+.ahp{fill:var(--edge)}.ahp-on{fill:var(--ink)}
+@keyframes flow{to{stroke-dashoffset:-28}}
+.node{position:absolute;border-radius:14px;background:var(--surface);border:1.5px solid var(--line);padding:0 16px;display:flex;flex-direction:column;justify-content:center;gap:3px;transition:opacity .4s,border-color .4s,box-shadow .4s}
+.node.on{border:2.5px solid var(--c);box-shadow:0 0 0 5px var(--soft),0 16px 36px -18px var(--c)}
+.node.dim{opacity:.38}
+.node.hit{border:2.5px solid var(--stop);box-shadow:0 0 0 5px var(--stop-soft)}
+.node .nt{font-weight:650;font-size:20px;line-height:1.1;display:flex;align-items:center;gap:9px;white-space:nowrap}
+.node .nt i{width:10px;height:10px;border-radius:3px;background:var(--fill);flex:none}
+.node .ns{font:400 13px/1.25 var(--mono);color:var(--muted);white-space:nowrap}
+.node .nb{font:600 12.5px/1.25 var(--mono);color:var(--c);white-space:pre}
+.node.small .nt{font-size:18px}
+.badge{position:absolute;left:0;top:calc(100% + 8px);white-space:nowrap;font:600 12.5px/1 var(--mono);color:var(--c);background:var(--soft);padding:5px 10px;border-radius:999px;animation:pop .35s ease both}
+.badge.up{top:auto;bottom:calc(100% + 8px)}
+@keyframes pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.pkt{position:absolute;left:0;top:0;offset-rotate:0deg;offset-anchor:50% 50%;background:var(--fill);color:var(--on);font:600 15px/1 var(--mono);padding:10px 16px;border-radius:999px;white-space:nowrap;box-shadow:0 10px 26px -10px var(--fill),0 0 0 4px var(--bg);z-index:5;display:none}
+.pkt.show{display:block}
+.blk{position:absolute;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;background:var(--stop);color:#FFFFFF;display:none;place-items:center;z-index:6;box-shadow:0 0 0 6px var(--stop-soft)}
+.blk.show{display:grid;animation:slam 1.9s ease both}
+.blk svg{width:18px;height:18px}
+@keyframes slam{0%,50%{transform:scale(0)}60%{transform:scale(1.3)}75%,100%{transform:scale(1)}}
+.closing{position:absolute;left:40px;top:616px;font-weight:700;font-size:28px;letter-spacing:-0.02em;display:none;white-space:nowrap}
+.closing.show{display:block;animation:pop .6s ease 1.6s both}
+.closing span{color:var(--base)}.closing em{font-style:normal;color:var(--bsv)}
+
+/* panel */
+.panel{position:absolute;left:1020px;top:64px;width:564px;height:596px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:26px 30px;overflow:hidden;display:none;flex-direction:column;gap:14px}
+.panel.show{display:flex}
+.pk{font:600 12.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--c)}
+.ph{font-weight:750;font-size:28px;line-height:1.12;letter-spacing:-0.02em;margin:0}
+.pp{font-size:17px;line-height:1.45;color:var(--muted);margin:0}
+.pp b{color:var(--ink);font-weight:600}
+.prow{border:1px solid var(--line);border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:4px;transition:border-color .3s,box-shadow .3s,opacity .3s}
+.prow .pt{font-weight:650;font-size:18px;line-height:1.2}
+.prow .pd{font:400 13.5px/1.4 var(--mono);color:var(--muted)}
+.prow.hl{border-color:var(--c);box-shadow:0 0 0 3px var(--soft)}
+.prow.lo{opacity:.45}
+.prow.bad{border-color:var(--stop);box-shadow:0 0 0 3px var(--stop-soft)}
+.ticks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.tick{display:flex;gap:12px;align-items:flex-start;font-size:17px;line-height:1.35;opacity:0;animation:tickin .35s ease forwards;animation-delay:calc(var(--i) * .32s + .25s)}
+.tick .tm{width:22px;height:22px;border-radius:50%;flex:none;display:grid;place-items:center;background:var(--guard);color:var(--on-guard);margin-top:1px}
+.tick.no .tm{background:var(--stop);color:#FFFFFF}
+.tick.pre .tm{background:var(--soft);color:var(--c)}
+.tick .tm svg{width:13px;height:13px}
+.tick small{display:block;font:400 13.5px/1.4 var(--mono);color:var(--muted)}
+@keyframes tickin{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+.formula{font:600 21px/1.5 var(--mono);background:var(--soft);border-radius:12px;padding:16px 18px}
+.chips2{display:flex;flex-wrap:wrap;gap:8px}
+.ec{font:600 14px/1 var(--mono);color:var(--stop);background:var(--stop-soft);padding:8px 12px;border-radius:8px}
+.ec.ec-main{font-size:20px;padding:10px 16px;color:#FFFFFF;background:var(--stop)}
+.code{font:500 21px/1.75 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:0}
+.code .ln{display:block;border-radius:6px;padding:0 8px;transition:opacity .3s,background-color .3s}
+.code.hl-spend .ln{opacity:.35}.code.hl-spend .ln.br-spend{opacity:1;background:var(--guard-soft)}
+.code.hl-exit .ln{opacity:.35}.code.hl-exit .ln.br-exit{opacity:1;background:var(--bsv-soft)}
+.code .ag{color:var(--agent)}.code .wa{color:var(--guard)}.code .ow{color:var(--bsv)}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.stat{border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.stat b{display:block;font:700 26px/1.1 var(--mono);letter-spacing:-0.02em}
+.stat span{display:block;margin-top:4px;font-size:14px;color:var(--muted)}
+.plink{display:inline-flex;align-items:center;gap:8px;font:600 14px/1 var(--mono);text-decoration:none;color:var(--ink);border:1px solid var(--line);padding:0 12px;min-height:40px;border-radius:999px;align-self:flex-start}
+.plink:hover{border-color:var(--ink);color:var(--ink)}
+.plink svg{width:14px;height:14px}
+.links{display:flex;flex-wrap:wrap;gap:8px}
+.big{font-weight:750;font-size:34px;line-height:1.12;letter-spacing:-0.025em;margin:0}
+.idx{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;counter-reset:s}
+.idx li{display:flex;gap:14px;align-items:baseline;font-size:16px;line-height:1.3;padding:5px 0;border-bottom:1px solid var(--line)}
+.idx li span{font:600 13px/1 var(--mono);color:var(--muted);min-width:56px}
+.elabel{position:absolute;font:500 12.5px/1.2 var(--mono);color:var(--muted);white-space:nowrap;pointer-events:none}
+
+/* caption + bar + footer */
+.cap{position:absolute;left:16px;top:672px;width:1568px;height:72px;display:flex;align-items:center;gap:24px;padding:0 8px}
+.time{font:600 40px/1 var(--mono);letter-spacing:-0.03em;min-width:150px;font-variant-numeric:tabular-nums;color:var(--c)}
+.captxt{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
+.captitle{font-weight:700;font-size:26px;line-height:1.1;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.capdet{font:400 15px/1.3 var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.txlink{display:none;align-items:center;gap:8px;font:600 14px/1 var(--mono);text-decoration:none;border:1px solid var(--line);background:var(--surface);padding:0 14px;min-height:44px;border-radius:999px;color:var(--ink);flex:none}
+.txlink.show{display:inline-flex}
+.txlink:hover{border-color:var(--ink);color:var(--ink)}
+.txlink svg{width:16px;height:16px}
+.bar{position:absolute;left:16px;top:752px;width:1568px;height:62px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--line);padding-top:8px}
+.btn{appearance:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:600 16px/1 var(--sans);padding:0 16px;min-height:44px;border-radius:10px}
+.btn:hover{border-color:var(--ink)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink);min-width:112px;justify-content:center}
+.btn svg{width:16px;height:16px}
+.btn:focus-visible,.chip:focus-visible,.atkchip:focus-visible,.tab:focus-visible,.txlink:focus-visible,.plink:focus-visible{outline:3px solid var(--base);outline-offset:2px}
+.count{font:400 15px/1 var(--mono);color:var(--muted);margin:0 6px;min-width:96px;white-space:nowrap}
+.chips{display:flex;gap:6px;margin-left:auto}
+.chip{appearance:none;cursor:pointer;min-width:44px;height:44px;padding:0 6px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:600 14px/1 var(--mono)}
+.chip.seen{background:var(--soft);border-color:transparent;color:var(--c)}
+.chip.cur{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.foot{position:absolute;left:16px;top:826px;width:1568px;height:56px;display:flex;align-items:center;gap:32px;padding:0 8px;border-top:1px solid var(--line);font-size:13.5px;line-height:1.45;color:var(--muted)}
+.foot p{margin:0;max-width:1080px}
+.keys{margin-left:auto;font:500 12.5px/1 var(--mono);white-space:nowrap}
+.keys kbd{font:600 12px/1 var(--mono);border:1px solid var(--line);border-radius:5px;padding:3px 6px;background:var(--surface);color:var(--ink)}
+
+/* new panel pieces + glossary */
+.defn{font:500 14.5px/1.45 var(--mono);background:var(--soft);border-radius:10px;padding:10px 14px}
+.defn b{color:var(--c)}
+.trows{display:flex;flex-direction:column;gap:8px}
+.trow{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:16.5px;line-height:1.3;transition:opacity .3s,border-color .3s,box-shadow .3s}
+.trow .tm{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--guard);color:var(--on-guard)}
+.trow.no .tm{background:var(--stop);color:#FFFFFF}
+.trow .tm svg{width:13px;height:13px}
+.trow .tl{flex:1;min-width:0}
+.trow code{font:600 13.5px/1 var(--mono);color:var(--stop);background:var(--stop-soft);padding:6px 9px;border-radius:7px;white-space:nowrap}
+.trow.ok code{color:var(--guard);background:var(--guard-soft)}
+.trow.hl{border-color:var(--c);box-shadow:0 0 0 3px var(--soft)}
+.trow.lo{opacity:.5}
+.trybox{border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.trybox .pd{font-size:13.5px;line-height:1.5;color:var(--muted)}
+.cmd{font:600 14.5px/1.4 var(--mono);overflow-wrap:anywhere;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.gloss{position:absolute;left:16px;top:64px;width:1568px;height:752px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:26px 36px;z-index:20;display:flex;flex-direction:column;gap:14px;box-shadow:0 30px 80px -30px rgba(0,0,0,.35)}
+.gloss[hidden]{display:none}
+.ghead{display:flex;align-items:center;gap:18px}
+.ghead .btn{margin-left:auto}
+.gl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:48px;margin:0}
+.gl div{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px;padding:9px 0;border-bottom:1px solid var(--line);align-items:baseline}
+.gl dt{font:600 15px/1.35 var(--mono);color:var(--ink)}
+.gl dd{margin:0;font-size:15.5px;line-height:1.4;color:var(--muted)}
+
+@media (prefers-reduced-motion: reduce){
+  .edge.on,.edge.atk,.blk.show,.badge,.closing.show{animation:none}
+  .tick{animation:none;opacity:1}
+}
+</style>
+</head>
+<body>
+<div id="stage">
+  <header class="head">
+    <span class="brand">Treasury Guard</span>
+    <button type="button" class="tab" data-mod="0"><kbd>1</kbd>Overview</button>
+    <button type="button" class="tab" data-mod="1"><kbd>2</kbd>API3</button>
+    <button type="button" class="tab" data-mod="2"><kbd>3</kbd>BSV</button>
+    <button type="button" class="tab" id="bGloss" aria-label="Glossary (G)"><kbd>G</kbd>?</button>
+    <div class="headright" id="headright"></div>
+  </header>
+
+  <div id="bands"></div>
+  <svg id="edges" viewBox="0 0 1600 900" aria-hidden="true">
+    <defs>
+      <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path class="ahp" d="M0 0L10 5L0 10z"/></marker>
+      <marker id="ah-on" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="13" markerHeight="13" markerUnits="userSpaceOnUse" orient="auto"><path class="ahp-on" d="M0 0L10 5L0 10z"/></marker>
+    </defs>
+    <g id="edgeg"></g>
+  </svg>
+  <div id="nodes"></div>
+  <div class="pkt" id="pkt"></div>
+  <div class="blk" id="blk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+  <div class="closing" id="closing"><span>Base decides.</span> <em>BSV moves the money.</em> The owner can always leave.</div>
+  <section class="panel" id="panel" aria-live="polite"></section>
+
+  <section class="gloss" id="gloss" role="dialog" aria-label="Glossary" hidden>
+    <div class="ghead"><h2 class="ph">Glossary</h2><span class="sub">G or Esc to close</span><button type="button" class="btn" id="bGlossClose">Close</button></div>
+    <dl class="gl">
+      <div><dt>x402</dt><dd>Paying per request over HTTP 402: 0.001 aUSD per signed price, 0.01 aUSD per post.</dd></div>
+      <div><dt>Airnode (first-party)</dt><dd>The data provider’s own signer. CoinPaprika and TwitterAPI.io sign their answers at the source.</dd></div>
+      <div><dt>AirnodeHub</dt><dd>API3’s catalog of signed APIs. It had no BSV/USD feed on Nodary and no feed of official statements.</dd></div>
+      <div><dt>EIP-191 signature</dt><dd>The Airnode’s signature on a response. TreasuryGuard checks it came from the vault’s Airnode (else SignerMismatch).</dd></div>
+      <div><dt>request hash</dt><dd>Fingerprint of exactly which request was signed. Must equal the vault’s request (else WrongRequest).</dd></div>
+      <div><dt>aUSD</dt><dd>The test dollar token paid to the Airnodes over x402. The Runner (vault 8) is capped at 0.5 aUSD/day for data.</dd></div>
+      <div><dt>Base Sepolia</dt><dd>Ethereum L2 testnet, chain 84532. TreasuryGuard decides here.</dd></div>
+      <div><dt>intent</dt><dd>A budgeted SPEND on Base with a hard cap in sats. The only way the agent can move money.</dd></div>
+      <div><dt>settle</dt><dd>Records the BSV txid the Orchestrator finds via the TGv1 receipt on WhatsOnChain. Base does not verify BSV.</dd></div>
+      <div><dt>HTTP 402 / BRC-121</dt><dd>Payment Required: the BSV agent pays per call in sats, e.g. 100 sats to the Analyst API. BRC-121 on BSV.</dd></div>
+      <div><dt>OP_RETURN receipt (TGv1)</dt><dd>Data in every withdrawal: TGv1 84532 0x8e38…7773 vault intent. Links the BSV tx to the Base intent.</dd></div>
+      <div><dt>UTXO</dt><dd>An unspent BSV output. The BSV agent pays from exactly the withdrawn output, e.g. 8519e2…:0.</dd></div>
+      <div><dt>non-custodial</dt><dd>BSV agent and Watcher can only spend together, inside the cap. Only the owner can move coins alone.</dd></div>
+      <div><dt>owner exit</dt><dd>Script branch OP_ELSE &lt;owner&gt; OP_CHECKSIG. The owner withdraws alone; proven on mainnet 30 Oct.</dd></div>
+      <div><dt>Watcher</dt><dd>Independent process. Co-signs only what Base approved, after checking the real transaction bytes.</dd></div>
+      <div><dt>Orchestrator</dt><dd>API3 side, holds the vault-5 EVM key. Buys signed data over x402, calls submitEvent, submitPrice and settle.</dd></div>
+      <div><dt>Runner (vault 8)</dt><dd>Autonomous loop on vault 8: buys a signed price every 10 min (2 min near the breaker), 84 cycles in 14 h.</dd></div>
+      <div><dt>BSV agent (tg auto)</dt><dd>Picks up intents, proposes the transaction to the Watcher, broadcasts it and pays over HTTP 402.</dd></div>
+      <div><dt>journal</dt><dd>The watcher’s record: “reserved” before signing, survives restarts, file lock. One transaction per intent.</dd></div>
+    </dl>
+  </section>
+
+  <div class="cap" id="cap" aria-live="polite">
+    <span class="time" id="ctime"></span>
+    <div class="captxt"><span class="captitle" id="ctitle"></span><span class="capdet" id="cdet"></span></div>
+    <a class="txlink" id="clink" href="#" target="_blank" rel="noopener noreferrer"><span id="clinkt"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+  </div>
+
+  <div class="bar">
+    <button type="button" class="btn" id="bBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>Back</button>
+    <button type="button" class="btn primary" id="bPlay"></button>
+    <button type="button" class="btn" id="bNext">Next<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    <button type="button" class="btn" id="bReplay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v5h5"/></svg>Replay step</button>
+    <button type="button" class="btn" id="bReset">Reset</button>
+    <span class="count" id="count"></span>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <footer class="foot">
+    <p>settle records the BSV txid the orchestrator finds via the TGv1 receipt on WhatsOnChain; Base does not verify BSV. Hedges are recorded on Base and move no BSV in this submission.</p>
+    <span class="keys"><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> module · <kbd>Space</kbd> play · <kbd>←</kbd> <kbd>→</kbd> step · <kbd>R</kbd> reset · <kbd>G</kbd> glossary</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+var X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+var OK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>';
+var DOT_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="5"/></svg>';
+var EXT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>';
+
+var TX = {
+  submit: 'https://sepolia.basescan.org/tx/0xe12bf82eadd8ec47e6e355b48804ecc769f2645c3f570f04daadcb22b8e06663',
+  spend: 'https://sepolia.basescan.org/tx/0x23c75a3d4a47af33c909a9908c4d965fd603ca0b2a64bd1f420040cc27e75b81',
+  wd: 'https://whatsonchain.com/tx/bbbd9137a1275ebbac968aa277c289cf775635d0bc9942f7145e7c88f37552ec',
+  pay: 'https://whatsonchain.com/tx/abe8f2e90f4c4a52920f467abeb5797ec36d52836d6768c3bf1d1f0da12170d5',
+  settle: 'https://sepolia.basescan.org/tx/0xfc733737edfba6d77f586829c85bf53828d00104667cabfe27c113199fbb58ea',
+  exit: 'https://whatsonchain.com/tx/db5ca41c82c4506f66614193b6c2ccf5b84f3d7afffcda4f1a588b09edf7d41e',
+  wd8: 'https://whatsonchain.com/tx/8519e252e0d0659bbdec889bee0adb273d5cd9608975a19348c6789dc11a108b',
+  settle8: 'https://sepolia.basescan.org/tx/0x1c6c8bbdfee13ae81041f13998ae1f60217243203384f10c767845ba9444d927',
+  pay8: 'https://whatsonchain.com/tx/e4ada6c69c7928ef08751adc6ba8fba6faa1fdf7a98aeced78c3f5c25dc328f6',
+  contract: 'https://sepolia.basescan.org/address/0x8e38cc6b1bd1f0d25357066cd0036f28fd1f7773',
+  swap: 'https://whatsonchain.com/tx/ee2a38964df993af6cd48f5f51d1ce0c07c7bf454363735341288d7f71bf8e8c'
+};
+
+function ticks(items) {
+  return '<ul class="ticks">' + items.map(function (it, i) {
+    var m = it.m || 'ok';
+    var icon = m === 'no' ? X_SVG : (m === 'pre' ? DOT_SVG : OK_SVG);
+    return '<li class="tick ' + m + '" style="--i:' + i + '"><span class="tm">' + icon + '</span><span>' + it.t + (it.s ? '<small>' + it.s + '</small>' : '') + '</span></li>';
+  }).join('') + '</ul>';
+}
+function head(kicker, title) { return '<span class="pk">' + kicker + '</span><h2 class="ph">' + title + '</h2>'; }
+function row(t, d, cls) { return '<div class="prow ' + (cls || '') + '"><span class="pt">' + t + '</span><span class="pd">' + d + '</span></div>'; }
+function plink(href, label) { return '<a class="plink" href="' + href + '" target="_blank" rel="noopener noreferrer">' + label + EXT_SVG + '</a>'; }
+
+/* ---------------- Module 1 · Overview ---------------- */
+var M1 = {
+  id: 'overview', name: 'Overview', sub: 'live run · 30 Oct 2026 · intent 6 · vault 5', stepMs: 2800,
+  bands: [
+    { x: 16, y: 64, w: 1568, h: 170, cls: 'b-base', label: 'Base Sepolia · decides' },
+    { x: 16, y: 246, w: 1568, h: 170, cls: 'b-off', label: 'Off-chain' },
+    { x: 16, y: 428, w: 1568, h: 232, cls: 'b-bsv', label: 'BSV mainnet · moves the money' }
+  ],
+  nw: 260, nh: 80,
+  nodes: [
+    { id: 'api3', x: 120, y: 140, k: 'base', t: 'API3 Airnode', s: 'signs posts + BSV/USD', up: true },
+    { id: 'tg', x: 770, y: 140, k: 'base', t: 'TreasuryGuard', s: 'contract · 0x8e38…7773', up: true },
+    { id: 'x', x: 40, y: 290, w: 240, k: 'x', t: 'X · @956_kakashi', s: 'whitelisted account' },
+    { id: 'orch', x: 380, y: 290, w: 280, k: 'base', t: 'Orchestrator', s: 'API3 side · vault-5 EVM key' },
+    { id: 'bsva', x: 780, y: 290, k: 'agent', t: 'BSV agent', s: 'tg auto' },
+    { id: 'watcher', x: 1240, y: 290, k: 'guard', t: 'Watcher', s: 'own process · journal' },
+    { id: 'owner', x: 40, y: 500, w: 220, k: 'bsv', t: 'Owner wallet', s: 'exit key' },
+    { id: 'vault', x: 440, y: 500, w: 220, k: 'bsv', t: 'Vault 5', s: 'two keys | owner exit' },
+    { id: 'float', x: 860, y: 500, w: 220, k: 'bsv', t: 'Agent Float', s: 'float wallet' },
+    { id: 'api', x: 1280, y: 500, w: 220, k: 'bsv', t: 'Analyst API', s: 'merchant · HTTP 402' }
+  ],
+  edges: {
+    e1: 'M200 290 C200 264 212 256 232 256 L272 256 C292 256 300 248 300 226',
+    ea: 'M330 220 C330 250 340 256 360 256 L420 256 C440 256 450 264 450 284',
+    eo: 'M620 290 C620 230 690 180 764 180',
+    e4: 'M980 220 C980 250 970 256 950 256 L905 256 C885 256 880 264 880 284',
+    e5: 'M1040 320 L1234 320',
+    e6: 'M1370 290 C1370 220 1150 180 1036 180',
+    e7: 'M1240 344 L1046 344',
+    e8: 'M1000 370 C1000 450 640 430 600 494',
+    e9: 'M660 540 L854 540',
+    e9b: 'M480 500 C470 456 560 456 524 496',
+    e10: 'M1080 540 L1274 540',
+    e12: 'M440 540 L266 540'
+  },
+  labels: [{ x: 300, y: 514, t: 'exit, any time' }],
+  ghost: [],
+  steps: [
+    { lab: '1', time: '+0 s', k: 'x', e: ['e1'], n: ['x', 'api3'], p: ['e1', 'post'],
+      title: 'Whitelisted account posts', detail: '@956_kakashi · post 2116295879288311875',
+      b: { x: 'post seen' } },
+    { lab: '2a', time: '+0–6 s', k: 'base', e: ['ea'], n: ['api3', 'orch'], p: ['ea', 'signed post'],
+      title: 'Orchestrator buys the signed post', detail: 'API3 Airnode signs the post · bought over x402 · 0.01 aUSD',
+      b: { api3: 'signed post', orch: 'signed post' } },
+    { lab: '2b', time: '+6 s', k: 'base', e: ['eo'], n: ['orch', 'tg'], p: ['eo', 'submitEvent'],
+      title: 'Base verifies the post', detail: 'submitEvent · signature · whitelist · < 30 min → PostVerified · verdict IGNORE, no hedge', link: ['submit', '0xe12b…6663'],
+      b: { tg: 'PostVerified · IGNORE, no hedge', orch: 'submitEvent sent' } },
+    { lab: '3a', time: '+6–10 s', k: 'base', e: ['ea'], n: ['api3', 'orch'], p: ['ea', 'signed price'],
+      title: 'Orchestrator buys the signed price', detail: 'BSV/USD from the API3 Airnode · bought over x402 · 0.001 aUSD',
+      b: { api3: 'signed post + price', orch: 'signed price' } },
+    { lab: '3b', time: '+10 s', k: 'base', e: ['eo'], n: ['orch', 'tg'], p: ['eo', 'submitPrice'],
+      title: 'Budget becomes a SPEND intent', detail: 'submitPrice · $0.001 of the daily budget → intent #6 · max 5,807 sats', link: ['spend', '0x23c7…5b81'],
+      b: { tg: 'SPEND #6 · cap 5,807 sats', orch: 'submitPrice sent' } },
+    { lab: '4', time: '+12 s', k: 'base', e: ['e4'], n: ['tg', 'bsva'], p: ['e4', 'intent #6'],
+      title: 'BSV agent picks up intent 6', detail: 'tg auto reads the intent from Base',
+      b: { bsva: 'intent 6 picked up' } },
+    { lab: '5', time: '+12 s', k: 'agent', e: ['e5'], n: ['bsva', 'watcher'], p: ['e5', 'tx + intent 6'],
+      title: 'BSV agent proposes to the Watcher', detail: 'sends the real BSV transaction bytes' },
+    { lab: '6', time: '+12–33 s', k: 'guard', e: ['e6'], n: ['watcher', 'tg'], p: ['e6', 'read #6'],
+      title: 'Watcher reads Base, checks the tx', detail: 'never trusts the agent · vault · recipient · amount + fee ≤ cap · receipt · unused',
+      b: { watcher: 'intent 6 read from Base' } },
+    { lab: '7', time: '+33 s', k: 'guard', e: ['e7'], n: ['watcher', 'bsva'], p: ['e7', 'co-signature'],
+      title: 'Checks pass, Watcher co-signs', detail: '5,707 + 42 fee = 5,749 ≤ cap 5,807 → journal → 200 APPROVE',
+      b: { watcher: 'journal: intent 6 · APPROVE', bsva: 'co-signed tx' } },
+    { lab: '8', time: '+35 s', k: 'agent', e: ['e8'], n: ['bsva', 'vault'], p: ['e8', '2 signatures'],
+      title: 'Withdrawal broadcast', detail: 'BSV agent + Watcher unlock the vault (24,216 sats) · mined in block 973378', link: ['wd', 'bbbd91…52ec'],
+      b: { bsva: 'broadcast', vault: '24,216 sats' } },
+    { lab: '9', time: '+35 s', k: 'bsv', e: ['e9', 'e9b'], n: ['vault', 'float'], p: ['e9', '5,707 sats'],
+      title: 'Vault pays the Agent Float', detail: '24,216 → 5,707 Agent Float · 18,467 back · fee 42 · OP_RETURN TGv1 84532 0x8e38…7773 5 6', link: ['wd', 'bbbd91…52ec'],
+      b: { vault: '18,467 sats · receipt TGv1', float: '+5,707 sats' } },
+    { lab: '10', time: '+43 s', k: 'bsv', e: ['e10'], n: ['bsva', 'float', 'api'], p: ['e10', '100 sats'],
+      title: 'BSV agent buys an analysis', detail: 'DeepSeek proposes · guardian approves · HTTP 402 · paid from that output', link: ['pay', 'abe8f2…70d5'],
+      b: { bsva: 'guardian approved', float: 'paid 100 sats', api: '+100 sats · HTTP 402' } },
+    { lab: '11', time: '+46 s', k: 'base', e: ['eo'], n: ['orch', 'tg'], p: ['eo', 'settle(6)'],
+      title: 'Settled on Base', detail: 'Orchestrator finds the TGv1 receipt on WhatsOnChain → settle(6) · settled = true', link: ['settle', '0xfc73…58ea'],
+      b: { tg: 'settled = true', orch: 'settle(6) sent' }, closing: true }
+  ],
+  attacks: [
+    { label: 'fake post', k: 'stop', time: 'revert', e: ['eo'], n: ['orch'], hit: 'tg', p: ['eo', 'forged post'], blk: [734, 182],
+      title: 'Fake, old or reused post', detail: 'not whitelisted · tampered · > 30 min · reused → revert, e.g. StalePost' },
+    { label: 'tweet → money', k: 'stop', time: 'blocked', e: ['eo'], n: ['orch'], hit: 'tg', p: ['eo', 'forged post'], blk: [734, 182],
+      title: 'A tweet can’t move money', detail: 'a post creates no SPEND (it can only hedge, once per vault)' },
+    { label: 'SWAP', k: 'stop', time: 'blocked', e: ['e4'], n: ['tg'], hit: 'bsva', p: ['e4', 'SWAP'], blk: [830, 256],
+      title: 'SWAP intent', detail: 'not submitted by the BSV agent · a SWAP is never co-signed' },
+    { label: '2nd tx', k: 'stop', time: '409', e: ['e5'], n: ['bsva'], hit: 'watcher', p: ['e5', 'tx #2'], blk: [1140, 268],
+      title: 'Same intent twice', detail: 'refused by the Watcher, even after a restart · journal → HTTP 409' },
+    { label: '> cap', k: 'stop', time: '422', e: ['e5'], n: ['bsva'], hit: 'watcher', p: ['e5', '> cap'], blk: [1140, 268],
+      title: 'Over the cap or wrong payee', detail: 'checked on the real transaction bytes, fee included → refused' }
+  ],
+  intro: { title: 'One real run, tweet to settlement', detail: 'Press Space or → · try to break it above' }
+};
+
+/* ---------------- Module 2 · API3 ---------------- */
+var X402 = '<div class="defn"><b>x402</b> = paying per request over HTTP 402: the Orchestrator pays 0.001 aUSD per signed price, 0.01 per post</div>';
+var P2_SIGNED = function (hl) {
+  return head('Scene 1 · what is signed', 'Two first-party Airnodes') +
+    row('CoinPaprika · BSV/USD', 'airnode 0xB8b7…f732<br>bought per call over x402 · 0.001 aUSD', hl === 'price' ? 'hl k-base' : 'lo') +
+    row('TwitterAPI.io · posts', 'airnode 0x7B02…1CCB<br>0.01 aUSD per post', hl === 'post' ? 'hl k-base' : 'lo') +
+    X402 +
+    '<p class="pp"><b>The Orchestrator pays for exactly the data it uses.</b></p>';
+};
+var P2_FORGE = function (hl) {
+  return head('Scene 4 · forgery', 'What a forgery would do') +
+    row('Fake low BSV price', 'raises the sats cap → drains the vault faster', hl === 'price' ? 'bad' : 'lo') +
+    row('Fake official post', 'triggers a hedge', hl === 'post' ? 'bad' : 'lo') +
+    '<p class="pp">A fake price or post isn’t signed by the vault’s Airnode, so it reverts on-chain with</p>' +
+    '<div class="chips2"><span class="ec ec-main">SignerMismatch</span></div>' +
+    '<p class="pp">Other rejections</p>' +
+    '<div class="chips2"><span class="ec">WrongRequest</span><span class="ec">StaleSignature</span><span class="ec">StalePost</span><span class="ec">Replay</span><span class="ec">NotOriginalPost</span></div>';
+};
+var TAMPER = [
+  ['ok', 'Valid call', 'accepted'],
+  ['no', 'Edited value', 'SignerMismatch'],
+  ['no', 'Signed too long ago', 'StaleSignature'],
+  ['no', 'Other request (BTC instead of BSV)', 'WrongRequest'],
+  ['no', 'Same response twice', 'Replay']
+];
+var P2_TAMPER = function (hl) {
+  return head('Scene 7 · tamper test', '1 valid, 4 rejected by the deployed contract') +
+    '<div class="trows">' + TAMPER.map(function (t, i) {
+      return '<div class="trow ' + t[0] + (hl === i ? ' hl' : ' lo') + '"><span class="tm">' + (t[0] === 'ok' ? OK_SVG : X_SVG) +
+        '</span><span class="tl">' + t[1] + '</span><code>' + t[2] + '</code></div>';
+    }).join('') + '</div>' +
+    '<p class="pp">Each rejection reverts with its own error. In dry mode the judge script uses eth_call, so no intent is created. Also covered: over budget → <b>BudgetExceeded</b> · old post with a fresh signature → <b>StalePost</b></p>';
+};
+var M2 = {
+  id: 'api3', name: 'API3', sub: 'Signed data decides what an agent may spend', stepMs: 4500, panel: true, inner: true,
+  bands: [
+    { x: 16, y: 64, w: 584, h: 596, cls: 'b-off', label: 'Off-chain · first-party data' },
+    { x: 616, y: 64, w: 384, h: 596, cls: 'b-base', label: 'Base Sepolia' }
+  ],
+  nw: 260, nh: 84,
+  nodes: [
+    { id: 'cp', x: 48, y: 120, k: 'base', t: 'CoinPaprika', s: 'Airnode 0xB8b7…f732' },
+    { id: 'agent', x: 300, y: 284, h: 96, k: 'base', t: 'Orchestrator', s: 'API3 side · vault-5 EVM key' },
+    { id: 'tw', x: 48, y: 460, k: 'base', t: 'TwitterAPI.io', s: 'Airnode 0x7B02…1CCB' },
+    { id: 'tg', x: 636, y: 120, w: 220, k: 'base', t: 'TreasuryGuard', s: 'verifies on-chain' },
+    { id: 'intent', x: 636, y: 290, w: 220, k: 'base', t: 'SPEND intent', s: 'hard cap in sats' },
+    { id: 'risk', x: 636, y: 460, w: 220, k: 'base', t: 'Risk state', s: 'RISK_OFF · GUARDED' }
+  ],
+  edges: {
+    pay1: 'M380 284 C380 240 250 250 250 210',
+    sig1: 'M308 162 C430 162 500 210 500 278',
+    pay2: 'M380 380 C380 422 250 415 250 454',
+    sig2: 'M308 502 C430 502 500 458 500 386',
+    sub: 'M560 332 C600 332 600 162 630 162',
+    spend: 'M746 204 L746 284',
+    hedge: 'M856 162 C945 175 945 490 862 502'
+  },
+  ghost: [],
+  steps: [
+    { lab: '1a', time: '01', k: 'base', e: ['pay1', 'sig1'], n: ['agent', 'cp'], p: ['sig1', 'signed price'],
+      title: 'What is signed: the BSV/USD price', idx: 'What is signed', detail: 'CoinPaprika Airnode 0xB8b7…f732 · x402 = pay per request over HTTP 402 · 0.001 aUSD',
+      b: { cp: '0.001 aUSD per call' }, panel: P2_SIGNED('price') },
+    { lab: '1b', time: '01', k: 'base', e: ['pay2', 'sig2'], n: ['agent', 'tw'], p: ['sig2', 'signed post'],
+      title: 'What is signed: the posts', detail: 'TwitterAPI.io Airnode 0x7B02…1CCB · x402 · 0.01 aUSD per post',
+      b: { tw: '0.01 aUSD per post' }, panel: P2_SIGNED('post') },
+    { lab: '2', time: '02', k: 'base', e: ['spend', 'hedge'], n: ['tg', 'intent', 'risk'],
+      title: 'Who relies on this data', detail: 'the owner’s dollar budget · the circuit breaker · the BSV watcher',
+      panel: head('Scene 2 · who relies on it', 'Who relies on this data') +
+        row('The vault owner’s dollar budget', 'signed price → hard cap in sats', 'hl k-base') +
+        row('The circuit breaker', 'signed price → RISK_OFF or back to NORMAL', 'hl k-base') +
+        row('The BSV watcher', 'co-signs only what an intent on Base allows', 'hl k-guard') +
+        '<p class="big" style="font-size:26px">Without signed data, no intent.<br>No intent, the agent can’t move money.</p>' },
+    { lab: '3', time: '03', k: 'base', e: ['sub'], n: ['agent', 'tg'], p: ['sub', 'signed data'],
+      title: 'TreasuryGuard checks before anything happens', detail: 'signer · request · age · replay · post rules, all on-chain',
+      b: { tg: 'all checks pass' },
+      panel: head('Scene 3 · on-chain checks', 'Checked before anything happens') + ticks([
+        { t: 'signer = the vault’s Airnode' },
+        { t: 'request hash = the vault’s request' },
+        { t: 'signature age ≤ 300 s · data age ≤ 600 s' },
+        { t: 'newer than the last price', s: 'replay protection' },
+        { t: 'posts: whitelisted account · &lt; 30 min old', s: 'original post · each post once per vault' }
+      ]) },
+    { lab: '4a', time: '04', k: 'stop', bounce: true, e: ['sub'], n: ['agent'], hit: 'tg', p: ['sub', 'fake price'], blk: [604, 166],
+      title: 'A fake low BSV price', idx: 'Forgery', detail: 'would raise the sats cap and drain the vault faster → revert SignerMismatch',
+      b: { tg: 'revert' }, panel: P2_FORGE('price') },
+    { lab: '4b', time: '04', k: 'stop', bounce: true, e: ['sub'], n: ['agent'], hit: 'tg', p: ['sub', 'fake post'], blk: [604, 166],
+      title: 'A fake official post', detail: 'would trigger a hedge → revert SignerMismatch',
+      b: { tg: 'revert' }, panel: P2_FORGE('post') },
+    { lab: '5', time: '05', k: 'base', e: ['spend'], n: ['tg', 'intent'], p: ['spend', 'SPEND #6'],
+      title: 'Budget becomes a hard cap in sats', detail: '$1 per vault per day · debited at creation · never refunded · $0.001 → cap 5,807 sats', link: ['spend', '0x23c7…5b81'],
+      b: { intent: 'cap 5,807 sats' },
+      panel: head('Scene 5 · budget → cap', 'Budget becomes a hard cap in sats') +
+        row('Daily budget $1 per vault', 'debited when the intent is created · never refunded', 'hl k-base') +
+        '<div class="formula">maxSats = USD × 10<sup>10</sup> ÷ signed price</div>' +
+        row('Example', '$0.001 at the signed price → SPEND #6 · cap 5,807 sats', 'hl k-bsv') },
+    { lab: '6', time: '06', k: 'base', e: ['hedge'], n: ['tg', 'risk'], p: ['hedge', 'RISK_OFF'],
+      title: 'Market and news risk', detail: 'breaker: 1h ≤ −5% → hedge ≤ 50% · whitelisted RISK_OFF post → hedge ≤ 25%, once per vault',
+      b: { risk: 'hedge ≤ 50% / ≤ 25%' },
+      panel: head('Scene 6 · market and news risk', 'Prices decide. News is capped.') +
+        row('Circuit breaker', '1h change ≤ −5% → RISK_OFF, hedge up to 50%<br>back to NORMAL at ≥ +1%', 'hl k-base') +
+        row('RISK_OFF post', 'whitelisted account · hedge at most 25%<br>once per vault · NORMAL → GUARDED', 'hl k-x') +
+        '<p class="pp">A signature proves <b>who posted what and when</b>, not that it is true. That’s why news is capped and prices decide the rest.</p>' },
+    { lab: '7a', time: '07', k: 'base', e: ['sub'], n: ['agent', 'tg'], p: ['sub', 'valid call'],
+      title: 'Tamper test: one valid call', detail: 'accepted by the deployed contract · dry mode = eth_call, no intent created', idx: 'Tamper test',
+      b: { tg: 'accepted' }, panel: P2_TAMPER(0) },
+    { lab: '7b', time: '07', k: 'stop', bounce: true, e: ['sub'], n: ['agent'], hit: 'tg', p: ['sub', 'edited value'], blk: [604, 166],
+      title: 'Edited value → SignerMismatch', detail: 'rejected by the deployed contract', b: { tg: 'SignerMismatch' }, panel: P2_TAMPER(1) },
+    { lab: '7c', time: '07', k: 'stop', bounce: true, e: ['sub'], n: ['agent'], hit: 'tg', p: ['sub', 'old signature'], blk: [604, 166],
+      title: 'Signed too long ago → StaleSignature', detail: 'signature age > 300 s · rejected by the deployed contract', b: { tg: 'StaleSignature' }, panel: P2_TAMPER(2) },
+    { lab: '7d', time: '07', k: 'stop', bounce: true, e: ['sub'], n: ['agent'], hit: 'tg', p: ['sub', 'BTC request'], blk: [604, 166],
+      title: 'Other request → WrongRequest', detail: 'BTC instead of BSV · rejected by the deployed contract', b: { tg: 'WrongRequest' }, panel: P2_TAMPER(3) },
+    { lab: '7e', time: '07', k: 'stop', bounce: true, e: ['sub'], n: ['agent'], hit: 'tg', p: ['sub', 'same again'], blk: [604, 166],
+      title: 'Same response twice → Replay', detail: 'rejected by the deployed contract', b: { tg: 'Replay' }, panel: P2_TAMPER(4) },
+    { lab: '8', time: '08', k: 'agent', e: ['pay1', 'sig1', 'sub'], n: ['agent', 'cp', 'tg'], p: ['sig1', 'every 10 min'],
+      title: 'Runner (vault 8), autonomous', idx: 'Runner (vault 8)', detail: '84 cycles in 14 h, unattended (30 Oct 16:58 → 31 Oct 06:50 UTC) · backoff 10 min → 20 min → up to 1 h · max 0.5 aUSD per day',
+      b: { agent: 'Runner (vault 8)' },
+      panel: head('Scene 8 · Runner (vault 8)', '84 cycles in 14 h, unattended (30 Oct 16:58 → 31 Oct 06:50 UTC)') +
+        '<div class="stats"><div class="stat"><b>10 min</b><span>buys a signed price (2 min near the breaker)</span></div><div class="stat"><b>0.5 aUSD</b><span>daily data cap</span></div></div>' +
+        ticks([
+          { t: 'a failed cycle backs off', s: '10 min → 20 min → up to 1 h' },
+          { t: 'a price the contract doesn’t take', s: 'is logged as skipped' },
+          { t: 'every cycle is logged' }
+        ]) },
+    { lab: '9', time: '09', k: 'base', e: ['sig1', 'sig2'], n: ['cp', 'tw'],
+      title: 'What we couldn’t find on AirnodeHub', detail: 'no BSV/USD feed on Nodary → CoinPaprika · no feed of official statements → official X accounts via TwitterAPI.io',
+      panel: head('Scene 9 · gaps on AirnodeHub', 'What we couldn’t find on AirnodeHub') +
+        row('No BSV/USD feed on Nodary', '→ we use the CoinPaprika Airnode', 'hl k-base') +
+        row('No feed of official statements', '→ we use official X accounts<br>via the TwitterAPI.io Airnode', 'hl k-base') +
+        '<p class="pp">Its signature proves <b>what TwitterAPI.io returned</b>, not that the post is true.</p>' },
+    { lab: '10', time: '10', k: 'base', all: true, e: ['pay1', 'sig1', 'pay2', 'sig2', 'sub', 'spend', 'hedge'],
+      title: 'Why API3 here · try it yourself', detail: 'TreasuryGuard on Base Sepolia (chain 84532) · cd api3 && node --env-file=.env src/judge.ts --dry', link: ['contract', '0x8e38…7773'],
+      b: { agent: 'Runner (prices)\ntweet cycle (posts)' },
+      panel: head('Scene 10 · why API3', '') +
+        '<p class="big" style="font-size:30px">Signed at the source.<br>Verified in the contract.</p>' +
+        '<p class="pp">So the spending decision is <b>checkable by anyone</b>, not trusted to the agent.</p>' +
+        '<div class="trybox"><span class="pk">Try it yourself</span>' +
+        '<span class="pd mono">TreasuryGuard · Base Sepolia (chain 84532)<br>0x8e38cc6B1Bd1f0D25357066cd0036f28fd1f7773</span>' +
+        '<div class="cmd">cd api3 &amp;&amp; node --env-file=.env src/judge.ts --dry</div>' +
+        '<span class="pd">with your own keys in .env (see api3/README)</span>' +
+        plink(TX.contract, 'Contract on Basescan') + '</div>' }
+  ],
+  intro: { title: 'Signed data decides what an agent may spend', detail: 'Press Space or → to start' }
+};
+
+/* ---------------- Module 3 · BSV ---------------- */
+var SCRIPT = function (hl) {
+  return '<pre class="code ' + hl + '">' +
+    '<span class="ln br-spend">OP_IF</span>' +
+    '<span class="ln br-spend">  <span class="ag">&lt;agent&gt;</span> OP_CHECKSIGVERIFY</span>' +
+    '<span class="ln br-spend">  <span class="wa">&lt;watcher&gt;</span> OP_CHECKSIG</span>' +
+    '<span class="ln br-exit">OP_ELSE</span>' +
+    '<span class="ln br-exit">  <span class="ow">&lt;owner&gt;</span> OP_CHECKSIG</span>' +
+    '<span class="ln">OP_ENDIF</span></pre>';
+};
+var P3_REFUSE = function (hl) {
+  return head('Scene 5 · refusals', 'Nothing is signed, so nothing moves') +
+    row('Replay a used intent', 'watcher → HTTP 409', hl === 'replay' ? 'bad' : 'lo') +
+    row('Intent on vault 8', 'watcher isn’t bound to it → HTTP 422', hl === 'v8' ? 'bad' : 'lo') +
+    row('SWAP intent', 'never even submitted by the agent', hl === 'swap' ? 'bad' : 'lo');
+};
+var M3 = {
+  id: 'bsv', name: 'BSV', sub: 'BSV enforces and holds the money', stepMs: 4500, panel: true, inner: true,
+  bands: [
+    { x: 16, y: 64, w: 234, h: 596, cls: 'b-base', label: 'Base' },
+    { x: 262, y: 64, w: 372, h: 596, cls: 'b-off', label: 'Off-chain' },
+    { x: 646, y: 64, w: 354, h: 596, cls: 'b-bsv', label: 'BSV mainnet' }
+  ],
+  nw: 220, nh: 72, small: true,
+  nodes: [
+    { id: 'tg', x: 23, y: 290, k: 'base', t: 'TreasuryGuard', s: 'intent on Base' },
+    { id: 'journal', x: 338, y: 110, k: 'guard', t: 'Journal', s: 'file lock' },
+    { id: 'watcher', x: 338, y: 290, k: 'guard', t: 'Watcher', s: 'own process' },
+    { id: 'agent', x: 338, y: 470, k: 'agent', t: 'BSV agent', s: 'tg auto · guardian' },
+    { id: 'owner', x: 712, y: 104, h: 88, k: 'bsv', t: 'Owner wallet', s: 'BSV Desktop' },
+    { id: 'vault', x: 712, y: 252, k: 'bsv', t: 'Vault 5', s: 'two keys + exit' },
+    { id: 'float', x: 712, y: 400, k: 'bsv', t: 'Agent Float', s: 'float wallet' },
+    { id: 'analyst', x: 712, y: 548, k: 'bsv', t: 'Analyst API', s: 'HTTP 402' }
+  ],
+  edges: {
+    read: 'M338 326 L249 326',
+    intent: 'M133 362 C133 470 250 506 332 506',
+    prop: 'M420 470 L420 368',
+    cosig: 'M476 362 L476 464',
+    jr: 'M448 290 L448 188',
+    sig: 'M558 500 C640 500 640 288 706 288',
+    exit: 'M822 252 L822 198',
+    wd: 'M822 324 L822 394',
+    pay: 'M822 472 L822 542',
+    change: 'M932 274 C985 266 985 310 938 304'
+  },
+  ghost: [],
+  steps: [
+    { lab: '1', time: '01', k: 'bsv', e: [], n: ['owner', 'vault', 'watcher', 'agent', 'float', 'analyst'],
+      title: 'Who it’s for', detail: 'a small team gives its agent $1 a day · worst case is that day’s budget · the owner can take everything back alone',
+      panel: head('Scene 1 · who it’s for', 'Who it’s for') + ticks([
+        { t: 'A small team gives its research or trading agent $1 a day', m: 'pre' },
+        { t: 'The agent asks for budget with a signed price' },
+        { t: 'The Watcher releases exactly that much' },
+        { t: 'It pays per call over HTTP 402' },
+        { t: 'If it’s tricked, the worst case is that day’s budget', m: 'pre' },
+        { t: 'The owner can still take everything back alone' }
+      ]) },
+    { lab: '2a', time: '02', k: 'guard', e: ['sig'], n: ['agent', 'watcher', 'vault'], p: ['sig', '2 signatures'],
+      title: 'The vault script: spending', idx: 'The vault script', detail: 'OP_IF <agent> OP_CHECKSIGVERIFY <watcher> OP_CHECKSIG · needs agent AND watcher',
+      panel: head('Scene 2 · the vault script', 'Spending needs agent AND watcher') + SCRIPT('hl-spend') +
+        '<p class="pp">The agent alone can’t spend. The watcher alone can’t spend.</p>' },
+    { lab: '2b', time: '02', k: 'bsv', e: ['exit'], n: ['owner', 'vault'],
+      title: 'The vault script: leaving', detail: 'OP_ELSE <owner> OP_CHECKSIG · needs only the owner (BSV Desktop)',
+      panel: head('Scene 2 · the vault script', 'Leaving needs only the owner') + SCRIPT('hl-exit') +
+        '<p class="pp">The owner signs alone, from <b>BSV Desktop</b>.</p>' },
+    { lab: '3', time: '03', k: 'bsv', e: ['exit'], n: ['owner', 'vault'], p: ['exit', '2,960 sats'],
+      title: 'Owner exit first, proven on mainnet', detail: '2,960 sats back to the owner · fee 40 · no agent, no watcher, no Base transaction', link: ['exit', 'db5ca41c…d41e'],
+      b: { owner: '+2,960 sats · fee 40\nexit proven 30 Oct' },
+      panel: head('Scene 3 · owner exit first', 'Proven before spending a single sat') +
+        '<div class="stats"><div class="stat"><b>2,960</b><span>sats back to the owner</span></div><div class="stat"><b>40</b><span>sats fee</span></div></div>' +
+        ticks([{ t: 'no agent', m: 'no' }, { t: 'no watcher', m: 'no' }, { t: 'no Base transaction', m: 'no' }]) +
+        plink(TX.exit, 'db5ca41c…d41e') },
+    { lab: '4', time: '04', k: 'guard', e: ['prop', 'read'], n: ['agent', 'watcher', 'tg'], p: ['prop', 'tx + intent'],
+      title: 'The Watcher checks before it signs', detail: 're-reads the intent from Base · verifies the agent’s signature · checks the real tx bytes',
+      b: { watcher: '8 / 8 checks' },
+      panel: head('Scene 4 · the Watcher', 'Checks the real transaction bytes') + ticks([
+        { t: 're-reads the intent from Base itself', m: 'pre' },
+        { t: 'verifies the agent’s signature', m: 'pre' },
+        { t: 'vault 5 only' }, { t: 'SPEND only' }, { t: 'not expired' },
+        { t: 'never used before (journal)' }, { t: 'outflow + fee ≤ cap' },
+        { t: 'pays only the Agent Float' }, { t: 'change back to the same vault' },
+        { t: 'receipt <span class="mono">TGv1 84532 0x8e38…7773 5 N</span>' }
+      ]) },
+    { lab: '5a', time: '409', k: 'stop', bounce: true, e: ['prop'], n: ['agent'], hit: 'watcher', p: ['prop', 'used intent'], blk: [420, 392],
+      title: 'Replaying a used intent', idx: 'Refusals', detail: 'refused by the watcher → HTTP 409 · nothing is signed', panel: P3_REFUSE('replay') },
+    { lab: '5b', time: '422', k: 'stop', bounce: true, e: ['prop'], n: ['agent'], hit: 'watcher', p: ['prop', 'vault 8'], blk: [420, 392],
+      title: 'An intent on vault 8', detail: 'the watcher isn’t bound to vault 8 → HTTP 422 · nothing is signed', panel: P3_REFUSE('v8') },
+    { lab: '5c', time: 'blocked', k: 'stop', bounce: true, e: ['intent'], n: ['tg'], hit: 'agent', p: ['intent', 'SWAP'], blk: [304, 504],
+      title: 'A SWAP intent', detail: 'never even submitted by the agent · nothing moves', panel: P3_REFUSE('swap') },
+    { lab: '6', time: '06', k: 'guard', e: ['jr'], n: ['watcher', 'journal'], p: ['jr', 'reserved'],
+      title: 'One transaction per intent', detail: 'journal writes “reserved” before signing · survives restarts · file lock keeps it single-writer',
+      b: { journal: 'reserved' },
+      panel: head('Scene 6 · the journal', 'One transaction per intent') + ticks([
+        { t: 'writes “reserved” before signing' },
+        { t: 'survives restarts' },
+        { t: 'a file lock keeps it single-writer' }
+      ]) },
+    { lab: '7', time: '07', k: 'bsv', e: ['wd', 'change'], n: ['vault', 'float'], p: ['wd', '5,623 sats'],
+      title: 'Costs on mainnet, five runs', detail: 'intent 8: 5,623 → Agent Float · 42,783 back · fee 61 · outflow 5,684 ≤ cap 5,723', link: ['wd8', '8519e2…108b'],
+      b: { float: '+5,623 sats', vault: '42,783 back' },
+      panel: head('Scene 7 · costs on mainnet', 'Five runs: intents 2, 4, 5, 6, 8') +
+        '<div class="stats"><div class="stat"><b>42–61</b><span>sats withdrawal fee</span></div><div class="stat"><b>23</b><span>sats HTTP 402 fee (≈ $0.000004)</span></div></div>' +
+        row('Outflow always inside the signed cap', 'latest run, intent 8: 5,623 → Agent Float · 42,783 back to the vault · fee 61 · outflow 5,684 ≤ cap 5,723', 'hl k-bsv') +
+        '<div class="links">' + plink(TX.wd8, 'withdrawal 8519e2…108b') + plink(TX.settle8, 'settle(8) 0x1c6c…d927') + '</div>' },
+    { lab: '8', time: '08', k: 'bsv', e: ['pay'], n: ['agent', 'float', 'analyst'], p: ['pay', '100 sats · 402'],
+      title: 'The BSV agent spends', idx: 'Model proposes, rules decide', detail: 'intent 8 · 100 sats over HTTP 402 · spends 8519e2…:0 · fee 23 · block 973400', link: ['pay8', 'e4ada6…28f6'],
+      b: { analyst: '+100 sats', agent: 'guardian approved' },
+      panel: head('Scene 8 · the BSV agent spends', 'Model proposes, rules decide') + ticks([
+        { t: 'its model (DeepSeek; Claude supported) proposes to buy', m: 'pre' },
+        { t: 'a rule-based guardian decides', s: 'checks merchant · price · caps' },
+        { t: 'pays an independent Analyst API 100 sats', s: 'HTTP 402 · from exactly the withdrawn output' }
+      ]) + row('Intent 8 payment', 'spends 8519e2…:0 · fee 23 sats · block 973400', 'hl k-bsv') + plink(TX.pay8, 'e4ada6…28f6') },
+    { lab: '9', time: '09', k: 'bsv', e: ['sig', 'wd', 'pay'], n: ['vault', 'owner', 'float', 'analyst'],
+      title: 'Three DeFi building blocks', detail: 'non-custodial vault · oracle-priced limit · atomic swap-and-pay (rail baseline at a fixed price)', link: ['swap', 'ee2a38…8e8c'],
+      panel: head('Scene 9 · DeFi building blocks', 'Three DeFi building blocks') +
+        row('Non-custodial vault', 'agent AND watcher, OR owner', 'hl k-guard') +
+        row('Oracle-priced limit', 'signed BSV/USD → max sats', 'hl k-base') +
+        row('Atomic swap-and-pay', 'sats become a token that reaches the merchant<br>in one transaction', 'hl k-bsv') +
+        '<p class="pp">Mainnet proof: rail baseline at a fixed price; the signed-rate version is tested offline.</p>' +
+        plink(TX.swap, 'ee2a38…8e8c') },
+    { lab: '10', time: '10', k: 'bsv', all: true, e: ['intent', 'prop', 'cosig', 'jr', 'sig', 'wd', 'pay', 'change'],
+      title: 'What it brings to BSV', detail: 'EVM users · recurring volume · reusable vault pattern · HTTP 402 demand (BRC-121)',
+      panel: head('Scene 10 · what it brings', 'What it brings to BSV') + ticks([
+        { t: 'New users from EVM chains', s: 'budgets set on Base, paid on BSV' },
+        { t: 'Recurring real transaction volume' },
+        { t: 'A reusable non-custodial vault pattern', s: 'works with BSV Desktop and wallet-toolbox, no new opcode' },
+        { t: 'Demand for HTTP 402 payments', s: 'BRC-121' }
+      ]) },
+    { lab: '11', time: '11', k: 'bsv', all: true, e: ['intent', 'prop', 'cosig', 'jr', 'sig', 'wd', 'pay', 'change'],
+      title: 'Why BSV here', detail: 'sub-cent fees · two-key rule with owner exit in the script · a receipt on every withdrawal',
+      panel: head('Scene 11 · why BSV', '') + ticks([
+        { t: 'Sub-cent fees', s: 'make pay-per-call agents possible' },
+        { t: 'The script enforces the two-key rule', s: 'with an owner exit' },
+        { t: 'Every withdrawal carries its own receipt', s: 'on-chain, TGv1' }
+      ]) }
+  ],
+  intro: { title: 'BSV enforces and holds the money', detail: 'Press Space or → to start' }
+};
+
+var MODS = [M1, M2, M3];
+function indexPanel(M) {
+  var groups = [];
+  M.steps.forEach(function (s) {
+    var key = s.lab.replace(/[a-z]$/, '');
+    var g = groups[groups.length - 1];
+    if (g && g.key === key) g.last = s.lab;
+    else groups.push({ key: key, first: s.lab, last: s.lab, title: s.idx || s.title.replace(/:.*$/, '') });
+  });
+  return head(M.name + ' deep dive', M.sub) + '<ol class="idx">' + groups.map(function (g) {
+    return '<li><span>' + (g.first === g.last ? g.first : g.first + '–' + g.last) + '</span>' + g.title + '</li>';
+  }).join('') + '</ol>';
+}
+
+/* ---------------- engine ---------------- */
+var $ = function (id) { return document.getElementById(id); };
+var stage = $('stage');
+var state = { mod: 0, step: 0, atk: -1, playing: false };
+var timer = null, nodeEls = {}, edgeEls = {}, lastKey = '';
+
+function fit() {
+  var s = Math.min(window.innerWidth / 1600, window.innerHeight / 900);
+  stage.style.setProperty('--s', s);
+}
+
+function build() {
+  var M = MODS[state.mod];
+  var bands = $('bands'); bands.innerHTML = '';
+  M.bands.forEach(function (b) {
+    var d = document.createElement('div');
+    d.className = 'band ' + b.cls;
+    d.style.cssText = 'left:' + b.x + 'px;top:' + b.y + 'px;width:' + b.w + 'px;height:' + b.h + 'px';
+    d.innerHTML = '<span class="band-label">' + b.label + '</span>';
+    bands.appendChild(d);
+  });
+  var g = $('edgeg'); g.innerHTML = ''; edgeEls = {};
+  Object.keys(M.edges).forEach(function (id) {
+    var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', M.edges[id]);
+    g.appendChild(p);
+    edgeEls[id] = p;
+  });
+  var nodes = $('nodes'); nodes.innerHTML = ''; nodeEls = {};
+  M.nodes.forEach(function (n) {
+    var d = document.createElement('div');
+    d.style.cssText = 'left:' + n.x + 'px;top:' + n.y + 'px;width:' + (n.w || M.nw) + 'px;height:' + (n.h || M.nh) + 'px';
+    d.innerHTML = '<span class="nt"><i></i>' + n.t + '</span><span class="ns">' + n.s + '</span>' + (M.inner ? '<span class="nb"></span>' : '');
+    nodes.appendChild(d);
+    nodeEls[n.id] = d;
+  });
+  (M.labels || []).forEach(function (l) {
+    var d = document.createElement('span');
+    d.className = 'elabel';
+    d.style.cssText = 'left:' + l.x + 'px;top:' + l.y + 'px';
+    d.textContent = l.t;
+    nodes.appendChild(d);
+  });
+  var hr = $('headright');
+  if (M.attacks) {
+    hr.innerHTML = '<span class="sub" style="margin-right:6px">Try to break it</span>' + M.attacks.map(function (a, i) {
+      return '<button type="button" class="atkchip" data-atk="' + i + '">' + X_SVG + a.label + '</button>';
+    }).join('');
+  } else {
+    hr.innerHTML = '<span class="sub">' + M.sub + '</span>';
+  }
+  var chips = $('chips');
+  chips.innerHTML = M.steps.map(function (s, i) {
+    return '<button type="button" class="chip k-' + s.k + '" data-step="' + (i + 1) + '" aria-label="Step ' + s.lab + '">' + s.lab + '</button>';
+  }).join('');
+  document.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('cur', +t.dataset.mod === state.mod); });
+}
+
+var probe = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+probe.setAttribute('fill', 'none');
+$('edges').appendChild(probe);
+function stageBox(el) {
+  var sr = stage.getBoundingClientRect(), k = sr.width / 1600, r = el.getBoundingClientRect();
+  return { l: (r.left - sr.left) / k, t: (r.top - sr.top) / k, r: (r.right - sr.left) / k, b: (r.bottom - sr.top) / k };
+}
+function obstacles(M, cur) {
+  var o = [];
+  M.nodes.forEach(function (n) {
+    o.push({ l: n.x - 4, t: n.y - 4, r: n.x + (n.w || M.nw) + 4, b: n.y + (n.h || M.nh) + 4 });
+  });
+  document.querySelectorAll('#nodes .badge, .band-label, .closing.show').forEach(function (el) {
+    var r = stageBox(el);
+    o.push({ l: r.l - 4, t: r.t - 4, r: r.r + 4, b: r.b + 4 });
+  });
+  if (M.panel) o.push({ l: 1016, t: 60, r: 1588, b: 664 });
+  if (cur && cur.blk) o.push({ l: cur.blk[0] - 26, t: cur.blk[1] - 26, r: cur.blk[0] + 26, b: cur.blk[1] + 26 });
+  return o;
+}
+// longest stretch of the path (in %) where the packet touches no node, label or panel
+function freeRange(d, w, h, obs) {
+  probe.setAttribute('d', d);
+  var L = probe.getTotalLength(), best = null, run = -1;
+  for (var i = 0; i <= 100; i++) {
+    var pt = probe.getPointAtLength(L * i / 100);
+    var l = pt.x - w / 2, r = pt.x + w / 2, t = pt.y - h / 2, b = pt.y + h / 2;
+    var ok = !obs.some(function (o) { return l < o.r && o.l < r && t < o.b && o.t < b; });
+    if (ok) {
+      if (run < 0) run = i;
+      if (!best || i - run > best[1] - best[0]) best = [run, i];
+    } else run = -1;
+  }
+  return best;
+}
+function restart(el) { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; }
+
+function render(replay) {
+  var M = MODS[state.mod];
+  var s = state.step, a = state.atk;
+  var cur = a >= 0 ? M.attacks[a] : (s > 0 ? M.steps[s - 1] : null);
+  var bounce = a >= 0 || (cur && cur.bounce);
+  var badges = {};
+  if (a < 0) {
+    for (var i = 0; i < s; i++) {
+      var st = M.steps[i];
+      if (st.bounce && i !== s - 1) continue;
+      if (st.b) Object.keys(st.b).forEach(function (k) { badges[k] = st.b[k]; });
+    }
+  }
+  M.nodes.forEach(function (n) {
+    var cls = 'node k-' + n.k + (M.small ? ' small' : '');
+    if (cur) {
+      if (cur.hit === n.id) cls += ' hit';
+      else if (cur.all || cur.n.indexOf(n.id) >= 0) cls += ' on';
+      else cls += ' dim';
+    }
+    var el = nodeEls[n.id];
+    el.className = cls;
+    var txt = badges[n.id] || '';
+    if (M.inner) {
+      var nb = el.querySelector('.nb');
+      nb.textContent = txt;
+      nb.style.display = txt ? '' : 'none';
+    } else {
+      var old = el.querySelector('.badge');
+      if (txt) {
+        if (!old || old.textContent !== txt) {
+          if (old) old.remove();
+          var bd = document.createElement('span');
+          bd.className = 'badge' + (n.up ? ' up' : '');
+          bd.textContent = txt;
+          el.appendChild(bd);
+        }
+      } else if (old) old.remove();
+    }
+  });
+  Object.keys(edgeEls).forEach(function (id) {
+    var ghost = M.ghost.indexOf(id) >= 0;
+    var cls = 'edge';
+    if (id === 'e9b' || id === 'change') cls += ' nomark';
+    if (cur) {
+      if (cur.e.indexOf(id) >= 0) cls += bounce ? ' atk' : ' on k-' + cur.k;
+      else cls += ghost ? ' ghost' : ' dim';
+    } else if (ghost) cls += ' ghost';
+    edgeEls[id].setAttribute('class', cls);
+  });
+  var key = state.mod + ':' + s + ':' + a;
+  var fresh = replay || key !== lastKey;
+  lastKey = key;
+  if (fresh) animateStep(M, cur, bounce);
+  renderCaption(M, cur);
+}
+
+function animateStep(M, cur, bounce) {
+  var pkt = $('pkt');
+  if (pkt._anim) { pkt._anim.cancel(); pkt._anim = null; }
+  pkt.removeAttribute('data-range');
+  pkt.style.opacity = '';
+  pkt.style.offsetDistance = '';
+  if (cur && cur.p) {
+    var d = M.edges[cur.p[0]];
+    pkt.className = 'pkt show k-' + (bounce ? 'stop' : cur.k);
+    pkt.style.offsetPath = "path('" + d + "')";
+    pkt.textContent = cur.p[1];
+    var rg = freeRange(d, pkt.offsetWidth + 8, pkt.offsetHeight + 8, obstacles(M, cur));
+    // a bounce may run into its own block mark: the hit is the point
+    if (!rg && cur.blk) rg = freeRange(d, pkt.offsetWidth + 8, pkt.offsetHeight + 8, obstacles(M, null));
+    if (!rg) { pkt.className = 'pkt'; }
+    else {
+      var a0 = rg[0], b0 = rg[1], w = b0 - a0;
+      pkt.setAttribute('data-range', a0 + ',' + b0);
+      var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduced) {
+        pkt.style.offsetDistance = (bounce ? b0 - w * 0.18 : (a0 + b0) / 2) + '%';
+      } else {
+        var kf = bounce
+          ? [[a0, 0], [a0 + w * 0.1, 1, 0.1], [b0, 1, 0.55], [b0 - w * 0.3, 1, 0.7], [b0 - w * 0.08, 1, 0.84], [b0 - w * 0.18, 1]]
+          : [[a0, 0], [a0 + w * 0.12, 1, 0.15], [b0 - w * 0.06, 1, 0.72], [b0, 0, 0.9], [b0, 0]];
+        pkt._anim = pkt.animate(kf.map(function (k) {
+          var f = { offsetDistance: k[0] + '%', opacity: k[1] };
+          if (k[2] !== undefined) f.offset = k[2];
+          return f;
+        }), { duration: bounce ? 1900 : 2000, easing: 'ease-in-out', fill: 'forwards' });
+      }
+    }
+  } else {
+    pkt.className = 'pkt';
+  }
+  var blk = $('blk');
+  if (cur && cur.blk) {
+    blk.className = 'blk show';
+    blk.style.left = cur.blk[0] + 'px';
+    blk.style.top = cur.blk[1] + 'px';
+    restart(blk);
+  } else blk.className = 'blk';
+  var cl = $('closing');
+  cl.className = 'closing' + (cur && cur.closing ? ' show' : '');
+  if (cur && cur.closing) restart(cl);
+
+  var panel = $('panel');
+  if (M.panel) {
+    panel.className = 'panel show k-' + (cur ? (bounce ? 'stop' : cur.k) : 'base');
+    panel.innerHTML = cur ? cur.panel : indexPanel(M);
+  } else panel.className = 'panel';
+}
+
+function renderCaption(M, cur) {
+  var s = state.step, a = state.atk;
+  var cap = $('cap');
+  cap.className = 'cap k-' + (cur ? cur.k : 'x');
+  $('ctime').textContent = cur ? cur.time : (M.panel ? '00' : '+0 s');
+  $('ctitle').textContent = cur ? cur.title : M.intro.title;
+  $('cdet').textContent = cur ? cur.detail : M.intro.detail;
+  var lk = $('clink');
+  if (cur && cur.link) {
+    lk.className = 'txlink show';
+    lk.href = TX[cur.link[0]];
+    $('clinkt').textContent = cur.link[1];
+  } else lk.className = 'txlink';
+
+  $('bPlay').innerHTML = state.playing
+    ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>Pause'
+    : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/></svg>Play';
+  $('bBack').disabled = a < 0 && s === 0;
+  $('bNext').disabled = a < 0 && s >= M.steps.length;
+  $('count').textContent = a >= 0 ? 'Blocked' : 'Step ' + s + ' / ' + M.steps.length;
+  document.querySelectorAll('.chip').forEach(function (c) {
+    var n = +c.dataset.step;
+    c.classList.toggle('cur', a < 0 && n === s);
+    c.classList.toggle('seen', a < 0 && n < s);
+  });
+  document.querySelectorAll('.atkchip').forEach(function (c) { c.classList.toggle('cur', +c.dataset.atk === a); });
+}
+
+function halt() { if (timer) { clearInterval(timer); timer = null; } state.playing = false; }
+function go(step) { state.step = step; state.atk = -1; render(); }
+function next() {
+  var M = MODS[state.mod];
+  if (state.atk >= 0) { go(Math.max(1, state.step)); return; }
+  if (state.step < M.steps.length) go(state.step + 1);
+}
+function back() {
+  if (state.atk >= 0) { go(state.step); return; }
+  if (state.step > 0) go(state.step - 1);
+}
+function toggle() {
+  var M = MODS[state.mod];
+  if (state.playing) { halt(); render(); return; }
+  var start = (state.step >= M.steps.length || state.atk >= 0) ? 1 : state.step + 1;
+  state.playing = true;
+  go(start);
+  timer = setInterval(function () {
+    if (state.step >= MODS[state.mod].steps.length) { halt(); render(); return; }
+    go(state.step + 1);
+  }, M.stepMs);
+}
+function reset() { halt(); go(0); }
+function attack(i) { halt(); state.atk = i; render(); }
+function switchMod(i, fromHash) {
+  if (i < 0 || i >= MODS.length) return;
+  halt();
+  state.mod = i; state.step = 0; state.atk = -1; lastKey = '';
+  build(); render();
+  var h = '#' + MODS[i].id;
+  if (!fromHash && location.hash !== h) {
+    try { history.replaceState(null, '', h); } catch (e) { location.hash = h; }
+  }
+}
+function modFromHash() {
+  var h = (location.hash || '').replace('#', '');
+  for (var i = 0; i < MODS.length; i++) if (MODS[i].id === h) return i;
+  return 0;
+}
+
+document.addEventListener('click', function (e) {
+  var t = e.target.closest('button');
+  if (!t) return;
+  if (t.dataset.mod !== undefined) switchMod(+t.dataset.mod);
+  else if (t.dataset.step !== undefined) { halt(); go(+t.dataset.step); }
+  else if (t.dataset.atk !== undefined) attack(+t.dataset.atk);
+  else if (t.id === 'bBack') { halt(); back(); }
+  else if (t.id === 'bNext') { halt(); next(); }
+  else if (t.id === 'bPlay') toggle();
+  else if (t.id === 'bReplay') render(true);
+  else if (t.id === 'bReset') reset();
+  else if (t.id === 'bGloss') gloss();
+  else if (t.id === 'bGlossClose') gloss(false);
+});
+function gloss(show) {
+  var g = $('gloss');
+  if (show === undefined) show = g.hidden;
+  g.hidden = !show;
+  $('bGloss').classList.toggle('cur', show);
+}
+document.addEventListener('keydown', function (e) {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  var k = e.key;
+  if (!$('gloss').hidden && k !== 'g' && k !== 'G' && k !== 'Escape') { if (k === ' ') e.preventDefault(); return; }
+  if (k === '1' || k === '2' || k === '3') { e.preventDefault(); switchMod(+k - 1); }
+  else if (k === ' ' || k === 'Spacebar') { e.preventDefault(); toggle(); }
+  else if (k === 'ArrowRight') { e.preventDefault(); halt(); next(); }
+  else if (k === 'ArrowLeft') { e.preventDefault(); halt(); back(); }
+  else if (k === 'r' || k === 'R') { e.preventDefault(); reset(); }
+  else if (k === 'g' || k === 'G') { e.preventDefault(); gloss(); }
+  else if (k === 'Escape') { gloss(false); }
+});
+document.addEventListener('keyup', function (e) { if (e.key === ' ') e.preventDefault(); });
+window.addEventListener('hashchange', function () { switchMod(modFromHash(), true); });
+window.addEventListener('resize', fit);
+
+fit();
+switchMod(modFromHash(), true);
+})();
+</script>
+</body>
+</html>
