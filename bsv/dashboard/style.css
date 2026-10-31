@@ -903,3 +903,13 @@ main > section, .topbar, .footer > details { max-width: 100rem; }
 .stack-list strong { color: var(--text); font-size: .875rem; }
 @media (max-width: 1280px) { .agent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .recheck { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { .agent-grid, .txa { grid-template-columns: minmax(0, 1fr); } .txa-mid { grid-template-columns: minmax(0, 1fr); } .txa-arrow { display: none; } }
+
+/* The (i) explanation box (app.js showTip): solid, above every panel, plain text with paragraph breaks. */
+.tip {
+  position: fixed; z-index: 60; max-width: min(26rem, calc(100vw - 24px)); padding: .75rem .875rem;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 12px;
+  box-shadow: 0 18px 40px -16px rgba(0, 0, 0, .55); font: 400 .875rem/1.5 var(--sans); white-space: pre-line;
+  pointer-events: none;
+}
+.tip[hidden] { display: none; }
+.info { cursor: pointer; }

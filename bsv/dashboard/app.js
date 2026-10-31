@@ -1691,10 +1691,30 @@
       if (el.classList.contains('why')) { anchor.title = anchor.title ? `${anchor.title}\n${text}` : text; continue; }
       let info = anchor.querySelector(':scope > .info');
       if (!info) { info = h('span', { class: 'info', tabindex: '0', role: 'note' }, 'i'); anchor.append(info); }
-      if (!(info.title || '').includes(text)) info.title = info.title ? `${info.title}\n\n${text}` : text;
-      info.setAttribute('aria-label', info.title);
+      const tipText = info.dataset.tip || '';
+      if (!tipText.includes(text)) info.dataset.tip = tipText ? `${tipText}\n\n${text}` : text;
+      info.setAttribute('aria-label', info.dataset.tip);
     }
   };
+  // The (i) text shows in one floating box on hover, click or keyboard focus. A native title tooltip appeared only
+  // after a delay and never on click, so the (i) looked empty. The box lives on <body>, so no card clips it.
+  const tipBox = h('div', { class: 'tip', role: 'tooltip', hidden: true });
+  document.body.append(tipBox);
+  const showTip = (icon) => {
+    tipBox.textContent = icon.dataset.tip;
+    tipBox.hidden = false;
+    const r = icon.getBoundingClientRect();
+    tipBox.style.left = `${Math.max(12, Math.min(innerWidth - tipBox.offsetWidth - 12, r.left - 8))}px`;
+    const below = r.bottom + 8;
+    tipBox.style.top = `${below + tipBox.offsetHeight > innerHeight - 12 ? Math.max(12, r.top - 8 - tipBox.offsetHeight) : below}px`;
+  };
+  const hideTip = () => { tipBox.hidden = true; };
+  const tipIcon = (t) => (t instanceof Element ? t.closest('.info[data-tip]') : null);
+  document.addEventListener('mouseover', (e) => { const i = tipIcon(e.target); if (i) showTip(i); });
+  document.addEventListener('mouseout', (e) => { const i = tipIcon(e.target); if (i && document.activeElement !== i) hideTip(); });
+  document.addEventListener('focusin', (e) => { const i = tipIcon(e.target); if (i) showTip(i); });
+  document.addEventListener('focusout', (e) => { if (tipIcon(e.target)) hideTip(); });
+  addEventListener('scroll', hideTip, { passive: true, capture: true });
   // Widths, positions and relative times are set here instead of inline styles (CSP: style-src 'self').
   const paint = () => {
     tuckExplanations();
