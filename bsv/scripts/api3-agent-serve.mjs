@@ -41,11 +41,13 @@ if (!existsSync(path.join(API3_DIR, '.env.agent'))) {
 let runs = 0
 let busy = false
 const intents = new Map() // intentId → { state, settleTx, message, at }
+const settlers = new Map() // intentId → the running tweet-cycle child, so it can be cancelled
 
 const lastLine = (text) => text.split('\n').map((s) => s.trim()).filter(Boolean).at(-1)?.slice(0, 300) ?? ''
-function run(args, timeoutMs) {
+function run(args, timeoutMs, onChild) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['--env-file=.env.agent', ...args], { cwd: API3_DIR, stdio: ['ignore', 'pipe', 'pipe'], shell: false })
+    if (onChild) onChild(child)
     let out = ''
     let err = ''
     child.stdout.on('data', (d) => { out += d; process.stdout.write(d) })
@@ -58,7 +60,9 @@ function run(args, timeoutMs) {
 
 async function settleInBackground(intentId) {
   intents.set(intentId, { state: 'settling', settleTx: null, message: 'waiting for the BSV receipt', at: Date.now() })
-  const r = await run(['src/tweet-cycle.ts', '--live', '--settle-only', intentId], SETTLE_TIMEOUT_MS)
+  const r = await run(['src/tweet-cycle.ts', '--live', '--settle-only', intentId], SETTLE_TIMEOUT_MS, (c) => settlers.set(intentId, c))
+  settlers.delete(intentId)
+  if (intents.get(intentId)?.state === 'cancelled') return
   const ok = r.code === 0 && /\b(settle-sent|already-settled)\b/.test(r.out)
   const tx = BASE_TX.exec(r.out)
   // tweet-cycle exits 0 on receipt-timeout too: that means no BSV transaction with this intent's receipt was found.
@@ -81,6 +85,15 @@ const server = createServer(async (req, res) => {
   // A spend waits until the previous intent is settled: two processes must never sign with the vault-5 key at once.
   const settling = [...intents.values()].some((x) => x.state === 'settling')
   if (req.method === 'GET' && url === '/health') return send(res, 200, { ok: true, busy: busy || settling, settling, runsLeft: Math.max(0, MAX_RUNS - runs) })
+  // The demo laptop cancels the wait when its withdrawal failed: no BSV receipt will ever come for that intent.
+  const c = /^\/intent\/(\d{1,9})\/cancel$/.exec(url)
+  if (req.method === 'POST' && c) {
+    const it = intents.get(c[1])
+    if (!it || it.state !== 'settling') return send(res, 409, { error: 'not settling' })
+    intents.set(c[1], { state: 'cancelled', settleTx: null, message: 'cancelled: no BSV withdrawal for this intent', at: Date.now() })
+    settlers.get(c[1])?.kill('SIGTERM')
+    return send(res, 200, { ok: true })
+  }
   const m = /^\/intent\/(\d{1,9})$/.exec(url)
   if (req.method === 'GET' && m) {
     const it = intents.get(m[1])

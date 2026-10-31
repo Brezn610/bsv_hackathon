@@ -148,6 +148,8 @@ const STEPS = {
       const r = await tg(['withdraw', '--intent', job.intentId], job)
       const m = /Withdrawal broadcast: https:\/\/whatsonchain\.com\/tx\/([0-9a-f]{64})/.exec(r.out)
       const a = /(\d+) sats to the Agent Float, fee (\d+)/.exec(r.out)
+      // No BSV withdrawal: tell the remote API3 agent to stop waiting for a receipt, so the next run is not blocked.
+      if (!(r.code === 0 && m) && API3_REMOTE) await remote(`/intent/${job.intentId}/cancel`, { method: 'POST', body: '{}' }).catch(() => {})
       return r.code === 0 && m ? { ok: true, txid: m[1], message: a ? `${a[1]} sats to the Agent Float, fee ${a[2]}.` : 'Withdrawal broadcast.' } : { ok: false, message: lastLine(r.err) || lastLine(r.out) }
     } },
     { key: 'buy', label: 'The agent decides and pays over HTTP 402', exec: async (job) => {
