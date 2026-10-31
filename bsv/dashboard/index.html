@@ -44,10 +44,18 @@
     <!-- OVERVIEW -->
     <section id="tab-overview" role="tabpanel" aria-labelledby="tab-btn-overview" tabindex="-1">
       <div class="page-heading">
-        <div><p class="breadcrumb">Treasury Guard / Vault 5</p><h2>Withdrawal monitor</h2>
-          <p class="page-description">Follow each request from its spending limit to its BSV transaction.</p></div>
+        <div><p class="breadcrumb">Treasury Guard / Vault 5</p><h2>Live run</h2>
+          <p class="page-description">Each payment request, step by step, as it happens on Base and BSV.</p></div>
         <span class="read-only">Read-only access</span>
       </div>
+
+      <section id="run" class="run" aria-labelledby="run-title">
+        <nav class="run-nav" aria-labelledby="run-title">
+          <h3 id="run-title" class="run-nav-title">Runs</h3>
+          <ol id="run-list" class="run-list"></ol>
+        </nav>
+        <div id="run-timeline" class="run-timeline" aria-live="polite"></div>
+      </section>
 
       <div class="monitor-grid">
         <div class="activity-column">

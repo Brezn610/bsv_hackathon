@@ -52,6 +52,7 @@
     tx: new Map(), // txid → { state: 'loading'|'mined'|'unconfirmed'|'unknown'|'error', height, at, error }
     receipts: new Map(), // intentId string → txid, from OP_RETURN of a vault UTXO's transaction
     receiptOut: new Map(), // intentId string → { sats, vout, payee: 'current'|'earlier' }: the float output of that withdrawal
+    selectedRun: null, // null follows the newest run
     payments: new Map(), // intentId string → { state: 'unspent'|'spent'|'error', txid, sats, at }: next spend of the float output
     basePolls: 0,
     seenDecisions: new Set(),
@@ -736,6 +737,121 @@
     ]);
   };
 
+  // ---------------------------------------------------------------- render: live run timeline
+  // One vault-5 SPEND intent told as steps, from the data already polled: Base (price, intent, settle), the watcher's
+  // decisions, WhatsOnChain (withdrawal, block, the float output's next spend). Times are when each step happened on
+  // chain where known, otherwise when the dashboard saw it. Nothing here is inferred beyond what the sources return.
+  const decisionsFor = (id) => liveDecisions().filter((d) => String(d.intentId) === id);
+  const runModel = (r) => {
+    const cfg = S.chain.v5.config;
+    const it = r.onChain;
+    const now = Number(nowSec());
+    const createdAt = it && cfg ? Number(it.expiry - cfg.intentTtl) : null;
+    const open = it ? BigInt(now) < it.expiry : false;
+    const decs = decisionsFor(r.id);
+    const approve = decs.find((d) => d.status === 200 && d.verdict === 'APPROVE') || null;
+    const refusal = !approve && decs.length ? decs[decs.length - 1] : null;
+    const tx = r.txid ? S.tx.get(r.txid) : null;
+    const pay = r.payment;
+    const payTx = pay?.txid ? S.tx.get(pay.txid) : null;
+    const earlier = r.chainOut?.payee === 'earlier';
+    const steps = [];
+    const add = (key, title, state, time, detail, extra) => steps.push({ key, title, state, time, detail, extra });
+
+    add('price', 'Signed price received', it ? 'done' : 'todo', it ? Number(it.priceSignedAt) : null,
+      it ? `${price8(it.price)} per BSV, signed by the ${EV.base.feeds.bsvUsd.name} Airnode` : 'Waiting for a signed BSV/USD price');
+    add('limit', 'Spending limit set on Base', it ? 'done' : 'todo', createdAt,
+      it ? `Up to ${group(it.maxSats)} sats (${approxUsd(it.maxSats, it.price).replace('≈ ', '≈')})` : 'Waiting for a SPEND intent',
+      it && open && !r.txid ? { until: Number(it.expiry) } : null);
+
+    if (approve) add('watcher', 'Watcher checked the transaction', 'done', Date.parse(approve.at) / 1000,
+      `Approved: ${group(approve.toFloat ?? 0)} sats to the agent, ${group(approve.fee ?? 0)} fee`);
+    else if (refusal) add('watcher', 'Watcher refused', 'failed', Date.parse(refusal.at) / 1000,
+      Array.isArray(refusal.reasons) && refusal.reasons.length ? String(refusal.reasons[0]) : `HTTP ${refusal.status}`);
+    else if (r.txid) add('watcher', 'Watcher checked the transaction', 'done', null, 'Co-signed: the vault can only pay out with the watcher’s signature');
+    else if (it && open) add('watcher', 'Watcher checks the transaction', 'todo', null, 'Waiting for the agent to propose a withdrawal');
+    else if (it) add('watcher', 'No withdrawal', 'failed', Number(it.expiry), 'The limit expired before a withdrawal was signed');
+    else add('watcher', 'Watcher checks the transaction', 'todo', null, '');
+
+    const payee = r.chainOut ? (earlier ? `${group(r.chainOut.sats)} sats to the earlier float (agent wallet)` : `${group(r.chainOut.sats)} sats to the agent’s float`) : null;
+    if (r.txid && tx?.state === 'mined') add('vault', 'Money left the vault', 'done', tx.time ?? null, [payee, `mined in block ${group(tx.height)}`].filter(Boolean).join(' · '), { txid: r.txid });
+    else if (r.txid && tx?.state === 'unconfirmed') add('vault', 'Money leaving the vault', 'current', tx.time ?? null, [payee, 'broadcast, waiting for a block…'].filter(Boolean).join(' · '), { txid: r.txid });
+    else if (r.txid) add('vault', 'Money leaving the vault', 'current', null, 'Checking BSV…', { txid: r.txid });
+    else if (approve) add('vault', 'Money leaving the vault', 'current', null, 'Waiting for the transaction to appear on BSV');
+    else add('vault', 'Money leaves the vault', 'todo', null, '');
+
+    if (pay?.state === 'spent') add('pay', 'Agent paid for data (HTTP 402)', 'done', payTx?.time ?? null,
+      pay.sats !== null ? `${group(pay.sats)} sats paid from the float${payTx?.state === 'mined' ? ` · mined in block ${group(payTx.height)}` : ''}` : 'The float output was spent; the amount is not derivable', { txid: pay.txid });
+    else if (earlier && pay?.state === 'unspent') add('pay', 'Agent pays for data (HTTP 402)', 'skipped', null, 'This run paid the earlier agent wallet; no payment came from that output');
+    else if (r.txid && pay?.state === 'unspent') add('pay', 'Agent pays for data (HTTP 402)', 'current', null, 'Waiting for the agent to buy');
+    else if (r.txid) add('pay', 'Agent pays for data (HTTP 402)', 'current', null, pay?.state === 'error' ? 'WhatsOnChain unavailable, retrying' : 'Checking the float output…');
+    else add('pay', 'Agent pays for data (HTTP 402)', 'todo', null, '');
+
+    if (it?.settled) add('settle', 'Recorded on Base', 'done', null, 'Written by the API3 agent; a record, not cross-chain proof');
+    else if (r.txid) add('settle', 'Recorded on Base', 'current', null, 'Waiting for the API3 agent to record it');
+    else add('settle', 'Recorded on Base', 'todo', null, '');
+
+    // Only the first unfinished step "breathes"; later unfinished ones wait quietly.
+    let seenCurrent = false;
+    for (const s of steps) if (s.state === 'current') { if (seenCurrent) s.state = 'todo'; seenCurrent = true; }
+    const failed = steps.some((s) => s.state === 'failed');
+    const complete = !failed && steps.every((s) => s.state === 'done' || s.state === 'skipped');
+    const status = failed ? 'stopped' : complete ? 'complete' : 'running';
+    const times = steps.map((s) => s.time).filter((t) => Number.isFinite(t));
+    const end = status === 'running' ? null : (times.length ? Math.max(...times) : null);
+    const outflow = r.approval ? BigInt(r.approval.toFloat ?? 0) + BigInt(r.approval.fee ?? 0) : r.chainOut ? r.chainOut.sats : null;
+    const summary = status === 'stopped' ? (refusal ? 'refused' : 'expired')
+      : pay?.state === 'spent' && pay.sats !== null ? `paid ${group(pay.sats)} sats`
+        : r.chainOut ? `${group(r.chainOut.sats)} to the agent` : 'in progress';
+    return { id: r.id, steps, status, start: createdAt, end, outflow, outflowExact: !!r.approval, maxSats: r.maxSats, summary };
+  };
+
+  const STEP_MARK = { done: '✓', failed: '!', current: '', todo: '', skipped: '–' };
+  const renderRun = (rows) => {
+    const runs = rows.map(runModel);
+    const listEl = $('#run-list');
+    const tlEl = $('#run-timeline');
+    if (!listEl || !tlEl) return;
+    if (S.selectedRun && !runs.some((x) => x.id === S.selectedRun)) S.selectedRun = null;
+    const sel = runs.find((x) => x.id === S.selectedRun) || runs[0] || null;
+    const watching = freshness(S.health) === 'live';
+    mount(listEl, stringify([runs.map((x) => [x.id, x.status, x.summary, x.start]), sel?.id]), () => runs.length
+      ? runs.map((x) => h('li', null, h('button', { type: 'button', class: `run-item run-${x.status}`, 'aria-current': x === sel ? 'true' : undefined, dataset: { run: x.id } },
+        h('span', { class: 'run-item-id' }, `#${x.id}`),
+        h('span', { class: 'run-item-sum' }, x.status === 'running' ? 'in progress' : x.summary),
+        x.start ? h('span', { class: 'run-item-when', dataset: { agoSec: String(x.start) } }, '') : null)))
+      : h('li', { class: 'run-empty' }, S.base.status === 'error' ? 'Base not reachable' : 'Loading runs…'));
+    mount(tlEl, stringify([sel, watching, runs[0]?.status]), () => {
+      if (!sel) return h('p', { class: 'run-waiting' }, S.base.status === 'error' ? 'Base Sepolia is not reachable, so no run can be shown. Retrying.' : 'Reading the latest request from Base Sepolia…');
+      const latest = sel === runs[0];
+      const head = h('div', { class: 'run-head' },
+        h('div', null,
+          h('p', { class: 'run-kicker' }, latest ? (sel.status === 'running' ? 'Happening now' : 'Latest run') : 'Earlier run'),
+          h('h3', { id: 'run-heading' }, `Intent ${sel.id}`, h('span', { class: `run-status run-status-${sel.status}` }, sel.status === 'running' ? 'in progress' : sel.status === 'complete' ? 'complete' : 'stopped'))),
+        sel.start ? h('p', { class: 'run-clock' }, sel.status === 'running'
+          ? h('span', { dataset: { elapsedFrom: String(sel.start) } }, '')
+          : sel.end ? `took ${dur(sel.end - sel.start)}` : '') : null);
+      const list = h('ol', { class: 'steps' }, sel.steps.map((s) => h('li', { class: `step step-${s.state}` },
+        h('span', { class: 'step-dot', 'aria-hidden': 'true' }, STEP_MARK[s.state]),
+        h('div', { class: 'step-body' },
+          h('p', { class: 'step-title' }, s.title, h('span', { class: 'sr-only' }, ` (${s.state})`)),
+          s.detail ? h('p', { class: 'step-detail' }, s.detail) : null,
+          s.extra?.until ? h('p', { class: 'step-detail' }, h('span', { class: 'countdown', dataset: { untilSec: String(s.extra.until) } }, '')) : null,
+          s.extra?.txid ? h('p', { class: 'step-link' }, wocTx(s.extra.txid)) : null),
+        h('time', { class: 'step-time' }, Number.isFinite(s.time) ? clock(s.time * 1000) : ''))));
+      const meter = sel.outflow !== null && sel.maxSats ? (() => {
+        const share = Number((sel.outflow * 1000n) / sel.maxSats) / 10;
+        return h('div', { class: 'run-meter' },
+          h('p', null, h('span', { class: 'num' }, group(sel.outflow)), ` of ${group(sel.maxSats)} sats ${sel.outflowExact ? 'used, fee included' : 'paid to the agent'}`),
+          h('span', { class: 'meter', role: 'img', 'aria-label': `${share} % of the limit` }, h('span', { class: 'bar-fill', dataset: { w: String(Math.min(share, 100)) } })));
+      })() : null;
+      const idle = latest && sel.status !== 'running'
+        ? h('p', { class: 'run-waiting' }, h('span', { class: `breath${watching ? '' : ' breath-off'}`, 'aria-hidden': 'true' }), watching ? 'Waiting for the next request. The watcher is on.' : 'Waiting for the next request. The watcher is not reachable from this page.')
+        : null;
+      return [idle, head, list, meter];
+    });
+  };
+
   // ---------------------------------------------------------------- render loop and tick
 
   let pending = false;
@@ -745,7 +861,7 @@
     requestAnimationFrame(() => {
       pending = false;
       const rows = pipelineRows();
-      renderHeader(); renderFlow(); renderPrice(); renderBudget(); renderDecisions(); renderVault(); renderFlows(rows); renderPipeline(rows); renderTrust();
+      renderHeader(); renderFlow(); renderPrice(); renderBudget(); renderDecisions(); renderVault(); renderFlows(rows); renderPipeline(rows); renderTrust(); renderRun(rows);
       const tab = currentTab();
       if (tab === 'agent') renderAgentTab();
       if (tab === 'hedges') renderHedgesTab();
@@ -763,6 +879,7 @@
       el.textContent = `${el.dataset.prefix || ''}${dur(now - t)} ago`;
       el.title = new Date(t * 1000).toISOString();
     }
+    for (const el of document.querySelectorAll('[data-elapsed-from]')) el.textContent = `running for ${dur(now - Number(el.dataset.elapsedFrom))}`;
     for (const el of document.querySelectorAll('[data-until-sec]')) {
       const left = Number(el.dataset.untilSec) - now;
       el.textContent = left > 0 ? `expires in ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : 'expired';
@@ -1061,7 +1178,8 @@
     const height = Number(tx?.blockheight);
     const conf = Number(tx?.confirmations);
     const mined = Number.isInteger(height) && height > 0 && Number.isFinite(conf) && conf >= 1;
-    const entry = { state: mined ? 'mined' : 'unconfirmed', height: mined ? height : null, at: Date.now() };
+    const t = Number(tx?.blocktime || tx?.time);
+    const entry = { state: mined ? 'mined' : 'unconfirmed', height: mined ? height : null, at: Date.now(), time: Number.isFinite(t) && t > 0 ? t : null };
     S.tx.set(txid, entry);
     if (mined) cache.set(`tg.tx.${txid}`, entry);
   };
@@ -1103,6 +1221,13 @@
 
   let logPoller = null;
   const start = () => {
+    $('#run-list')?.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-run]');
+      if (!b) return;
+      const first = $('#run-list [data-run]');
+      S.selectedRun = first && first.dataset.run === b.dataset.run ? null : b.dataset.run;
+      render();
+    });
     initControls();
     initTabs();
     render();
