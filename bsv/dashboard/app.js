@@ -887,7 +887,9 @@
     try {
       S.owner.health = await ownerFetch('/owner/health');
       S.owner.state = S.owner.health.mainnetAllowed ? 'ready' : 'mainnet-off';
-      if (S.owner.health.busy && (!S.owner.job || S.owner.job.state !== 'running')) S.owner.job = S.owner.health.busy;
+      // A job started elsewhere (or before a reload) is followed too; the last finished one is shown.
+      if (S.owner.health.busy && (!S.owner.job || S.owner.job.state !== 'running')) followJob(S.owner.health.busy);
+      else if (!S.owner.job && S.owner.health.last) S.owner.job = S.owner.health.last;
     } catch (e) {
       S.owner.state = e.status === 401 ? 'bad-token' : e.status === 403 ? 'origin' : 'offline';
       S.owner.error = e.message;
@@ -895,12 +897,21 @@
     render();
   };
   let jobTimer = null;
+  const stepDone = (j, key) => j?.steps?.find((x) => x.key === key)?.state === 'done';
+  // When a step of the server's job finishes, refresh the matching chain reads now instead of on the next poll.
+  const nudge = (prev, j) => {
+    const newly = (key) => stepDone(j, key) && !stepDone(prev, key);
+    if (newly('intent') || newly('settle')) basePoller?.now();
+    if (newly('withdraw') || newly('fund') || newly('exit')) { vaultPoller?.now(); basePoller?.now(); }
+    if (newly('buy') && j.intentId) { S.payments.delete(String(j.intentId)); readPayment(String(j.intentId)); }
+  };
   const followJob = (job) => {
     S.owner.job = job;
     clearTimeout(jobTimer);
     const tick = async () => {
       try {
         const j = await ownerFetch(`/owner/jobs/${encodeURIComponent(S.owner.job.id)}`);
+        nudge(S.owner.job, j);
         S.owner.job = j;
         if (j.state === 'running') jobTimer = setTimeout(tick, 1500);
         else { if (vaultPoller) vaultPoller.now(); ownerCheck(); }
@@ -926,6 +937,44 @@
     ready: ['ok', 'Connected. Every transaction still needs your approval in BSV Desktop.']
   })[S.owner.state];
 
+  const JOB_TITLE = { fund: (j) => `Funding the vault with ${group(j.sats ?? 0)} sats`, exit: () => 'Owner exit', cycle: (j) => `Agent cycle${j.intentId ? ` · intent ${j.intentId}` : ''}`, refusal: (j) => `Refusal test · replaying intent ${j.intentId}` };
+  const JOB_MARK = { done: '✓', failed: '!', skipped: '–', todo: '', running: '' };
+  const jobView = (j) => h('div', { class: `owner-job owner-job-${j.state}`, role: 'status' },
+    h('p', { class: 'owner-job-title' }, j.state === 'running' ? h('span', { class: 'breath', 'aria-hidden': 'true' }) : null,
+      (JOB_TITLE[j.kind] || (() => j.kind))(j), ' · ', j.state === 'running' ? 'running' : j.state),
+    h('ol', { class: 'job-steps' }, (j.steps || []).map((st) => h('li', { class: `job-step job-step-${st.state}` },
+      h('span', { class: 'job-dot', 'aria-hidden': 'true' }, JOB_MARK[st.state] ?? ''),
+      h('div', null,
+        h('p', { class: 'job-label' }, st.label, h('span', { class: 'sr-only' }, ` (${st.state})`)),
+        st.message ? h('p', { class: 'step-detail' }, String(st.message)) : null,
+        st.txid && TXID.test(st.txid) ? h('p', { class: 'step-link' }, wocTx(st.txid), ' ', txState(st.txid)) : null,
+        st.baseTx && HASH.test(st.baseTx) ? h('p', { class: 'step-link' }, baseTx(st.baseTx)) : null)))));
+
+  // Overview: start the agent or a refusal from the page; the live run below fills in from the chain.
+  const renderAgentBar = () => {
+    const el = $('#agent-controls');
+    if (!el) return;
+    const o = S.owner;
+    if (!ownerToken) { el.hidden = true; return; }
+    el.hidden = false;
+    const ready = o.state === 'ready';
+    const busy = o.job?.state === 'running';
+    const left = o.health?.agentCyclesLeft;
+    const used = pipelineRows().find((r) => r.state === 'withdrawn');
+    const line = ownerStateLine()[1];
+    mount(el, stringify([o.state, o.job, left, used?.id, o.error]), () => [
+      h('div', { class: 'agent-bar' },
+        h('div', null,
+          h('p', { class: 'agent-bar-title' }, 'Run it live'),
+          h('p', { class: 'muted small' }, ready ? `One click runs a full spend: signed price, watcher, vault, HTTP 402, settle. Real BSV mainnet sats.${left !== undefined ? ` ${left} cycle${left === 1 ? '' : 's'} left on this server.` : ''}` : line)),
+        h('div', { class: 'owner-row' },
+          h('button', { type: 'button', class: 'btn btn-primary', disabled: !ready || busy || left === 0 || undefined, onclick: () => ownerAction('/agent/cycle', {}) }, 'Run the agent'),
+          h('button', { type: 'button', class: 'btn', disabled: !ready || busy || !used || undefined, title: used ? `Asks the watcher to sign intent ${used.id} again` : 'No used intent yet', onclick: () => used && ownerAction('/agent/refusal', { intentId: used.id }) }, used ? `Show a refusal (replay #${used.id})` : 'Show a refusal'))),
+      o.error ? h('p', { class: 'owner-conn owner-conn-bad' }, o.error) : null,
+      o.job && (o.job.kind === 'cycle' || o.job.kind === 'refusal') ? jobView(o.job) : null
+    ]);
+  };
+
   const renderOwnerTab = () => {
     const el = $('#tab-owner');
     const o = S.owner;
@@ -935,12 +984,7 @@
     const vault = S.vault.value;
     const [lineCls, line] = ownerStateLine();
     mount(el, stringify([o, vault?.total, cap]), () => {
-      const job = o.job ? h('div', { class: `owner-job owner-job-${o.job.state}`, role: 'status' },
-        h('p', { class: 'owner-job-title' }, o.job.state === 'running' ? h('span', { class: 'breath', 'aria-hidden': 'true' }) : null,
-          o.job.kind === 'fund' ? `Funding the vault with ${group(o.job.sats ?? 0)} sats` : 'Owner exit',
-          ' · ', o.job.state === 'running' ? 'approve the request in BSV Desktop' : o.job.state === 'done' ? 'done' : 'failed'),
-        h('p', { class: 'step-detail' }, String(o.job.message || '')),
-        o.job.txid && TXID.test(o.job.txid) ? h('p', { class: 'step-link' }, wocTx(o.job.txid), ' ', txState(o.job.txid)) : null) : null;
+      const job = o.job ? jobView(o.job) : null;
       const fundSats = o.confirmFund;
       return [
         h('h2', { class: 'tab-title' }, 'Owner'),
@@ -994,7 +1038,7 @@
     requestAnimationFrame(() => {
       pending = false;
       const rows = pipelineRows();
-      renderHeader(); renderFlow(); renderPrice(); renderBudget(); renderDecisions(); renderVault(); renderFlows(rows); renderPipeline(rows); renderTrust(); renderRun(rows);
+      renderHeader(); renderFlow(); renderPrice(); renderBudget(); renderDecisions(); renderVault(); renderFlows(rows); renderPipeline(rows); renderTrust(); renderRun(rows); renderAgentBar();
       const tab = currentTab();
       if (tab === 'agent') renderAgentTab();
       if (tab === 'hedges') renderHedgesTab();
@@ -1041,7 +1085,7 @@
     if (name === 'evidence') fetchEvidenceTx();
     if (name === 'hedges') fetchOtherRegimes();
     if (name === 'agent' && logPoller) logPoller.now();
-    if (name === 'owner') ownerCheck();
+    if (name === 'owner' || name === 'overview') ownerCheck();
     render();
   };
   const initTabs = () => {
@@ -1357,6 +1401,7 @@
 
   let logPoller = null;
   let vaultPoller = null;
+  let basePoller = null;
   const start = () => {
     $('#run-list')?.addEventListener('click', (e) => {
       const b = e.target.closest('[data-run]');
@@ -1370,12 +1415,12 @@
     render();
     C.poll(loadHealth, INTERVAL.health, update('health'));
     C.poll(loadDecisions, INTERVAL.decisions, update('decisions'));
-    C.poll(loadBase, INTERVAL.base, update('base'));
+    basePoller = C.poll(loadBase, INTERVAL.base, update('base'));
     // Logs wait for the first block number, then follow it; started a little later to spread the first requests.
     setTimeout(() => { logPoller = C.poll(loadLogs, INTERVAL.logs, update('logs')); }, 3000);
     vaultPoller = C.poll(loadVault, INTERVAL.vault, update('vault'));
     // The owner server is checked while the Owner view is open.
-    setInterval(() => { if (currentTab() === 'owner' && S.owner.job?.state !== 'running') ownerCheck(); }, 5000);
+    setInterval(() => { if (ownerToken && S.owner.job?.state !== 'running') ownerCheck(); }, 5000);
     setTimeout(() => C.poll(fetchCoreTx, INTERVAL.tx, () => render()), 1500);
   };
 

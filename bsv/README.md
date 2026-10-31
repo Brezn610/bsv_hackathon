@@ -31,13 +31,23 @@ it (`python3 -m http.server -d dashboard 8765`) and open `http://localhost:8765`
 It reads the watcher's `GET /health` and `GET /decisions`, Base Sepolia (`eth_call`, `eth_getLogs` in 200-block
 pages) and WhatsOnChain. It never calls `/cosign` or `/broadcast`, never signs, and holds no key.
 
-**Owner actions (real BSV mainnet transactions).** The Owner view can fund the vault and run the owner-only exit. It
-asks a local owner action server, which runs the existing `tg fund` / `tg exit`; BSV Desktop asks the owner to approve
-every transaction, and the gates and caps of `tg` apply unchanged. On the watcher laptop, next to BSV Desktop:
+**Run it live (real transactions).** With the owner's control server running, the page can:
+
+- **Run the agent** (Overview): one full spend, step by step, with the team's existing commands: api3 `spend5.ts`
+  (signed price → SPEND intent), `tg withdraw --intent N` (watcher co-signs), `tg buy` (the model decides, HTTP 402),
+  api3 `tweet-cycle.ts --live --settle-only N` (settle record). The live run fills in from the chain as it happens.
+  At most `AGENT_MAX_CYCLES` (default 3) per server start.
+- **Show a refusal** (Overview): `tg withdraw` for an intent already used; the watcher refuses (409), nothing moves.
+- **Fund the vault / Exit to owner** (Owner view): `tg fund` / `tg exit`; BSV Desktop asks the owner to approve.
+
+On the watcher laptop, with the watcher (`npm run tg -- watcher-serve`) and BSV Desktop running, `bsv/node_modules`
+and `api3` dependencies installed and `api3/.env.agent` in place:
 
 ```sh
 CONFIRM_MAINNET=1 npm run owner-serve   # 127.0.0.1:4820; prints a link with a one-time owner token
 ```
+
+Do not run `tweet-cycle.ts --live` (or anything else signing with the vault-5 agent key) at the same time.
 
 Open the printed link. The server listens on 127.0.0.1 only, accepts only the dashboard origins
 (`OWNER_ORIGINS`, default `http://localhost:8765,http://127.0.0.1:8765`), requires the token on every request, runs one
