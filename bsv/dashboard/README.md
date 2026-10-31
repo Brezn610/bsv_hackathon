@@ -55,6 +55,31 @@ Before recording: start the watcher and the owner action server (see `bsv/README
 prints, check that the API3 runner has signed a price in the last few minutes, and pass a keyed Base Sepolia RPC with
 `?rpc=` if the public one rate-limits (it answers HTTP 429 under load).
 
+## Explain mode
+
+Presentation only, for screen recordings. Off by default: open `?explain=1` or press **E** (E again turns it off).
+Each click below opens a centred pop-up with a 6–12 s animation of what happens behind that step, a one-line
+caption, **Replay** and **Close**:
+
+| Click | Pop-up |
+| --- | --- |
+| A step of the payment timeline | Signed price · TreasuryGuard checks and the SPEND intent · watcher check · vault spend · HTTP 402 · settle |
+| **Run the agent** | Signed price (the run keeps going underneath) |
+| **Replay #N** | Replay refused (HTTP 409) |
+| **Run the tamper test** | The panel's five cases, in its order, with the contract's errors |
+| **Fund 5,000 sats** / **Yes, fund it** | The deposit and who can spend it |
+| **Exit** (after typing EXIT) | The owner exits alone |
+| The vault or the owner panel | Vault spend · owner exit |
+
+A finished step of a live run gets an **Explain this step** chip instead of a pop-up, so a recording is never
+interrupted. **Esc**, **Space**, **Enter** or a click outside closes the pop-up; while it is open it takes every key,
+so Esc does not leave video mode. Reduced motion shows the final frame.
+
+The pop-ups read only what the page already shows (the timeline, the API3 strip). Where the page has no value, the
+pop-up uses intent 9 from 31 Oct and says so: "Recorded example" with its transaction id. Explain mode adds no
+request, no key and no signing, and it never starts an action: the buttons above run exactly as without it, and the
+pop-up opens after the page has handled the click.
+
 ## Parameters
 
 | Parameter | Default | Purpose |
@@ -65,6 +90,7 @@ prints, check that the API3 runner has signed a price in the last few minutes, a
 | `?ownerApi=` | `http://127.0.0.1:5820` | owner action server |
 | `?theme=dark` / `light` | dark | colour theme |
 | `?video=1` | off | video mode |
+| `?explain=1` | off | explain mode (pop-ups for recordings) |
 
 Watcher co-signing is separate from broadcast, and a Base settle is a record written by the agent, not cross-chain
 verification. See [DESIGN.md](DESIGN.md) for the visual system and what was checked.
