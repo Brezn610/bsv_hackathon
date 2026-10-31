@@ -35,6 +35,7 @@
       <button type="button" role="tab" id="tab-btn-agent" aria-controls="tab-agent" aria-selected="false" tabindex="-1">Agent · vault 8</button>
       <button type="button" role="tab" id="tab-btn-hedges" aria-controls="tab-hedges" aria-selected="false" tabindex="-1">Event hedges</button>
       <button type="button" role="tab" id="tab-btn-evidence" aria-controls="tab-evidence" aria-selected="false" tabindex="-1">Transactions</button>
+      <button type="button" role="tab" id="tab-btn-owner" aria-controls="tab-owner" aria-selected="false" tabindex="-1">Owner</button>
     </nav>
   </header>
 
@@ -90,11 +91,14 @@
 
     <!-- EVIDENCE -->
     <section id="tab-evidence" role="tabpanel" aria-labelledby="tab-btn-evidence" tabindex="-1" hidden></section>
+
+    <!-- OWNER ACTIONS (fund, exit; approved in BSV Desktop) -->
+    <section id="tab-owner" role="tabpanel" aria-labelledby="tab-btn-owner" tabindex="-1" hidden></section>
   </main>
 
   <footer class="footer"><details class="connection-details"><summary>Connection details</summary><div id="footer"></div></details></footer>
 
-  <noscript><p class="banner banner-warn">This read-only dashboard needs JavaScript to read the watcher, Base Sepolia and WhatsOnChain.</p></noscript>
+  <noscript><p class="banner banner-warn">This dashboard needs JavaScript to read the watcher, Base Sepolia and WhatsOnChain.</p></noscript>
 
   <script src="config.js"></script>
   <script src="chain.js"></script>

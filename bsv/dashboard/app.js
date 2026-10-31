@@ -1,5 +1,6 @@
-// Treasury Guard dashboard. Read-only: GET /health and GET /decisions on the watcher, eth_call / eth_getLogs on Base
-// Sepolia, GET on WhatsOnChain. It never calls /cosign or /broadcast, never signs, never holds a key.
+// Treasury Guard dashboard. Reads: GET /health and GET /decisions on the watcher, eth_call / eth_getLogs on Base
+// Sepolia, GET on WhatsOnChain. It never calls /cosign or /broadcast, never signs, never holds a key. The Owner view
+// can ask the local owner action server to run `tg fund` / `tg exit`, which BSV Desktop asks the owner to approve.
 // All external text is rendered with textContent. Contract values and sats stay BigInt / integers.
 'use strict';
 
@@ -727,7 +728,7 @@
     const hv = S.health.value;
     const sig = stringify([hv?.watcherKey, hv?.agentKey, hv?.vaultScriptSha256]);
     mount($('#footer'), sig, () => [
-      h('p', null, h('strong', null, 'Read-only: this page cannot move money.'), ' It sends GET requests to the watcher and WhatsOnChain and read-only eth_call / eth_getLogs to Base Sepolia. It holds no key.'),
+      h('p', null, h('strong', null, 'This page holds no key.'), ' It reads the watcher, WhatsOnChain and Base Sepolia. Only the Owner view can move money: it asks the local owner server to run tg fund or tg exit, and you approve each transaction in BSV Desktop.'),
       h('dl', { class: 'foot-facts' },
         h('div', null, h('dt', null, 'Contract (Base Sepolia, chain 84532)'), h('dd', null, ext(`${EV.base.explorer}/address/${EV.base.contract}`, EV.base.contract))),
         h('div', null, h('dt', null, 'Vault script SHA-256'), h('dd', { class: 'mono' }, hv?.vaultScriptSha256 || EV.bsv.vaultScriptSha256, h('span', { class: 'muted' }, hv?.vaultScriptSha256 ? ' (watcher /health)' : ' (configured)' ))),
@@ -852,6 +853,138 @@
     });
   };
 
+  // ---------------------------------------------------------------- owner actions (fund, exit)
+  // Talks only to the local owner action server (bsv/scripts/owner-serve.mjs) on the watcher laptop. That server runs
+  // the existing `tg fund` / `tg exit`; BSV Desktop asks the owner to approve every transaction. This page holds no key.
+  // The one-time token comes from the link owner-serve prints; it is kept for this tab only and removed from the URL.
+  const OWNER_API = httpUrl(params.get('ownerApi'), 'http://127.0.0.1:4820');
+  const ownerToken = (() => {
+    const t = params.get('owner');
+    try {
+      if (t && /^[0-9a-f]{16,128}$/.test(t)) sessionStorage.setItem('tg.ownerToken', t);
+      if (t) { params.delete('owner'); const q = params.toString(); history.replaceState(null, '', location.pathname + (q ? `?${q}` : '') + location.hash); }
+      return sessionStorage.getItem('tg.ownerToken');
+    } catch { return t; }
+  })();
+  const ownerFetch = async (path, init = {}) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    try {
+      const res = await fetch(OWNER_API + path, { ...init, signal: controller.signal, cache: 'no-store', credentials: 'omit',
+        headers: { 'X-Owner-Token': ownerToken || '', ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { const e = new Error(body.error || `HTTP ${res.status}`); e.status = res.status; e.body = body; throw e; }
+      return body;
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('the owner server did not answer');
+      if (e instanceof TypeError) { const x = new Error('owner server not reachable'); x.status = 0; throw x; }
+      throw e;
+    } finally { clearTimeout(timer); }
+  };
+  S.owner = { state: 'checking', health: null, job: null, error: null, confirmFund: null, exitText: '' };
+  const ownerCheck = async () => {
+    if (!ownerToken) { S.owner.state = 'no-token'; render(); return; }
+    try {
+      S.owner.health = await ownerFetch('/owner/health');
+      S.owner.state = S.owner.health.mainnetAllowed ? 'ready' : 'mainnet-off';
+      if (S.owner.health.busy && (!S.owner.job || S.owner.job.state !== 'running')) S.owner.job = S.owner.health.busy;
+    } catch (e) {
+      S.owner.state = e.status === 401 ? 'bad-token' : e.status === 403 ? 'origin' : 'offline';
+      S.owner.error = e.message;
+    }
+    render();
+  };
+  let jobTimer = null;
+  const followJob = (job) => {
+    S.owner.job = job;
+    clearTimeout(jobTimer);
+    const tick = async () => {
+      try {
+        const j = await ownerFetch(`/owner/jobs/${encodeURIComponent(S.owner.job.id)}`);
+        S.owner.job = j;
+        if (j.state === 'running') jobTimer = setTimeout(tick, 1500);
+        else { if (vaultPoller) vaultPoller.now(); ownerCheck(); }
+      } catch { jobTimer = setTimeout(tick, 3000); }
+      render();
+    };
+    jobTimer = setTimeout(tick, 1200);
+    render();
+  };
+  const ownerAction = async (path, body) => {
+    S.owner.error = null;
+    try { followJob(await ownerFetch(path, { method: 'POST', body: JSON.stringify(body) })); }
+    catch (e) { S.owner.error = e.message; if (e.body?.job) followJob(e.body.job); render(); }
+  };
+
+  const ownerStateLine = () => ({
+    checking: ['muted', 'Checking the owner action server…'],
+    'no-token': ['muted', 'Owner actions are not connected. On the watcher laptop run CONFIRM_MAINNET=1 npm run owner-serve, then open the link it prints.'],
+    'bad-token': ['bad', 'The owner token is missing or wrong. Open the link printed by npm run owner-serve again.'],
+    origin: ['bad', `The owner server does not accept this page’s address (${location.origin}). Open the dashboard at http://localhost:8765.`],
+    offline: ['bad', `The owner server is not running at ${OWNER_API}. On the watcher laptop run CONFIRM_MAINNET=1 npm run owner-serve.`],
+    'mainnet-off': ['bad', 'The owner server is running, but mainnet actions are off. Restart it with CONFIRM_MAINNET=1 npm run owner-serve.'],
+    ready: ['ok', 'Connected. Every transaction still needs your approval in BSV Desktop.']
+  })[S.owner.state];
+
+  const renderOwnerTab = () => {
+    const el = $('#tab-owner');
+    const o = S.owner;
+    const ready = o.state === 'ready';
+    const busy = o.job?.state === 'running';
+    const cap = o.health?.fundCap ?? 50000;
+    const vault = S.vault.value;
+    const [lineCls, line] = ownerStateLine();
+    mount(el, stringify([o, vault?.total, cap]), () => {
+      const job = o.job ? h('div', { class: `owner-job owner-job-${o.job.state}`, role: 'status' },
+        h('p', { class: 'owner-job-title' }, o.job.state === 'running' ? h('span', { class: 'breath', 'aria-hidden': 'true' }) : null,
+          o.job.kind === 'fund' ? `Funding the vault with ${group(o.job.sats ?? 0)} sats` : 'Owner exit',
+          ' · ', o.job.state === 'running' ? 'approve the request in BSV Desktop' : o.job.state === 'done' ? 'done' : 'failed'),
+        h('p', { class: 'step-detail' }, String(o.job.message || '')),
+        o.job.txid && TXID.test(o.job.txid) ? h('p', { class: 'step-link' }, wocTx(o.job.txid), ' ', txState(o.job.txid)) : null) : null;
+      const fundSats = o.confirmFund;
+      return [
+        h('h2', { class: 'tab-title' }, 'Owner'),
+        h('p', { class: 'lede small' }, 'The owner’s own transactions on BSV mainnet: fund the vault, or take everything back alone. They run the team’s tg fund and tg exit, and BSV Desktop asks you to approve each one. This page never holds a key.'),
+        h('p', { class: `owner-conn owner-conn-${lineCls}`, role: 'status' }, line),
+        o.error ? h('p', { class: 'owner-conn owner-conn-bad' }, o.error) : null,
+        job,
+        h('div', { class: 'grid-2 owner-grid' },
+          h('article', { class: 'card owner-card' },
+            h('h3', null, 'Fund the vault'),
+            h('p', { class: 'muted small' }, `Moves sats from your BSV Desktop wallet into the vault script. The agent can then spend only what signed prices allow. Up to ${group(cap)} sats per deposit.`),
+            vault ? h('p', { class: 'small' }, `The vault holds ${group(vault.total)} sats now.`) : null,
+            fundSats
+              ? h('div', { class: 'owner-confirm' },
+                h('p', null, `Send ${group(fundSats)} sats from BSV Desktop to the vault on BSV mainnet?`),
+                h('div', { class: 'owner-row' },
+                  h('button', { type: 'button', class: 'btn btn-primary', disabled: !ready || busy || undefined, onclick: () => { S.owner.confirmFund = null; ownerAction('/owner/fund', { sats: fundSats }); } }, 'Yes, fund it'),
+                  h('button', { type: 'button', class: 'btn', onclick: () => { S.owner.confirmFund = null; render(); } }, 'Cancel')))
+              : h('form', { class: 'owner-row', onsubmit: (e) => {
+                e.preventDefault();
+                const n = Number(new FormData(e.target).get('sats'));
+                if (!Number.isSafeInteger(n) || n < 1 || n > cap) { S.owner.error = `Enter a whole number of sats from 1 to ${cap}.`; render(); return; }
+                S.owner.error = null; S.owner.confirmFund = n; render();
+              } },
+                h('label', { class: 'sr-only', for: 'fund-sats' }, 'Sats to deposit'),
+                h('input', { id: 'fund-sats', name: 'sats', type: 'number', min: '1', max: String(cap), step: '1', value: '5000', inputmode: 'numeric', class: 'owner-input', disabled: !ready || busy || undefined }),
+                h('span', { class: 'muted small' }, 'sats'),
+                h('button', { type: 'submit', class: 'btn btn-primary', disabled: !ready || busy || undefined }, 'Fund vault'))),
+          h('article', { class: 'card owner-card owner-danger' },
+            h('h3', null, 'Take everything back'),
+            h('p', { class: 'muted small' }, 'Sends every coin in the vault back to your BSV Desktop wallet, signed by you alone: no agent, no watcher, no Base. Afterwards the agent cannot spend until you fund again.'),
+            vault ? h('p', { class: 'small' }, `This would return about ${group(vault.total)} sats, minus the network fee.`) : null,
+            h('form', { class: 'owner-row', onsubmit: (e) => {
+              e.preventDefault();
+              if (String(new FormData(e.target).get('confirm')).trim() !== 'EXIT') { S.owner.error = 'Type EXIT to confirm the owner exit.'; render(); return; }
+              ownerAction('/owner/exit', { confirm: 'EXIT' });
+            } },
+              h('label', { class: 'sr-only', for: 'exit-confirm' }, 'Type EXIT to confirm'),
+              h('input', { id: 'exit-confirm', name: 'confirm', type: 'text', placeholder: 'Type EXIT', autocomplete: 'off', class: 'owner-input', disabled: !ready || busy || undefined }),
+              h('button', { type: 'submit', class: 'btn btn-danger', disabled: !ready || busy || undefined }, 'Exit to owner'))))
+      ];
+    });
+  };
+
   // ---------------------------------------------------------------- render loop and tick
 
   let pending = false;
@@ -866,6 +999,7 @@
       if (tab === 'agent') renderAgentTab();
       if (tab === 'hedges') renderHedgesTab();
       if (tab === 'evidence') renderEvidenceTab();
+      if (tab === 'owner') renderOwnerTab();
       renderFooter();
       paint();
     });
@@ -890,7 +1024,7 @@
 
   // ---------------------------------------------------------------- tabs
 
-  const TABS = ['overview', 'agent', 'hedges', 'evidence'];
+  const TABS = ['overview', 'agent', 'hedges', 'evidence', 'owner'];
   const currentTab = () => TABS.find((t) => !$(`#tab-${t}`).hidden) || 'overview';
   const showTab = (name, focus) => {
     if (!TABS.includes(name)) name = 'overview';
@@ -907,6 +1041,7 @@
     if (name === 'evidence') fetchEvidenceTx();
     if (name === 'hedges') fetchOtherRegimes();
     if (name === 'agent' && logPoller) logPoller.now();
+    if (name === 'owner') ownerCheck();
     render();
   };
   const initTabs = () => {
@@ -1221,6 +1356,7 @@
   // ---------------------------------------------------------------- start
 
   let logPoller = null;
+  let vaultPoller = null;
   const start = () => {
     $('#run-list')?.addEventListener('click', (e) => {
       const b = e.target.closest('[data-run]');
@@ -1237,7 +1373,9 @@
     C.poll(loadBase, INTERVAL.base, update('base'));
     // Logs wait for the first block number, then follow it; started a little later to spread the first requests.
     setTimeout(() => { logPoller = C.poll(loadLogs, INTERVAL.logs, update('logs')); }, 3000);
-    C.poll(loadVault, INTERVAL.vault, update('vault'));
+    vaultPoller = C.poll(loadVault, INTERVAL.vault, update('vault'));
+    // The owner server is checked while the Owner view is open.
+    setInterval(() => { if (currentTab() === 'owner' && S.owner.job?.state !== 'running') ownerCheck(); }, 5000);
     setTimeout(() => C.poll(fetchCoreTx, INTERVAL.tx, () => render()), 1500);
   };
 

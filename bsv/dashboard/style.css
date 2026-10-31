@@ -496,3 +496,30 @@ body { font-family: var(--sans); background: var(--bg); }
   .controls .btn { width: 100%; }
   main, .banner, .footer { margin-left: 248px; max-width: none; padding-left: 36px; padding-right: 36px; }
 }
+
+/* ---------- owner actions ---------- */
+.owner-conn { padding: 12px 18px; border-radius: 14px; background: var(--surface-2); font-size: 14px; margin: 0 0 16px; }
+.owner-conn-ok { color: var(--text); border-left: 3px solid var(--accent); }
+.owner-conn-bad { color: var(--bad); }
+.owner-conn-muted { color: var(--muted); }
+.owner-grid { margin-top: 8px; }
+.owner-card h3 { margin-bottom: 8px; }
+.owner-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+.owner-input {
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border);
+  border-radius: 999px; padding: 9px 16px; width: 150px; min-height: 40px;
+}
+.owner-input:focus-visible { border-color: var(--accent); }
+.btn-primary { background: var(--tile); border-color: var(--tile); color: #fff; font-weight: 600; }
+.btn-primary:hover { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.btn-danger { border-color: var(--bad); color: var(--bad); font-weight: 600; }
+.btn-danger:hover { background: var(--soft-bad); color: var(--bad); border-color: var(--bad); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.owner-danger { border-color: var(--soft-bad); }
+.owner-confirm { margin-top: 14px; padding: 14px 16px; border-radius: 14px; background: var(--surface-2); }
+.owner-confirm p { margin: 0; }
+.owner-job { padding: 16px 20px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); margin: 0 0 16px; }
+.owner-job-title { display: flex; align-items: center; gap: 10px; font-weight: 600; margin: 0 0 4px; }
+.owner-job-done { border-color: var(--accent); }
+.owner-job-failed { border-color: var(--bad); }
+.owner-job-failed .owner-job-title { color: var(--bad); }

@@ -26,16 +26,30 @@ safety wrapper.
 
 ## Dashboard
 
-`dashboard/` is a read-only live view for judges: static files, no build step, no dependencies. Open
-`dashboard/index.html` directly, or serve it (`python3 -m http.server -d dashboard 8765`, or `npx serve dashboard`).
+`dashboard/` is a live view for judges with two owner actions: static files, no build step, no dependencies. Serve
+it (`python3 -m http.server -d dashboard 8765`) and open `http://localhost:8765`.
 It reads the watcher's `GET /health` and `GET /decisions`, Base Sepolia (`eth_call`, `eth_getLogs` in 200-block
-pages) and WhatsOnChain. It never calls `/cosign` or `/broadcast`, never signs, and holds no key. Only responses from connected sources are shown; there are no bundled examples or fallback amounts.
+pages) and WhatsOnChain. It never calls `/cosign` or `/broadcast`, never signs, and holds no key.
+
+**Owner actions (real BSV mainnet transactions).** The Owner view can fund the vault and run the owner-only exit. It
+asks a local owner action server, which runs the existing `tg fund` / `tg exit`; BSV Desktop asks the owner to approve
+every transaction, and the gates and caps of `tg` apply unchanged. On the watcher laptop, next to BSV Desktop:
+
+```sh
+CONFIRM_MAINNET=1 npm run owner-serve   # 127.0.0.1:4820; prints a link with a one-time owner token
+```
+
+Open the printed link. The server listens on 127.0.0.1 only, accepts only the dashboard origins
+(`OWNER_ORIGINS`, default `http://localhost:8765,http://127.0.0.1:8765`), requires the token on every request, runs one
+action at a time and refuses mainnet actions unless started with `CONFIRM_MAINNET=1`. The owner exit returns every
+vault coin; the agent cannot spend again until the vault is funded. Only responses from connected sources are shown; there are no bundled examples or fallback amounts.
 
 | Parameter | Default | Purpose |
 | --- | --- | --- |
 | `?watcher=` | `http://127.0.0.1:4810` | watcher base URL |
 | `?rpc=` | `https://sepolia.base.org` | Base Sepolia RPC |
-| `?theme=dark` / `light` | system | colour theme |
+| `?theme=dark` / `light` | dark | colour theme |
+| `?ownerApi=` | `http://127.0.0.1:4820` | owner action server |
 
 End-to-end validation is pending your real transaction test. The agent's HTTP 402 payment is shown as the next spend of each withdrawal's float output (WhatsOnChain `/tx/<txid>/<n>/spent`). Public deployment settings are in `dashboard/config.js`; verify them after merging.
 
